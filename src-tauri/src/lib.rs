@@ -25,6 +25,14 @@ pub struct CommandResult {
     exit_code: i32,
 }
 
+/// Strip ANSI escape codes from a string.
+/// Dev servers like Vite colorize port output (e.g. localhost:\x1b[1m5174\x1b[0m)
+/// which breaks regex matching. This cleans the line before pattern matching.
+fn strip_ansi_codes(s: &str) -> String {
+    let re = regex::Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
+    re.replace_all(s, "").to_string()
+}
+
 // Store the allowed project path
 static mut PROJECT_PATH: Option<PathBuf> = None;
 
@@ -39,8 +47,13 @@ static DEV_SERVER_OUTPUT: once_cell::sync::Lazy<Arc<Mutex<String>>> =
 #[tauri::command]
 fn set_project_path(path: String) -> Result<(), String> {
     let path_buf = PathBuf::from(&path);
-    if !path_buf.exists() || !path_buf.is_dir() {
-        return Err("Invalid directory path".to_string());
+    // Create directory if it doesn't exist (needed for template scaffolding)
+    if !path_buf.exists() {
+        std::fs::create_dir_all(&path_buf)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+    if !path_buf.is_dir() {
+        return Err("Path exists but is not a directory".to_string());
     }
     // Canonicalize to resolve any symlinks and get absolute path
     let canonical = path_buf.canonicalize().map_err(|e| e.to_string())?;
@@ -355,7 +368,8 @@ async fn start_dev_server(command: String, cwd: String, port_pattern: String) ->
                 if let Ok(line) = line {
                     // Before port is found, check for port pattern
                     if !port_found_clone.load(std::sync::atomic::Ordering::Relaxed) {
-                        if let Some(caps) = re_clone.captures(&line) {
+                        let clean = strip_ansi_codes(&line);
+                        if let Some(caps) = re_clone.captures(&clean) {
                             if let Some(port_str) = caps.get(1) {
                                 if let Ok(port) = port_str.as_str().parse::<u16>() {
                                     port_found_clone.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -406,7 +420,7 @@ async fn start_dev_server(command: String, cwd: String, port_pattern: String) ->
                             captured.push_str(&line);
                             captured.push('\n');
                         }
-                        if let Some(caps) = re_clone.captures(&line) {
+                        if let Some(caps) = re_clone.captures(&strip_ansi_codes(&line)) {
                             if let Some(port_str) = caps.get(1) {
                                 if let Ok(port) = port_str.as_str().parse::<u16>() {
                                     port_found_clone.store(true, std::sync::atomic::Ordering::Relaxed);

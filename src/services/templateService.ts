@@ -231,13 +231,11 @@ export async function scaffoldProjectFromTemplate(
   onProgress?.(5, "Downloading template files...");
   const files = await downloadTemplateFiles(templateSlug);
 
-  // 2. Create the project directory
-  onProgress?.(20, "Creating project folder...");
-  try {
-    await invoke("create_directory", { path: projectPath });
-  } catch {
-    // Directory may already exist
-  }
+  // 2. Create project folder and set scope
+  //    set_project_path creates the dir if needed AND sets the Rust
+  //    path scope so subsequent write_file/create_directory calls pass validation
+  onProgress?.(15, "Creating project folder...");
+  await invoke("set_project_path", { path: projectPath });
 
   // 3. Write files to disk
   const totalFiles = files.length;

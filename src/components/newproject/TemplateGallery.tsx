@@ -134,7 +134,7 @@ export default function TemplateGallery({ onProjectReady }: TemplateGalleryProps
       onProjectReady(projectPath, projectName.trim(), selectedTemplate.id, selectedTemplate.name);
     } catch (err: any) {
       console.error("Failed to create project from template:", err);
-      setError(err?.message || "Failed to create project. The folder may already exist.");
+      setError(err?.message || "Failed to create project. Check that the location is writable.");
       setStep("configure");
     } finally {
       setIsCreating(false);
