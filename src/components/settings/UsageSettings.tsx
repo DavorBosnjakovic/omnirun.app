@@ -1,13 +1,4 @@
 import { useState } from "react";
-import {
-  Coins,
-  Zap,
-  Calendar,
-  TrendingUp,
-  AlertTriangle,
-  Trash2,
-  BarChart3,
-} from "lucide-react";
 import { useUsageStore } from "../../stores/usageStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { themes } from "../../config/themes";
@@ -18,9 +9,17 @@ function UsageSettings() {
   const {
     session,
     monthlyTokens,
+    monthlyInputTokens,
+    monthlyOutputTokens,
     monthlyCost,
+    monthlyInputCost,
+    monthlyOutputCost,
     allTimeTokens,
+    allTimeInputTokens,
+    allTimeOutputTokens,
     allTimeCost,
+    allTimeInputCost,
+    allTimeOutputCost,
     monthlyBudget,
     budgetAlertEnabled,
     budgetAlertThreshold,
@@ -69,6 +68,8 @@ function UsageSettings() {
     }
   };
 
+  const isDark = theme !== "light";
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -88,18 +89,29 @@ function UsageSettings() {
         <div
           className={`p-4 ${t.borderRadius} border ${t.colors.border} ${t.colors.bgTertiary}`}
         >
-          <div className="flex items-center gap-2 mb-2">
-            <Zap size={16} className="text-blue-500" />
-            <span className={`text-sm font-medium ${t.colors.textMuted}`}>
-              This Session
-            </span>
-          </div>
-          <div className={`text-2xl font-bold ${t.colors.text}`}>
+          <span className={`text-sm font-medium ${t.colors.textMuted}`}>
+            This Session
+          </span>
+          <div className={`text-2xl font-bold ${t.colors.text} mt-1`}>
             {formatCost(session.totalCost)}
           </div>
           <div className={`text-sm ${t.colors.textMuted} mt-1`}>
-            {formatTokens(session.totalTokens)} tokens ·{" "}
-            {session.entries.length} {session.entries.length === 1 ? "call" : "calls"}
+            {formatTokens(session.totalTokens)} tokens · {session.entries.length}{" "}
+            {session.entries.length === 1 ? "call" : "calls"}
+          </div>
+          <div className={`mt-3 pt-3 border-t ${t.colors.border} space-y-1`}>
+            <div className={`flex justify-between text-xs ${t.colors.textMuted}`}>
+              <span>Input</span>
+              <span>
+                {formatTokens(session.totalInputTokens || 0)} · {formatCost(session.totalInputCost || 0)}
+              </span>
+            </div>
+            <div className={`flex justify-between text-xs ${t.colors.textMuted}`}>
+              <span>Output</span>
+              <span>
+                {formatTokens(session.totalOutputTokens || 0)} · {formatCost(session.totalOutputCost || 0)}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -107,17 +119,28 @@ function UsageSettings() {
         <div
           className={`p-4 ${t.borderRadius} border ${t.colors.border} ${t.colors.bgTertiary}`}
         >
-          <div className="flex items-center gap-2 mb-2">
-            <Calendar size={16} className="text-green-500" />
-            <span className={`text-sm font-medium ${t.colors.textMuted}`}>
-              This Month
-            </span>
-          </div>
-          <div className={`text-2xl font-bold ${t.colors.text}`}>
+          <span className={`text-sm font-medium ${t.colors.textMuted}`}>
+            This Month
+          </span>
+          <div className={`text-2xl font-bold ${t.colors.text} mt-1`}>
             {formatCost(monthlyCost)}
           </div>
           <div className={`text-sm ${t.colors.textMuted} mt-1`}>
             {formatTokens(monthlyTokens)} tokens
+          </div>
+          <div className={`mt-3 pt-3 border-t ${t.colors.border} space-y-1`}>
+            <div className={`flex justify-between text-xs ${t.colors.textMuted}`}>
+              <span>Input</span>
+              <span>
+                {formatTokens(monthlyInputTokens || 0)} · {formatCost(monthlyInputCost || 0)}
+              </span>
+            </div>
+            <div className={`flex justify-between text-xs ${t.colors.textMuted}`}>
+              <span>Output</span>
+              <span>
+                {formatTokens(monthlyOutputTokens || 0)} · {formatCost(monthlyOutputCost || 0)}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -125,17 +148,28 @@ function UsageSettings() {
         <div
           className={`p-4 ${t.borderRadius} border ${t.colors.border} ${t.colors.bgTertiary}`}
         >
-          <div className="flex items-center gap-2 mb-2">
-            <TrendingUp size={16} className="text-purple-500" />
-            <span className={`text-sm font-medium ${t.colors.textMuted}`}>
-              All Time
-            </span>
-          </div>
-          <div className={`text-2xl font-bold ${t.colors.text}`}>
+          <span className={`text-sm font-medium ${t.colors.textMuted}`}>
+            All Time
+          </span>
+          <div className={`text-2xl font-bold ${t.colors.text} mt-1`}>
             {formatCost(allTimeCost)}
           </div>
           <div className={`text-sm ${t.colors.textMuted} mt-1`}>
             {formatTokens(allTimeTokens)} tokens
+          </div>
+          <div className={`mt-3 pt-3 border-t ${t.colors.border} space-y-1`}>
+            <div className={`flex justify-between text-xs ${t.colors.textMuted}`}>
+              <span>Input</span>
+              <span>
+                {formatTokens(allTimeInputTokens || 0)} · {formatCost(allTimeInputCost || 0)}
+              </span>
+            </div>
+            <div className={`flex justify-between text-xs ${t.colors.textMuted}`}>
+              <span>Output</span>
+              <span>
+                {formatTokens(allTimeOutputTokens || 0)} · {formatCost(allTimeOutputCost || 0)}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -144,15 +178,12 @@ function UsageSettings() {
       <div
         className={`p-4 ${t.borderRadius} border ${t.colors.border} ${t.colors.bgTertiary}`}
       >
-        <div className="flex items-center gap-2 mb-3">
-          <Coins size={16} className="text-amber-500" />
-          <span className={`text-sm font-semibold ${t.colors.text}`}>
-            Monthly Budget
-          </span>
-        </div>
+        <span className={`text-sm font-semibold ${t.colors.text}`}>
+          Monthly Budget
+        </span>
 
         {/* Budget input */}
-        <div className="flex items-center gap-3 mb-3">
+        <div className="flex items-center gap-3 mt-3 mb-3">
           <div className="flex items-center gap-1">
             <span className={`text-sm ${t.colors.textMuted}`}>$</span>
             <input
@@ -162,7 +193,8 @@ function UsageSettings() {
               onBlur={handleBudgetSave}
               onKeyDown={(e) => e.key === "Enter" && handleBudgetSave()}
               placeholder="No limit"
-              className={`w-24 px-2 py-1 text-sm ${t.borderRadius} border ${t.colors.border} ${t.colors.bgPrimary} ${t.colors.text} outline-none focus:ring-1 focus:ring-blue-500`}
+              className={`w-24 px-2 py-1 text-sm ${t.borderRadius} border ${t.colors.border} ${t.colors.bgPrimary} ${t.colors.text} placeholder-gray-500 outline-none focus:ring-1 focus:ring-blue-500`}
+              style={{ colorScheme: isDark ? "dark" : "light" }}
               min="0"
               step="1"
             />
@@ -191,7 +223,6 @@ function UsageSettings() {
             </div>
             {budgetPercent >= 80 && (
               <div className="flex items-center gap-1 mt-2">
-                <AlertTriangle size={12} className="text-amber-500" />
                 <span className="text-xs text-amber-500">
                   {budgetPercent >= 100
                     ? "Budget exceeded!"
@@ -222,6 +253,7 @@ function UsageSettings() {
                   setBudgetAlertThreshold(parseInt(e.target.value))
                 }
                 className={`text-xs px-1 py-0.5 ${t.borderRadius} border ${t.colors.border} ${t.colors.bgPrimary} ${t.colors.text}`}
+                style={{ colorScheme: isDark ? "dark" : "light" }}
               >
                 <option value={50}>50%</option>
                 <option value={75}>75%</option>
@@ -239,13 +271,10 @@ function UsageSettings() {
         <div
           className={`p-4 ${t.borderRadius} border ${t.colors.border} ${t.colors.bgTertiary}`}
         >
-          <div className="flex items-center gap-2 mb-3">
-            <BarChart3 size={16} className="text-blue-500" />
-            <span className={`text-sm font-semibold ${t.colors.text}`}>
-              Session API Calls
-            </span>
-          </div>
-          <div className="space-y-2 max-h-48 overflow-y-auto">
+          <span className={`text-sm font-semibold ${t.colors.text}`}>
+            Session API Calls
+          </span>
+          <div className="space-y-2 mt-3 max-h-48 overflow-y-auto">
             {[...session.entries].reverse().map((entry) => (
               <div
                 key={entry.id}
@@ -270,18 +299,16 @@ function UsageSettings() {
       <div className="flex items-center gap-3">
         <button
           onClick={resetSession}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${t.borderRadius} border ${t.colors.border} ${t.colors.text} hover:opacity-80 transition-opacity`}
+          className={`px-3 py-1.5 text-sm ${t.borderRadius} border ${t.colors.border} ${t.colors.text} hover:opacity-80 transition-opacity`}
         >
-          <Zap size={14} />
           Reset Session
         </button>
 
         {!showClearConfirm ? (
           <button
             onClick={() => setShowClearConfirm(true)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${t.borderRadius} border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors`}
+            className={`px-3 py-1.5 text-sm ${t.borderRadius} border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors`}
           >
-            <Trash2 size={14} />
             Clear All Data
           </button>
         ) : (
@@ -309,8 +336,8 @@ function UsageSettings() {
 
       {/* Privacy note */}
       <p className={`text-xs ${t.colors.textMuted}`}>
-        🔒 All usage data is stored locally on your device. Nothing is sent to
-        our servers.
+        All usage data is stored locally on your device. Nothing is sent to our
+        servers.
       </p>
     </div>
   );

@@ -1,8 +1,11 @@
-import { useState, useCallback } from "react";
-import { PanelRight } from "lucide-react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { PanelRight, ArrowLeft } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useSnapshotStore } from "../../stores/snapshotStore";
+import { useProjectStore } from "../../stores/projectStore";
 import { themes } from "../../config/themes";
+import { watchProject, unwatchProject, readDirectory } from "../../services/fileService";
+import { generateManifest } from "../../services/manifestService";
 import Topbar from "../topbar/Topbar";
 import Sidebar from "../sidebar/Sidebar";
 import ChatArea from "../chat/ChatArea";
@@ -10,12 +13,19 @@ import PreviewArea from "../preview/PreviewArea";
 import SettingsLayout from "../settings/SettingsLayout";
 import TimeMachine from "../timemachine/TimeMachine";
 import TerminalPanel from "../terminal/TerminalPanel";
+import TasksPage from "../tasks/TasksPage";
 
 function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [previewOpen, setPreviewOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState("general");
+
+  // Tools page navigation (null = chat view, "tasks" | "deploy" | "health" | "routines")
+  const [toolsPage, setToolsPage] = useState<string | null>(null);
+
+  // Message to auto-send when switching back to chat (e.g. from task suggestions)
+  const [pendingChatMessage, setPendingChatMessage] = useState<string | null>(null);
 
   // Vertical divider (chat <-> preview)
   const [chatWidth, setChatWidth] = useState(50);
@@ -28,9 +38,61 @@ function MainLayout() {
 
   const { theme, mode } = useSettingsStore();
   const { isOpen: timeMachineOpen } = useSnapshotStore();
+  const { projectPath, setFileTree, setManifest, setExternalFileChange } = useProjectStore();
   const t = themes[theme];
 
   const showTerminal = mode === "technical" && terminalOpen;
+
+  // ── File watcher — refresh tree on external changes ──────
+  const watcherPathRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Clean up previous watcher
+    if (watcherPathRef.current && watcherPathRef.current !== projectPath) {
+      unwatchProject();
+    }
+
+    if (!projectPath) {
+      watcherPathRef.current = null;
+      return;
+    }
+
+    watcherPathRef.current = projectPath;
+    const watchPath = projectPath;
+
+    watchProject(watchPath, async (changedPaths) => {
+      console.log("[watcher] Files changed externally:", changedPaths.length);
+
+      // Refresh file tree
+      try {
+        const files = await readDirectory(watchPath, 3);
+        setFileTree(files);
+
+        // Regenerate manifest
+        const manifest = await generateManifest(watchPath, files);
+        setManifest(manifest);
+      } catch (err) {
+        console.error("[watcher] Failed to refresh file tree:", err);
+      }
+
+      // Check if the currently selected file (in edit mode) was changed externally
+      const { selectedFile } = useProjectStore.getState();
+      if (selectedFile && !selectedFile.is_dir) {
+        const selectedNorm = selectedFile.path.replace(/\\/g, "/");
+        const wasChanged = changedPaths.some(
+          (p) => p.replace(/\\/g, "/") === selectedNorm
+        );
+        if (wasChanged) {
+          setExternalFileChange({ path: selectedFile.path, timestamp: Date.now() });
+        }
+      }
+    });
+
+    return () => {
+      unwatchProject();
+      watcherPathRef.current = null;
+    };
+  }, [projectPath]);
 
   // --- Vertical divider handlers (chat <-> preview) ---
   const handleVerticalMouseDown = useCallback(() => {
@@ -82,6 +144,34 @@ function MainLayout() {
   const handleSettingsClick = (tab: string = "general") => {
     setSettingsTab(tab);
     setSettingsOpen(true);
+    setToolsPage(null);
+  };
+
+  const handleToolsNavigate = (page: string) => {
+    setToolsPage(page);
+    setSettingsOpen(false);
+  };
+
+  const handleBackToChat = () => {
+    setToolsPage(null);
+  };
+
+  const handleSendToChat = (message: string, switchToProjectPath?: string) => {
+    // If a project path is provided (e.g. from Tasks page), switch to that project
+    // so the AI operates on the correct project files and context
+    if (switchToProjectPath) {
+      const { projects, setCurrentProject, setProjectPath } = useProjectStore.getState();
+      const targetProject = projects.find(
+        (p) => p.path === switchToProjectPath || p.id === switchToProjectPath
+      );
+      if (targetProject) {
+        setCurrentProject(targetProject);
+        setProjectPath(targetProject.path);
+      }
+    }
+    setPendingChatMessage(message);
+    setToolsPage(null);
+    setSettingsOpen(false);
   };
 
   return (
@@ -95,6 +185,8 @@ function MainLayout() {
       <Topbar
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
+        onToolsNavigate={handleToolsNavigate}
+        onSettingsClick={() => handleSettingsClick()}
       />
 
       {/* Main content */}
@@ -112,6 +204,43 @@ function MainLayout() {
             onClose={() => setSettingsOpen(false)}
             initialTab={settingsTab}
           />
+        ) : toolsPage ? (
+          /* Tools page view — replaces chat area */
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Back to Chat header */}
+            <div className={`flex items-center gap-2 px-4 py-3 ${t.colors.border} border-b`}>
+              <button
+                onClick={handleBackToChat}
+                className={`flex items-center gap-1.5 text-sm ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
+              >
+                <ArrowLeft size={16} />
+                Back to Chat
+              </button>
+            </div>
+
+            {/* Tools page content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {toolsPage === "tasks" && <TasksPage onSendToChat={handleSendToChat} />}
+              {toolsPage === "deploy" && (
+                <div className={`${t.colors.textMuted} text-center py-20`}>
+                  <p className="text-lg mb-2">Deploy</p>
+                  <p className="text-sm">Coming soon</p>
+                </div>
+              )}
+              {toolsPage === "health" && (
+                <div className={`${t.colors.textMuted} text-center py-20`}>
+                  <p className="text-lg mb-2">Health Checks</p>
+                  <p className="text-sm">Coming soon</p>
+                </div>
+              )}
+              {toolsPage === "routines" && (
+                <div className={`${t.colors.textMuted} text-center py-20`}>
+                  <p className="text-lg mb-2">Routines</p>
+                  <p className="text-sm">Coming soon</p>
+                </div>
+              )}
+            </div>
+          </div>
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* ── Upper area: Chat + Preview ── */}
@@ -130,7 +259,11 @@ function MainLayout() {
                   width: previewOpen ? `${chatWidth}%` : "100%",
                 }}
               >
-                <ChatArea onSettingsClick={handleSettingsClick} />
+                <ChatArea
+                  onSettingsClick={handleSettingsClick}
+                  pendingMessage={pendingChatMessage}
+                  onPendingMessageConsumed={() => setPendingChatMessage(null)}
+                />
               </div>
 
               {previewOpen && (

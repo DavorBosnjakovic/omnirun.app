@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from "react";
-import { PanelLeftClose, PanelLeft, FolderPlus, Folder, FileCode, Settings, CreditCard, HelpCircle, MoreVertical, Trash2, FolderOpen, RefreshCw, History } from "lucide-react";
+import { PanelLeftClose, PanelLeft, FolderPlus, Folder, FileCode, MessageSquare, Settings, HelpCircle, MoreVertical, Trash2, FolderOpen, RefreshCw } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProjectStore } from "../../stores/projectStore";
-import { useSnapshotStore } from "../../stores/snapshotStore";
 import { themes } from "../../config/themes";
-import { selectProjectFolder, readDirectory } from "../../services/fileService";
+import { readDirectory } from "../../services/fileService";
 import { generateManifest } from "../../services/manifestService";
+import { dbService } from "../../services/dbService";
 import FileTree from "../sidebar/FileTree";
+import ChatHistory from "../sidebar/ChatHistory";
+import NewProjectModal from "../newproject/NewProjectModal";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -15,12 +17,12 @@ interface SidebarProps {
 }
 
 function Sidebar({ isOpen, onToggle, onSettingsClick }: SidebarProps) {
-  const [activeTab, setActiveTab] = useState<"projects" | "files">("projects");
+  const [activeTab, setActiveTab] = useState<"projects" | "files" | "chats">("projects");
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [newProjectModalOpen, setNewProjectModalOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { theme } = useSettingsStore();
   const { projects, currentProject, projectPath, setCurrentProject, setProjectPath, setFileTree, setManifest, addProject, removeProject } = useProjectStore();
-  const { toggle: toggleTimeMachine } = useSnapshotStore();
   const t = themes[theme];
 
   // Close menu when clicking outside
@@ -34,34 +36,39 @@ function Sidebar({ isOpen, onToggle, onSettingsClick }: SidebarProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleNewProject = async () => {
+  const handleNewProject = () => {
+    setNewProjectModalOpen(true);
+  };
+
+  const handleProjectReady = async (selectedPath: string, folderName: string, templateId?: string, templateName?: string) => {
     try {
-      const selectedPath = await selectProjectFolder();
-      
-      if (selectedPath) {
-        const folderName = selectedPath.split(/[/\\]/).pop() || "Untitled";
-        
-        const project = {
-          id: Date.now().toString(),
-          name: folderName,
-          path: selectedPath,
-        };
-        
-        addProject(project);
-        setCurrentProject(project);
-        setProjectPath(selectedPath);
-        
-        const files = await readDirectory(selectedPath, 3);
-        setFileTree(files);
-        
-        // Generate manifest for the new project
-        const manifest = await generateManifest(selectedPath, files);
-        setManifest(manifest);
-        
-        setActiveTab("files");
-      }
+      const project = {
+        id: Date.now().toString(),
+        name: folderName,
+        path: selectedPath,
+        templateId,
+        templateName,
+      };
+
+      addProject(project);
+      setCurrentProject(project);
+      setProjectPath(selectedPath);
+
+      // Tell Rust backend about the project path
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_project_path", { path: selectedPath });
+
+      const files = await readDirectory(selectedPath, 3);
+      setFileTree(files);
+
+      // Generate manifest for the new project
+      const manifest = await generateManifest(selectedPath, files);
+      setManifest(manifest);
+
+      setActiveTab("files");
+      setNewProjectModalOpen(false);
     } catch (error) {
-      console.error("Failed to open project:", error);
+      console.error("Failed to set up project:", error);
     }
   };
 
@@ -93,9 +100,28 @@ function Sidebar({ isOpen, onToggle, onSettingsClick }: SidebarProps) {
       setProjectPath(null);
       setFileTree([]);
       setManifest(null);
+      dbService.setLastProjectId("").catch(() => {});
     }
     setMenuOpen(null);
   };
+
+  // Auto-select a project on startup if none is selected
+  const startupRan = useRef(false);
+  useEffect(() => {
+    if (startupRan.current || currentProject || projects.length === 0) return;
+    startupRan.current = true;
+
+    // Try to reopen the last used project, fall back to first in list
+    dbService.getLastProjectId().then((lastId) => {
+      const target = (lastId && projects.find((p) => p.id === lastId)) || projects[0];
+      if (target) {
+        handleOpenProject(target);
+      }
+    }).catch(() => {
+      // Fallback: just open the first project
+      if (projects[0]) handleOpenProject(projects[0]);
+    });
+  }, [projects, currentProject]);
 
   const handleRefreshFiles = async () => {
     if (!projectPath) return;
@@ -126,7 +152,8 @@ function Sidebar({ isOpen, onToggle, onSettingsClick }: SidebarProps) {
   };
 
   return (
-    <div className={`${isOpen ? "w-64" : "w-12"} ${t.colors.bgSecondary} ${t.colors.border} border-r flex flex-col transition-all duration-300 ${t.glow}`}>
+    <>
+      <div className={`${isOpen ? "w-64" : "w-12"} ${t.colors.bgSecondary} ${t.colors.border} border-r flex flex-col transition-all duration-300 ${t.glow}`}>
       {/* Toggle button */}
       <button
         onClick={onToggle}
@@ -140,25 +167,36 @@ function Sidebar({ isOpen, onToggle, onSettingsClick }: SidebarProps) {
         <div className={`flex gap-1 px-2 ${t.colors.border} border-b`}>
           <button
             onClick={() => setActiveTab("projects")}
-            className={`flex-1 py-2 px-3 text-sm flex items-center justify-center gap-2 rounded-t-lg ${
+            className={`flex-1 py-2 px-2 text-xs flex items-center justify-center gap-1.5 rounded-t-lg ${
               activeTab === "projects"
                 ? `${t.colors.bgTertiary} ${t.colors.text}`
                 : `${t.colors.bg} ${t.colors.textMuted} hover:${t.colors.text}`
             }`}
           >
-            <Folder size={16} />
+            <Folder size={14} />
             Projects
           </button>
           <button
             onClick={() => setActiveTab("files")}
-            className={`flex-1 py-2 px-3 text-sm flex items-center justify-center gap-2 rounded-t-lg ${
+            className={`flex-1 py-2 px-2 text-xs flex items-center justify-center gap-1.5 rounded-t-lg ${
               activeTab === "files"
                 ? `${t.colors.bgTertiary} ${t.colors.text}`
                 : `${t.colors.bg} ${t.colors.textMuted} hover:${t.colors.text}`
             }`}
           >
-            <FileCode size={16} />
+            <FileCode size={14} />
             Files
+          </button>
+          <button
+            onClick={() => setActiveTab("chats")}
+            className={`flex-1 py-2 px-2 text-xs flex items-center justify-center gap-1.5 rounded-t-lg ${
+              activeTab === "chats"
+                ? `${t.colors.bgTertiary} ${t.colors.text}`
+                : `${t.colors.bg} ${t.colors.textMuted} hover:${t.colors.text}`
+            }`}
+          >
+            <MessageSquare size={14} />
+            Chats
           </button>
         </div>
       )}
@@ -246,47 +284,51 @@ function Sidebar({ isOpen, onToggle, onSettingsClick }: SidebarProps) {
           </div>
         )}
         {isOpen && activeTab === "files" && (
-          <FileTree />
+          <div>
+            {projectPath && (
+              <div className="flex items-center justify-end mb-1">
+                <button
+                  onClick={handleRefreshFiles}
+                  className={`p-1 ${t.borderRadius} ${t.colors.textMuted} hover:${t.colors.text} hover:${t.colors.bgTertiary}`}
+                  title="Sync files"
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+            )}
+            <FileTree />
+          </div>
+        )}
+        {isOpen && activeTab === "chats" && (
+          <ChatHistory />
         )}
       </div>
 
       {/* Bottom section */}
       <div className={`${t.colors.border} border-t`}>
-        {/* Settings icons */}
-        <div className={`flex ${isOpen ? "justify-around" : "flex-col items-center"} p-2 gap-1`}>
-          <button
-            onClick={toggleTimeMachine}
-            className={`p-2 ${t.borderRadius} ${t.colors.textMuted} hover:${t.colors.text} hover:${t.colors.bgTertiary}`}
-            title="Time Machine"
-          >
-            <History size={20} />
-          </button>
+        {/* Settings & Help */}
+        <div className={`${isOpen ? "px-3 py-2" : "px-1 py-2"} space-y-0.5`}>
           <button
             onClick={() => onSettingsClick("general")}
-            className={`p-2 ${t.borderRadius} ${t.colors.textMuted} hover:${t.colors.text} hover:${t.colors.bgTertiary}`}
+            className={`w-full flex items-center gap-2.5 ${isOpen ? "px-2" : "justify-center"} py-1.5 ${t.borderRadius} ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
             title="Settings"
           >
-            <Settings size={20} />
-          </button>
-          <button
-            onClick={() => onSettingsClick("billing")}
-            className={`p-2 ${t.borderRadius} ${t.colors.textMuted} hover:${t.colors.text} hover:${t.colors.bgTertiary}`}
-            title="Billing"
-          >
-            <CreditCard size={20} />
+            <Settings size={18} />
+            {isOpen && <span className="text-sm">Settings</span>}
           </button>
           <button
             onClick={() => onSettingsClick("about")}
-            className={`p-2 ${t.borderRadius} ${t.colors.textMuted} hover:${t.colors.text} hover:${t.colors.bgTertiary}`}
+            className={`w-full flex items-center gap-2.5 ${isOpen ? "px-2" : "justify-center"} py-1.5 ${t.borderRadius} ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
             title="Help"
           >
-            <HelpCircle size={20} />
+            <HelpCircle size={18} />
+            {isOpen && <span className="text-sm">Help</span>}
           </button>
         </div>
 
         {/* New project button */}
         {isOpen && (
-          <div className="p-3 pt-0">
+          <div className="p-3 pt-1">
             <button
               onClick={handleNewProject}
               className={`w-full ${t.colors.accent} ${t.colors.accentHover} ${theme === "highContrast" ? "text-black" : "text-white"} py-2 px-4 ${t.borderRadius} flex items-center justify-center gap-2 ${t.fontFamily}`}
@@ -297,7 +339,15 @@ function Sidebar({ isOpen, onToggle, onSettingsClick }: SidebarProps) {
           </div>
         )}
       </div>
-    </div>
+      </div>
+
+      {/* New Project Modal — rendered outside sidebar to avoid transform/overflow issues */}
+      <NewProjectModal
+        isOpen={newProjectModalOpen}
+        onClose={() => setNewProjectModalOpen(false)}
+        onProjectReady={handleProjectReady}
+      />
+    </>
   );
 }
 

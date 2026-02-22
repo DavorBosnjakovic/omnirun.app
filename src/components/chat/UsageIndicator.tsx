@@ -29,7 +29,6 @@ function UsageIndicator() {
     return `${(tokens / 1_000_000).toFixed(2)}M`;
   };
 
-  // Get data for the active timeframe
   const getData = () => {
     switch (timeframe) {
       case "session":
@@ -67,7 +66,6 @@ function UsageIndicator() {
 
   const data = getData();
 
-  // Tab styling
   const tabBase = `px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer`;
   const tabActive = theme === "light"
     ? "bg-blue-500 text-white"
@@ -84,42 +82,36 @@ function UsageIndicator() {
 
   return (
     <div className="relative">
-      {/* Main indicator button */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className={`flex items-center gap-1.5 px-2 py-1 ${t.borderRadius} ${t.colors.bgTertiary} hover:opacity-80 transition-opacity`}
+        className={`flex items-center gap-2 px-4 py-2 ${t.borderRadius} ${t.colors.bgTertiary} ${t.colors.text} text-sm hover:bg-white/20 transition-colors`}
         title="API usage this session"
       >
-        <Coins size={14} className="text-amber-500" />
-        <span className={`text-xs font-medium ${t.colors.text}`}>
+        <Coins size={16} className="text-amber-500" />
+        <span className="font-medium">
           {formatCost(session.totalCost)}
         </span>
         {expanded ? (
-          <ChevronUp size={12} className={t.colors.textMuted} />
+          <ChevronUp size={14} className={t.colors.textMuted} />
         ) : (
-          <ChevronDown size={12} className={t.colors.textMuted} />
+          <ChevronDown size={14} className={t.colors.textMuted} />
         )}
       </button>
 
-      {/* Expanded dropdown */}
       {expanded && (
         <>
-          {/* Backdrop to close on click outside */}
-          <div 
-            className="fixed inset-0 z-40" 
-            onClick={() => setExpanded(false)} 
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setExpanded(false)}
           />
-          
-          {/* Dropdown panel */}
+
           <div
             className={`absolute right-0 top-full mt-2 w-72 ${t.colors.bgSecondary} ${t.borderRadius} shadow-xl border ${t.colors.border} z-50 overflow-hidden`}
           >
-            {/* Header */}
             <div className={`px-3 py-2 border-b ${t.colors.border} ${t.colors.bgTertiary}`}>
               <h3 className={`text-sm font-semibold ${t.colors.text}`}>API Usage</h3>
             </div>
 
-            {/* Timeframe tabs */}
             <div className={`flex gap-1 px-3 py-2 border-b ${t.colors.border}`}>
               <button
                 onClick={() => setTimeframe("session")}
@@ -141,8 +133,7 @@ function UsageIndicator() {
               </button>
             </div>
 
-            {/* Total cost — big number */}
-            <div className={`px-3 pt-3 pb-1`}>
+            <div className="px-3 pt-3 pb-1">
               <div className="flex justify-between items-baseline">
                 <span className={`text-xl font-bold ${t.colors.text}`}>
                   {formatCost(data.totalCost)}
@@ -158,9 +149,7 @@ function UsageIndicator() {
               )}
             </div>
 
-            {/* Input / Output breakdown */}
-            <div className={`px-3 py-2 space-y-1.5`}>
-              {/* Input row */}
+            <div className="px-3 py-2 space-y-1.5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <ArrowDownLeft size={12} className="text-blue-400" />
@@ -176,7 +165,6 @@ function UsageIndicator() {
                 </div>
               </div>
 
-              {/* Output row */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <ArrowUpRight size={12} className="text-emerald-400" />
@@ -193,7 +181,6 @@ function UsageIndicator() {
               </div>
             </div>
 
-            {/* Last entry preview (always shows last session call regardless of tab) */}
             {session.entries.length > 0 && (
               <div className={`px-3 py-2 border-t ${t.colors.border} ${t.colors.bgTertiary}`}>
                 <div className={`text-xs ${t.colors.textMuted}`}>Last call:</div>

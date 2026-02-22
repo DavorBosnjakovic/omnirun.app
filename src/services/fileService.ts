@@ -136,3 +136,94 @@ export async function readAllProjectFiles(
   await walk(entries);
   return files;
 }
+
+// ── File watcher ─────────────────────────────────────────────
+
+// Folders to ignore — changes in these shouldn't trigger refreshes
+const IGNORED_DIRS = [
+  "node_modules", ".git", "dist", "build", ".next", ".nuxt",
+  ".svelte-kit", ".astro", ".output", ".cache", ".mydevify",
+  ".backups", "__pycache__", ".turbo",
+];
+
+// Store the unwatch function so we can stop watching later
+let unwatchFn: (() => void) | null = null;
+
+/**
+ * Watch a project directory for external file changes.
+ * Calls onChange(changedPaths) when files are created/modified/deleted.
+ * Debounces to avoid flooding during npm install, builds, etc.
+ */
+export async function watchProject(
+  projectPath: string,
+  onChange: (paths: string[]) => void
+): Promise<void> {
+  // Stop any existing watcher first
+  await unwatchProject();
+
+  try {
+    const { watch } = await import("@tauri-apps/plugin-fs");
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingPaths: Set<string> = new Set();
+
+    const stopWatching = await watch(
+      projectPath,
+      (event) => {
+        // event can be a single event or array depending on the plugin version
+        const events = Array.isArray(event) ? event : [event];
+
+        for (const ev of events) {
+          // Skip if no paths
+          if (!ev.paths || ev.paths.length === 0) continue;
+
+          for (const p of ev.paths) {
+            if (!p) continue;
+
+            // Normalize path separators for comparison
+            const normalized = p.replace(/\\/g, "/");
+
+            // Skip ignored directories
+            const shouldIgnore = IGNORED_DIRS.some(
+              (dir) => normalized.includes(`/${dir}/`) || normalized.endsWith(`/${dir}`)
+            );
+            if (shouldIgnore) continue;
+
+            pendingPaths.add(p);
+          }
+        }
+
+        // Debounce — wait 500ms of quiet before firing
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          if (pendingPaths.size > 0) {
+            const paths = Array.from(pendingPaths);
+            pendingPaths.clear();
+            onChange(paths);
+          }
+        }, 500);
+      },
+      { recursive: true }
+    );
+
+    unwatchFn = typeof stopWatching === "function" ? stopWatching : null;
+    console.log("[watcher] Watching project:", projectPath);
+  } catch (err) {
+    console.error("[watcher] Failed to start watching:", err);
+  }
+}
+
+/**
+ * Stop watching the current project directory.
+ */
+export async function unwatchProject(): Promise<void> {
+  if (unwatchFn) {
+    try {
+      unwatchFn();
+      console.log("[watcher] Stopped watching");
+    } catch (err) {
+      console.error("[watcher] Failed to stop watching:", err);
+    }
+    unwatchFn = null;
+  }
+}

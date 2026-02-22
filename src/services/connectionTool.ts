@@ -156,7 +156,7 @@ export function getConnectionsSummary(): string {
   const connected = store.getConnectedProviders();
 
   if (connected.length === 0) {
-    return 'No external services connected. User can connect services in Settings > Connections.';
+    return '';
   }
 
   const lines = connected.map((p) => {

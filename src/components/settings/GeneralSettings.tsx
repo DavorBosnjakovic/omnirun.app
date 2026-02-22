@@ -1,13 +1,18 @@
+import { useState } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { themes, ThemeKey } from "../../config/themes";
+import { Eye, EyeOff, ExternalLink } from "lucide-react";
 
 function GeneralSettings() {
   const {
     theme, mode, timeFormat, fontSize, confirmBeforeDelete, autoSaveFiles,
+    webSearchEnabled, searchApiKey,
     setTheme, setMode, setTimeFormat, setFontSize, setConfirmBeforeDelete, setAutoSaveFiles,
+    setWebSearchEnabled, setSearchApiKey,
     resetToDefaults,
   } = useSettingsStore();
   const t = themes[theme];
+  const [showKey, setShowKey] = useState(false);
 
   const themeKeys = Object.keys(themes) as ThemeKey[];
 
@@ -120,6 +125,81 @@ function GeneralSettings() {
         </label>
       </div>
 
+      {/* ── Web Search ─────────────────────────────────────────── */}
+      <div className="mb-6 pt-4 border-t border-gray-700">
+        <h2 className="text-lg font-semibold mb-4">Web Search</h2>
+        <p className={`text-sm mb-4 ${t.colors.textMuted}`}>
+          Let the AI search the internet for documentation, solutions, and API references during conversations.
+        </p>
+
+        {/* Enable toggle */}
+        <div className="mb-4">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={webSearchEnabled}
+              onChange={(e) => setWebSearchEnabled(e.target.checked)}
+              className="w-4 h-4"
+            />
+            <div>
+              <span className="font-medium">Enable web search</span>
+              <p className={`text-sm ${t.colors.textMuted}`}>
+                AI can search when it needs docs, error solutions, or current info
+              </p>
+            </div>
+          </label>
+        </div>
+
+        {/* API key input */}
+        <div className="mb-2">
+          <label className={`block text-sm font-medium mb-2 ${t.colors.textMuted}`}>
+            Brave Search API Key
+          </label>
+          <div className="flex gap-2 max-w-md">
+            <div className="relative flex-1">
+              <input
+                type={showKey ? "text" : "password"}
+                value={searchApiKey}
+                onChange={(e) => setSearchApiKey(e.target.value)}
+                placeholder="BSA..."
+                className={`w-full ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 pr-10 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono text-sm`}
+              />
+              <button
+                onClick={() => setShowKey(!showKey)}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 ${t.colors.textMuted} hover:${t.colors.text}`}
+                title={showKey ? "Hide key" : "Show key"}
+              >
+                {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+          <p className={`text-xs mt-2 ${t.colors.textMuted}`}>
+            Free: 2,000 searches/month.{" "}
+            <a
+              href="https://brave.com/search/api/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 underline hover:opacity-80"
+              onClick={(e) => {
+                e.preventDefault();
+                import("@tauri-apps/plugin-opener").then(({ open }) => open("https://brave.com/search/api/"));
+              }}
+            >
+              Get a free key <ExternalLink size={11} />
+            </a>
+          </p>
+        </div>
+
+        {/* Status indicator */}
+        {webSearchEnabled && (
+          <div className={`mt-3 text-xs ${searchApiKey.trim() ? "text-green-400" : "text-amber-400"}`}>
+            {searchApiKey.trim()
+              ? "✓ Web search is active"
+              : "⚠ Add your API key above to enable search"}
+          </div>
+        )}
+      </div>
+
       {/* Startup behavior */}
       <div className="mb-6">
         <label className={`block text-sm font-medium mb-2 ${t.colors.textMuted}`}>
@@ -153,7 +233,7 @@ function GeneralSettings() {
       <div className="mb-6 pt-4 border-t border-gray-700">
         <button
           onClick={() => {
-            if (window.confirm("Reset all settings to defaults?")) {
+            if (window.confirm("Reset all settings to defaults? This will also clear your search API key.")) {
               resetToDefaults();
             }
           }}

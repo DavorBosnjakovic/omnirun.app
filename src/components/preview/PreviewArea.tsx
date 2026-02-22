@@ -1,7 +1,8 @@
-import { ExternalLink, PanelRightClose, FileCode, Copy, Check, Globe, RefreshCw, Pencil, Save, X, Download, Terminal, AlertCircle } from "lucide-react";
+import { ExternalLink, PanelRightClose, FileCode, Copy, Check, Globe, RefreshCw, Pencil, Save, X, Download, Terminal, AlertCircle, Loader } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProjectStore } from "../../stores/projectStore";
+import { useChatStore } from "../../stores/chatStore";
 import { themes } from "../../config/themes";
 import { readFile, writeFile, readDirectory } from "../../services/fileService";
 import { updateManifestEntry, getRelativePath } from "../../services/manifestService";
@@ -39,6 +40,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showConflict, setShowConflict] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Live preview state
@@ -54,7 +56,11 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   const [installOutput, setInstallOutput] = useState<string>("");
 
   const { theme } = useSettingsStore();
-  const { selectedFile, projectPath, fileTree, setFileTree, manifest, setManifest } = useProjectStore();
+  const { selectedFile, projectPath, fileTree, setFileTree, manifest, setManifest, setBuildError, autoFixCount, resetAutoFix, externalFileChange, setExternalFileChange } = useProjectStore();
+  const { isLoading: aiIsLoading } = useChatStore();
+  const prevAiLoadingRef = useRef(false);
+  const [errorPollTrigger, setErrorPollTrigger] = useState(0);
+  const previewVersionRef = useRef(0);
   const t = themes[theme];
 
   const isImageFile = selectedFile ? IMAGE_EXTENSIONS.some(ext =>
@@ -66,6 +72,9 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   useEffect(() => {
     if (!projectPath) return;
 
+    previewVersionRef.current += 1;
+    const thisVersion = previewVersionRef.current;
+    const oldPort = serverPort;
     let cancelled = false;
 
     const initPreview = async () => {
@@ -74,26 +83,31 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
       setStatusMessage("");
       setInstallOutput("");
       setError(null);
+      resetAutoFix();
 
       try {
         const result = await detectProjectType(projectPath);
-        if (cancelled) return;
+        if (cancelled || previewVersionRef.current !== thisVersion) return;
         setDetection(result);
 
         switch (result.type) {
           case "static":
-            // Use the existing axum static file server
             setPreviewStatus("static");
             setStatusMessage("Starting preview server...");
             try {
+              if (oldPort) {
+                await invoke("stop_dev_server").catch(() => {});
+                await new Promise((r) => setTimeout(r, 2000));
+              }
+              if (previewVersionRef.current !== thisVersion) return;
               const port = await invoke<number>("start_preview_server", { path: projectPath });
-              if (!cancelled) {
+              if (!cancelled && previewVersionRef.current === thisVersion) {
                 setServerPort(port);
                 setRefreshKey((k) => k + 1);
                 setStatusMessage("");
               }
             } catch (err: any) {
-              if (!cancelled) {
+              if (!cancelled && previewVersionRef.current === thisVersion) {
                 setPreviewStatus("error");
                 setStatusMessage(err.toString());
               }
@@ -102,11 +116,15 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
 
           case "framework":
             if (result.needsInstall) {
-              setPreviewStatus("needs-install");
-              setStatusMessage(`This ${result.framework} project needs dependencies installed.`);
+              if (aiIsLoading) {
+                setPreviewStatus("detecting");
+                setStatusMessage("AI is working, waiting to detect project...");
+              } else {
+                setPreviewStatus("needs-install");
+                setStatusMessage(`This ${result.framework} project needs dependencies installed.`);
+              }
             } else {
-              // Dependencies exist, start dev server directly
-              await startDevServer(result);
+              await startDevServer(result, oldPort, thisVersion);
             }
             break;
 
@@ -115,7 +133,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
             break;
         }
       } catch (err: any) {
-        if (!cancelled) {
+        if (!cancelled && previewVersionRef.current === thisVersion) {
           setPreviewStatus("error");
           setStatusMessage(err.toString());
         }
@@ -126,11 +144,17 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
 
     return () => {
       cancelled = true;
-      // Stop both servers on cleanup
+      invoke("stop_preview_server").catch(() => {});
+    };
+  }, [projectPath]);
+
+  // Stop all servers on component unmount (app closing)
+  useEffect(() => {
+    return () => {
       invoke("stop_preview_server").catch(() => {});
       invoke("stop_dev_server").catch(() => {});
     };
-  }, [projectPath]);
+  }, []);
 
   // Auto-refresh live preview when file tree changes (static mode)
   useEffect(() => {
@@ -139,25 +163,176 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
     }
   }, [fileTree]);
 
+  // Re-detect project type when AI finishes streaming (isLoading: true → false)
+  useEffect(() => {
+    const wasLoading = prevAiLoadingRef.current;
+    prevAiLoadingRef.current = aiIsLoading;
+
+    // Only act when AI just finished (true → false)
+    if (wasLoading && !aiIsLoading && projectPath) {
+      // Re-detect if not already in a healthy running state
+      if (previewStatus !== "dev-running" && previewStatus !== "installing") {
+        console.log("[preview] AI finished streaming, re-detecting project type...");
+        reDetectAndSwitch();
+      }
+
+      // Trigger build error poll (for dev-running servers)
+      setErrorPollTrigger((n) => n + 1);
+    }
+  }, [aiIsLoading]);
+
+  // ── Poll for build errors after AI finishes writing ──────
+  useEffect(() => {
+    // Skip the initial render (trigger is 0)
+    if (errorPollTrigger === 0) return;
+    if (previewStatus !== "dev-running") return;
+    if (autoFixCount >= 3) return;
+
+    let cancelled = false;
+
+    const pollForErrors = async () => {
+      // Wait for dev server to rebuild (~3 seconds)
+      await new Promise((r) => setTimeout(r, 3000));
+      if (cancelled) return;
+
+      try {
+        const output = await invoke<string>("get_dev_server_output");
+        if (cancelled || !output) return;
+
+        // Look for error patterns in the dev server output
+        const errorPatterns = [
+          /error[:\s]/i,
+          /Module not found/i,
+          /Failed to compile/i,
+          /Cannot resolve/i,
+          /SyntaxError/i,
+          /TypeError/i,
+          /ReferenceError/i,
+          /Cannot find module/i,
+          /Unexpected token/i,
+          /ENOENT/i,
+        ];
+
+        const hasError = errorPatterns.some((p) => p.test(output));
+        if (!hasError) {
+          // No errors — clear any previous build error state
+          setBuildError(null);
+          return;
+        }
+
+        // Extract the meaningful error lines (not the full output)
+        const lines = output.split("\n");
+        const errorLines: string[] = [];
+        let capturing = false;
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          // Start capturing when we hit an error line
+          if (errorPatterns.some((p) => p.test(trimmed))) {
+            capturing = true;
+          }
+
+          if (capturing) {
+            errorLines.push(trimmed);
+            // Cap at 15 lines to keep token cost low
+            if (errorLines.length >= 15) break;
+          }
+        }
+
+        const errorText = errorLines.join("\n").slice(0, 1500); // Hard cap at 1500 chars
+        if (errorText) {
+          console.log("[preview] Build error detected, sending to AI...");
+          setBuildError(errorText);
+        }
+      } catch (err) {
+        console.error("[preview] Failed to poll dev server output:", err);
+      }
+    };
+
+    pollForErrors();
+
+    return () => { cancelled = true; };
+  }, [errorPollTrigger]);
+
   // Switch to file view when a file is clicked, exit edit mode
   useEffect(() => {
     if (selectedFile && !selectedFile.is_dir) {
       setPreviewMode("file");
       setIsEditing(false);
+      setShowConflict(false);
     }
   }, [selectedFile]);
 
+  // ── Detect conflict: file changed externally while user is editing ──
+  useEffect(() => {
+    if (!externalFileChange || !isEditing || !selectedFile) return;
+
+    // Check if the externally changed file matches what we're editing
+    const editingPath = selectedFile.path.replace(/\\/g, "/");
+    const changedPath = externalFileChange.path.replace(/\\/g, "/");
+
+    if (editingPath === changedPath) {
+      setShowConflict(true);
+    }
+
+    // Clear the external change so it doesn't re-trigger
+    setExternalFileChange(null);
+  }, [externalFileChange]);
+
   // ── Dev server management ─────────────────────────────────
 
-  const startDevServer = async (det: ProjectDetection) => {
+  const startDevServer = async (det: ProjectDetection, oldPort: number | null = null, version: number = 0) => {
     if (!projectPath || !det.devCommand || !det.portPattern) return;
+
+    const isStale = () => version > 0 && previewVersionRef.current !== version;
 
     setPreviewStatus("starting-dev");
     setStatusMessage(`Starting ${det.framework} dev server...`);
 
     try {
-      // Stop static server if running — we'll use the framework's server instead
+      // 1. Stop static server
       await invoke("stop_preview_server").catch(() => {});
+      if (isStale()) return;
+
+      // 2. Kill old dev server via Rust and wait for port release
+      console.log("[preview] Stopping old dev server, oldPort:", oldPort);
+      await invoke("stop_dev_server").catch(() => {});
+
+      if (oldPort) {
+        setStatusMessage("Stopping previous server...");
+        await new Promise((r) => setTimeout(r, 3000));
+        if (isStale()) return;
+      }
+
+      // 3. Kill any orphaned node processes on common dev ports (3000-3010).
+      //    On Windows, taskkill may not kill the entire process tree if npm
+      //    spawns node through an intermediary shell. This is a safety net.
+      try {
+        const sep = projectPath.includes("/") ? "/" : "\\";
+        // Windows: find and kill processes using ports 3000-3010
+        await invoke("execute_command", {
+          command: 'for /f "tokens=5" %a in (\'netstat -aon ^| findstr ":300[0-9] " ^| findstr LISTENING\') do taskkill /PID %a /F 2>nul',
+          cwd: projectPath,
+        }).catch(() => {});
+
+        // 4. Clean framework lock files that prevent restart
+        //    Next.js: .next/dev/lock — left behind when process is force-killed
+        if (det.framework === "Next.js") {
+          const lockPath = `${projectPath}${sep}.next${sep}dev${sep}lock`;
+          await invoke("delete_path", { path: lockPath }).catch(() => {});
+          console.log("[preview] Cleaned .next/dev/lock");
+        }
+      } catch {
+        // Non-critical — continue even if cleanup fails
+      }
+
+      if (isStale()) return;
+
+      // 5. Start the new dev server
+      console.log("[preview] Starting dev server:", det.devCommand);
+      setStatusMessage(`Starting ${det.framework} dev server...`);
 
       const port = await invoke<number>("start_dev_server", {
         command: det.devCommand,
@@ -165,18 +340,77 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
         portPattern: det.portPattern.source,
       });
 
+      if (isStale()) return;
+      console.log("[preview] Dev server reported port:", port);
+
+      // 6. Wait for initial compilation
+      setStatusMessage(`Waiting for ${det.framework} to compile...`);
+      await new Promise((r) => setTimeout(r, 3000));
+      if (isStale()) return;
+
+      // 7. Show the preview
+      console.log("[preview] Showing iframe on port", port);
       setServerPort(port);
       setPreviewStatus("dev-running");
       setStatusMessage("");
       setRefreshKey((k) => k + 1);
     } catch (err: any) {
-      setPreviewStatus("error");
-      setStatusMessage(err.toString());
+      if (!isStale()) {
+        console.error("[preview] startDevServer error:", err);
+        setPreviewStatus("error");
+        setStatusMessage(err.toString());
+      }
+    }
+  };
+
+  // ── Re-detect helper (used after AI finishes, retry, etc.) ──
+
+  const reDetectAndSwitch = async () => {
+    if (!projectPath) return;
+    const fresh = await detectProjectType(projectPath);
+    setDetection(fresh);
+    switch (fresh.type) {
+      case "static":
+        setPreviewStatus("static");
+        try {
+          const port = await invoke<number>("start_preview_server", { path: projectPath });
+          setServerPort(port);
+          setRefreshKey((k) => k + 1);
+          setStatusMessage("");
+        } catch (err: any) {
+          setPreviewStatus("error");
+          setStatusMessage(err.toString());
+        }
+        break;
+      case "framework":
+        if (fresh.needsInstall) {
+          setPreviewStatus("needs-install");
+          setStatusMessage(`This ${fresh.framework} project needs dependencies installed.`);
+        } else {
+          await startDevServer(fresh);
+        }
+        break;
+      case "non-web":
+        setPreviewStatus("non-web");
+        break;
     }
   };
 
   const handleInstallDependencies = async () => {
     if (!projectPath || !detection || !detection.installCommand) return;
+
+    // Re-verify package.json still exists — AI may have changed the project
+    try {
+      const pkgPath = projectPath.includes("/")
+        ? `${projectPath}/package.json`
+        : `${projectPath}\\package.json`;
+      await invoke("read_file", { path: pkgPath });
+    } catch {
+      // package.json gone — re-run detection instead of installing
+      console.log("[preview] package.json missing before install, re-detecting...");
+      await reDetectAndSwitch();
+      return;
+    }
 
     setPreviewStatus("installing");
     setStatusMessage(`Running ${detection.installCommand}...`);
@@ -215,30 +449,9 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   };
 
   const handleRetry = async () => {
-    if (!detection) return;
-
     setInstallOutput("");
-
-    if (detection.type === "static") {
-      setPreviewStatus("static");
-      setStatusMessage("Starting preview server...");
-      try {
-        const port = await invoke<number>("start_preview_server", { path: projectPath });
-        setServerPort(port);
-        setRefreshKey((k) => k + 1);
-        setStatusMessage("");
-      } catch (err: any) {
-        setPreviewStatus("error");
-        setStatusMessage(err.toString());
-      }
-    } else if (detection.type === "framework") {
-      if (detection.needsInstall) {
-        setPreviewStatus("needs-install");
-        setStatusMessage(`This ${detection.framework} project needs dependencies installed.`);
-      } else {
-        await startDevServer(detection);
-      }
-    }
+    // Always re-detect from scratch — project may have changed
+    await reDetectAndSwitch();
   };
 
   // ── Load file content ──────────────────────────────────────
@@ -326,6 +539,27 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   const handleCancelEdit = () => {
     setIsEditing(false);
     setEditContent("");
+    setShowConflict(false);
+  };
+
+  // ── Conflict resolution handlers ──────────────────────────
+
+  const handleKeepMine = () => {
+    // User wants to keep their in-editor version — just dismiss the prompt
+    setShowConflict(false);
+  };
+
+  const handleLoadExternal = async () => {
+    // User wants the version from disk — reload the file
+    if (!selectedFile) return;
+    try {
+      const content = await readFile(selectedFile.path);
+      setFileContent(content);
+      setEditContent(content);
+    } catch (err) {
+      console.error("Failed to reload file:", err);
+    }
+    setShowConflict(false);
   };
 
   const handleSave = async () => {
@@ -581,10 +815,36 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
       </div>
 
       {/* Unsaved changes indicator */}
-      {isEditing && hasChanges && (
+      {isEditing && hasChanges && !showConflict && (
         <div className={`px-3 py-1 text-xs ${t.colors.bgTertiary} border-b ${t.colors.border} flex items-center gap-2`}>
           <span className="w-2 h-2 rounded-full bg-amber-500"></span>
           <span className={t.colors.textMuted}>Unsaved changes — Ctrl+S to save, Esc to cancel</span>
+        </div>
+      )}
+
+      {/* External change conflict prompt */}
+      {showConflict && (
+        <div className={`px-3 py-2 text-xs border-b ${t.colors.border} flex items-center justify-between gap-2`} style={{ background: "rgba(234, 179, 8, 0.1)" }}>
+          <div className="flex items-center gap-2">
+            <AlertCircle size={14} className="text-amber-500 flex-shrink-0" />
+            <span className={t.colors.text}>
+              This file was changed outside the app. Keep your version or load the new one?
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <button
+              onClick={handleKeepMine}
+              className={`px-2.5 py-1 text-xs font-medium ${t.colors.bgTertiary} ${t.colors.text} ${t.borderRadius} hover:opacity-80`}
+            >
+              Keep mine
+            </button>
+            <button
+              onClick={handleLoadExternal}
+              className={`px-2.5 py-1 text-xs font-medium ${t.colors.accent} ${theme === "highContrast" ? "text-black" : "text-white"} ${t.borderRadius} hover:opacity-80`}
+            >
+              Load new version
+            </button>
+          </div>
         </div>
       )}
 
@@ -598,7 +858,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
             {previewStatus === "detecting" && (
               <div className={`flex flex-col items-center justify-center h-full gap-2 ${t.colors.textMuted}`}>
                 <RefreshCw size={20} className="animate-spin" />
-                <p className="text-sm">Detecting project type...</p>
+                <p className="text-sm">{statusMessage || "Detecting project type..."}</p>
               </div>
             )}
 
@@ -701,15 +961,28 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
               </div>
             )}
 
-            {/* Live iframe — shown for both static and dev-running */}
+            {/* Live iframe — shown for both static and dev-running, with AI building overlay */}
             {showIframe && (
-              <iframe
-                ref={iframeRef}
-                key={refreshKey}
-                src={`http://localhost:${serverPort}?_r=${refreshKey}`}
-                className="w-full h-full border-0 bg-white"
-                title="Live Preview"
-              />
+              <div className="relative w-full h-full">
+                <iframe
+                  ref={iframeRef}
+                  key={refreshKey}
+                  src={`http://localhost:${serverPort}?_r=${refreshKey}`}
+                  className="w-full h-full border-0 bg-white"
+                  title="Live Preview"
+                />
+                {aiIsLoading && (
+                  <div className={`absolute inset-0 flex flex-col items-center justify-center z-10 ${t.colors.bg}`} style={{ opacity: 0.97 }}>
+                    <Loader size={28} className={`animate-spin mb-3 ${t.colors.textMuted}`} />
+                    <p className={`text-sm font-medium ${t.colors.text}`}>
+                      AI is building your project...
+                    </p>
+                    <p className={`text-xs mt-1.5 ${t.colors.textMuted}`}>
+                      Preview will update when ready
+                    </p>
+                  </div>
+                )}
+              </div>
             )}
           </>
         )}

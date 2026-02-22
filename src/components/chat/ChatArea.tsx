@@ -1,14 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Square, User, Bot, Trash2, Save, Wrench, Pencil, Coins, X, Image } from "lucide-react";
+import { Send, Square, User, Bot, Trash2, Wrench, Pencil, Coins, X, Image, MessageSquarePlus, Globe, AlertCircle } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useChatStore } from "../../stores/chatStore";
 import { useProjectStore } from "../../stores/projectStore";
+import { useChatHistoryStore } from "../../stores/chatHistoryStore";
 import { useUsageStore } from "../../stores/usageStore";
 import { themes } from "../../config/themes";
+import MarkdownRenderer from "./MarkdownRenderer";
 import { sendMessage } from "../../services/aiService";
 import { writeFile, readDirectory } from "../../services/fileService";
 import { updateManifestEntry, getRelativePath } from "../../services/manifestService";
 import { parseToolCalls, executeToolCalls, formatToolResults } from "../../services/toolService";
+import { initContext, saveContext, addRecentChange, contextToPromptString, type ProjectContext as ContextData } from "../../services/contextService";
+import { useDiffStore } from "../../stores/diffStore";
+import DiffViewer from "../diff/DiffViewer";
 import type { MessageImage } from "../../stores/chatStore";
 
 const MAX_TOOL_ITERATIONS = 10;
@@ -16,24 +21,109 @@ const MAX_TOOL_ITERATIONS = 10;
 // Allowed image types
 const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
-function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void }) {
+function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }: {
+  onSettingsClick?: (tab: string) => void;
+  pendingMessage?: string | null;
+  onPendingMessageConsumed?: () => void;
+}) {
   const [input, setInput] = useState("");
   const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [showContinue, setShowContinue] = useState(false);
+  const [isAutoFixing, setIsAutoFixing] = useState(false);
+  const [projectContextData, setProjectContextData] = useState<ContextData | null>(null);
   const stoppedRef = useRef(false);
   const readerRef = useRef<ReadableStreamDefaultReader | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const dragCounterRef = useRef(0);
   const { theme, timeFormat } = useSettingsStore();
   const { messages, isLoading, addMessage, setLoading, clearMessages } = useChatStore();
-  const { projectPath, fileTree, selectedFile, setFileTree, manifest, setManifest } = useProjectStore();
+  const { currentProject, projectPath, fileTree, selectedFile, setFileTree, manifest, setManifest, buildError, autoFixCount, setBuildError, incrementAutoFix, resetAutoFix } = useProjectStore();
+  const { saveConversation, currentChatId, setCurrentChatId } = useChatHistoryStore();
   const { session, trackAPICall } = useUsageStore();
+  const { requestApproval, clear: clearDiffs } = useDiffStore();
   const t = themes[theme];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Scroll to bottom when a diff approval appears
+  const pendingDiff = useDiffStore((s) => s.pendingDiff);
+  useEffect(() => {
+    if (pendingDiff) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [pendingDiff]);
+
+  // Initialize project context when project path changes
+  useEffect(() => {
+    if (!projectPath) {
+      setProjectContextData(null);
+      return;
+    }
+
+    const init = async () => {
+      try {
+        // Get root file names for tech stack detection
+        const rootFiles = fileTree?.map((f: any) => f.name) || [];
+        const ctx = await initContext(projectPath, rootFiles);
+        setProjectContextData(ctx);
+      } catch (e) {
+        console.error("Failed to init context:", e);
+      }
+    };
+
+    init();
+  }, [projectPath, fileTree]);
+
+  // ── Auto-send pending message (from Tasks page suggestions) ──
+  const lastPendingRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (pendingMessage && !isLoading && pendingMessage !== lastPendingRef.current) {
+      lastPendingRef.current = pendingMessage;
+      handleSend(pendingMessage);
+      onPendingMessageConsumed?.();
+    }
+  }, [pendingMessage]);
+
+  // ── Auto-fix build errors from dev server ──────────────────
+  const autoFixingRef = useRef(false);
+
+  useEffect(() => {
+    if (!buildError || isLoading || autoFixingRef.current) return;
+
+    // If we've hit the cap, show a message asking the user instead of auto-sending
+    if (autoFixCount >= 3) {
+      addMessage({
+        id: `autofix-cap-${Date.now()}`,
+        role: "assistant",
+        content: `⚠️ Still seeing build errors after ${autoFixCount} auto-fix attempts:\n\n\`\`\`\n${buildError.slice(0, 500)}\n\`\`\`\n\nWant me to keep trying? Send a message like "Yes, fix it" to continue.`,
+        timestamp: new Date(),
+      });
+      setBuildError(null);
+      return;
+    }
+
+    // Auto-send the error to the AI
+    autoFixingRef.current = true;
+    setIsAutoFixing(true);
+    incrementAutoFix();
+
+    const errorMessage = `Build error from the dev server:\n\n\`\`\`\n${buildError}\n\`\`\`\n\nPlease fix this error.`;
+
+    // Clear the error so we don't re-trigger
+    setBuildError(null);
+
+    // Small delay so the UI can update
+    setTimeout(() => {
+      handleSend(errorMessage).finally(() => {
+        autoFixingRef.current = false;
+        setIsAutoFixing(false);
+      });
+    }, 300);
+  }, [buildError, isLoading]);
 
   const formatCost = (cost: number) => {
     if (cost < 0.01) return "<$0.01";
@@ -245,6 +335,11 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
     setLoading(false);
   };
 
+  const handleContinue = () => {
+    setShowContinue(false);
+    handleSend("Continue where you left off.");
+  };
+
   // Collapse incomplete code blocks and tool calls during streaming
   const getStreamingDisplay = (content: string): string => {
     // If there's an unclosed <tool_call> tag, hide everything from it onward
@@ -267,10 +362,18 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
     return originalBeforeFence + "```\n⏳ Writing code...\n```";
   };
 
-  const handleSend = async () => {
-    if ((!input.trim() && pendingImages.length === 0) || isLoading) return;
+  const handleSend = async (overrideMessage?: string) => {
+    const messageText = overrideMessage || input.trim();
+    if ((!messageText && pendingImages.length === 0) || isLoading) return;
 
-    const userMessage = input.trim();
+    // Reset auto-fix counter when user sends a manual message (not auto-fix)
+    if (!overrideMessage) {
+      resetAutoFix();
+    }
+
+    setShowContinue(false);
+
+    const userMessage = messageText;
     const userImages = pendingImages.length > 0 ? [...pendingImages] : undefined;
     setInput("");
     setPendingImages([]);
@@ -293,12 +396,13 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
         throw new Error("No API key configured. Go to Settings → API Keys to add one and set it as active.");
       }
 
-      // Build project context
+      // Build project context (lean — no file tree, AI explores with tools)
       let projectContext = undefined;
       if (projectPath) {
         projectContext = {
           path: projectPath,
           manifest: manifest,
+          contextString: projectContextData ? contextToPromptString(projectContextData) : undefined,
         };
       }
 
@@ -403,21 +507,37 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
         // Check for tool calls in the response
         const parsed = parseToolCalls(fullResponse);
 
-        if (!parsed.hasToolCalls || !projectPath) {
+        if (!parsed.hasToolCalls) {
           // No tool calls — we're done
           break;
         }
 
+        // Clean up the message — strip raw <tool_call> tags from display
+        // During streaming, getStreamingDisplay hides them, but line 459 puts
+        // the raw fullResponse back. This removes the tags permanently.
+        const cleanedContent = (
+          parsed.textBefore + (parsed.textAfter ? "\n" + parsed.textAfter : "")
+        ).trim() || "⏳ Working on files...";
+        useChatStore.setState((state) => ({
+          messages: state.messages.map((m) =>
+            m.id === assistantId ? { ...m, content: cleanedContent } : m
+          ),
+        }));
+
+        // Can't execute tools without a project path
+        if (!projectPath) break;
+
         // ── Execute tool calls ──────────────────────────────
 
         const toolNames = parsed.toolCalls.map((tc) => tc.name).join(", ");
+        const hasSearch = parsed.toolCalls.some((tc) => tc.name === "web_search");
 
         // Add a tool execution status message
         const toolStatusId = (Date.now() + iterations + 1000).toString();
         addMessage({
           id: toolStatusId,
           role: "assistant",
-          content: `🔧 Executing: ${toolNames}...`,
+          content: hasSearch ? `🔍 Searching...` : `🔧 Executing: ${toolNames}...`,
           timestamp: new Date(),
         });
 
@@ -425,10 +545,12 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
         if (stoppedRef.current) break;
 
         // Execute the tools
-        const { results, updatedManifest, filesChanged } = await executeToolCalls(
+        const { results, updatedManifest, filesChanged, updatedContext } = await executeToolCalls(
           parsed.toolCalls,
           projectPath,
-          currentManifest
+          currentManifest,
+          requestApproval,
+          projectContextData
         );
 
         currentManifest = updatedManifest;
@@ -436,6 +558,13 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
         // Update manifest in store if changed
         if (updatedManifest) {
           setManifest(updatedManifest);
+        }
+
+        // Update context if write_context tool was used
+        if (updatedContext) {
+          setProjectContextData(updatedContext);
+          // Save to disk
+          saveContext(projectPath, updatedContext).catch(() => {});
         }
 
         // Refresh file tree if files were changed
@@ -446,16 +575,53 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
           } catch {
             // Non-critical, continue
           }
+
+          // Update context with recent changes
+          if (projectContextData) {
+            let ctx = updatedContext || projectContextData;
+            for (const f of filesChanged) {
+              const action = parsed.toolCalls.find(tc => {
+                const p = tc.arguments.path || tc.arguments.paths?.[0];
+                return p === f;
+              });
+              const verb = action?.name === "delete_file" ? "Deleted" : action?.name === "edit_file" ? "Edited" : "Updated";
+              ctx = addRecentChange(ctx, `${verb} ${f}`);
+            }
+            setProjectContextData(ctx);
+            saveContext(projectPath, ctx).catch(() => {});
+          }
         }
 
         // Update tool status message with results
         const toolResultsSummary = results
-          .map((r) => r.success ? r.result.split("\n")[0] : `❌ ${r.result}`)
+          .map((r) => {
+            if (r.tool === "web_search") {
+              // Parse the AI-formatted result back into a chat-friendly format
+              // The result starts with 'Search: "query"' or 'Web search error:'
+              if (r.result.startsWith("Web search error:") || r.result.includes("returned no results")) {
+                return `🔍 ${r.result}`;
+              }
+              // Extract URLs from the result for clickable display
+              const urls: string[] = [];
+              const lines = r.result.split("\n");
+              let queryLine = lines[0] || "";
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                  urls.push(trimmed);
+                }
+              }
+              return `🔍 ${queryLine}${urls.length > 0 ? "\n" + urls.map((u, i) => `  ${i + 1}. ${u}`).join("\n") : ""}`;
+            }
+            return r.success ? r.result.split("\n")[0] : `❌ ${r.result}`;
+          })
           .join("\n");
 
+        // Use 🔍 prefix if any search results, 🔧 otherwise
+        const hasSearchResult = results.some((r) => r.tool === "web_search");
         useChatStore.setState((state) => ({
           messages: state.messages.map((m) =>
-            m.id === toolStatusId ? { ...m, content: `🔧 ${toolResultsSummary}` } : m
+            m.id === toolStatusId ? { ...m, content: hasSearchResult ? toolResultsSummary : `🔧 ${toolResultsSummary}` } : m
           ),
         }));
 
@@ -477,6 +643,7 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
           projectContext = {
             path: projectPath,
             manifest: currentManifest,
+            contextString: projectContextData ? contextToPromptString(projectContextData) : undefined,
           };
         }
 
@@ -487,9 +654,10 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
         addMessage({
           id: (Date.now() + 9999).toString(),
           role: "assistant",
-          content: "⚠️ Reached maximum tool iterations. Please continue with a follow-up message.",
+          content: "⏸️ I've used all 10 tool steps for this turn. Click **Continue** to let me keep going, or send a new message.",
           timestamp: new Date(),
         });
+        setShowContinue(true);
       }
 
     } catch (error: any) {
@@ -510,6 +678,12 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
       stoppedRef.current = false;
       readerRef.current = null;
       setLoading(false);
+
+      // Auto-save conversation to chat history
+      if (currentProject?.id) {
+        const currentMessages = useChatStore.getState().messages;
+        saveConversation(currentProject.id, currentMessages);
+      }
     }
   };
 
@@ -614,64 +788,15 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
     const cleanContent = content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
     if (!cleanContent) return <span className={`${t.colors.textMuted} italic`}>Working with files...</span>;
 
-    const parts = cleanContent.split(/(```[\s\S]*?```)/g);
-    
-    return parts.map((part, index) => {
-      if (part.startsWith("```") && part.endsWith("```")) {
-        const lines = part.slice(3, -3).split("\n");
-        const language = lines[0]?.trim() || "";
-        const codeLines = language ? lines.slice(1) : lines;
-        const code = codeLines.join("\n").trim();
-        
-        // Try to detect filename from comment
-        let filename = "";
-        const filenameMatch = code.match(/^\/\/\s*filename:\s*(.+)/m) || 
-                              code.match(/^<!--\s*filename:\s*(.+?)\s*-->/m) ||
-                              code.match(/^#\s*filename:\s*(.+)/m);
-        if (filenameMatch) {
-          filename = filenameMatch[1].trim();
-        }
-
-        return (
-          <div key={index} className={`my-2 ${t.colors.bgTertiary} ${t.borderRadius} overflow-hidden`}>
-            <div className={`flex justify-between items-center px-3 py-1 ${t.colors.bgSecondary}`}>
-              <span className={`text-xs ${t.colors.textMuted}`}>{language || "code"}</span>
-              <div className="flex gap-1">
-                <button
-                  onClick={() => navigator.clipboard.writeText(code)}
-                  className={`text-xs px-2 py-1 ${t.borderRadius} ${t.colors.textMuted} hover:${t.colors.text}`}
-                >
-                  Copy
-                </button>
-                {projectPath && (
-                  <button
-                    onClick={() => {
-                      if (filename) {
-                        handleSaveCodeBlock(code, filename);
-                      } else {
-                        const name = prompt("Save as (e.g., index.html):");
-                        if (name) handleSaveCodeBlock(code, name);
-                      }
-                    }}
-                    className={`text-xs px-2 py-1 ${t.borderRadius} flex items-center gap-1 ${t.colors.accent} ${theme === "highContrast" ? "text-black" : "text-white"}`}
-                  >
-                    <Save size={12} />
-                    {filename ? `Save ${filename}` : "Save to file"}
-                  </button>
-                )}
-              </div>
-            </div>
-            <pre className={`p-3 text-sm overflow-x-auto select-text ${t.colors.text}`} style={{ fontFamily: "monospace" }}>
-              <code>{code}</code>
-            </pre>
-          </div>
-        );
-      }
-      
-      return part ? (
-        <span key={index} className="whitespace-pre-wrap">{part}</span>
-      ) : null;
-    });
+    return (
+      <MarkdownRenderer
+        content={cleanContent}
+        theme={t}
+        themeKey={theme}
+        projectPath={projectPath}
+        onSaveCodeBlock={handleSaveCodeBlock}
+      />
+    );
   };
 
   // Render images attached to a message
@@ -700,9 +825,65 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
   // Detect tool status messages (🔧 prefix)
   const isToolMessage = (content: string) => content.startsWith("🔧");
 
+  // Detect search result messages (🔍 prefix)
+  const isSearchMessage = (content: string) => content.startsWith("🔍");
+
+  // Render search results with clickable URLs
+  const renderSearchMessage = (content: string) => {
+    const lines = content.split("\n");
+    return (
+      <div className="space-y-0.5">
+        {lines.map((line, i) => {
+          const trimmed = line.trim();
+          // Detect URLs and make them clickable
+          if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            // Strip leading number+dot if present (e.g. "1. https://...")
+            const url = trimmed.replace(/^\d+\.\s*/, "");
+            const displayUrl = url.length > 60 ? url.slice(0, 57) + "…" : url;
+            return (
+              <div key={i} className="pl-2">
+                <button
+                  onClick={() => {
+                    import("@tauri-apps/plugin-opener").then(({ open }) => open(url)).catch(() => window.open(url, "_blank"));
+                  }}
+                  className="text-blue-400 hover:text-blue-300 hover:underline text-xs break-all text-left cursor-pointer"
+                  title={url}
+                >
+                  ↗ {displayUrl}
+                </button>
+              </div>
+            );
+          }
+          // Check for "  1. https://..." pattern
+          const numberedUrlMatch = trimmed.match(/^(\d+)\.\s*(https?:\/\/.+)$/);
+          if (numberedUrlMatch) {
+            const url = numberedUrlMatch[2];
+            const displayUrl = url.length > 55 ? url.slice(0, 52) + "…" : url;
+            return (
+              <div key={i} className="pl-2">
+                <button
+                  onClick={() => {
+                    import("@tauri-apps/plugin-opener").then(({ open }) => open(url)).catch(() => window.open(url, "_blank"));
+                  }}
+                  className="text-blue-400 hover:text-blue-300 hover:underline text-xs break-all text-left cursor-pointer"
+                  title={url}
+                >
+                  ↗ {displayUrl}
+                </button>
+              </div>
+            );
+          }
+          // Regular text line
+          return <div key={i}>{line}</div>;
+        })}
+      </div>
+    );
+  };
+
   return (
     <div
       className={`flex flex-col h-full ${t.colors.bg} relative`}
+      data-theme={theme}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
@@ -753,7 +934,29 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
           )}
           {messages.length > 0 && (
             <button
-              onClick={clearMessages}
+              onClick={() => {
+                if (currentProject?.id && messages.length > 0) {
+                  saveConversation(currentProject.id, messages);
+                }
+                clearMessages();
+                setCurrentChatId(null);
+                setShowContinue(false);
+                clearDiffs();
+              }}
+              className={`p-1.5 ${t.colors.textMuted} hover:${t.colors.text} ${t.borderRadius} flex items-center gap-1`}
+              title="New chat"
+            >
+              <MessageSquarePlus size={16} />
+            </button>
+          )}
+          {messages.length > 0 && (
+            <button
+              onClick={() => {
+                clearMessages();
+                setCurrentChatId(null);
+                setShowContinue(false);
+                clearDiffs();
+              }}
               className={`p-1 ${t.colors.textMuted} hover:${t.colors.text} ${t.borderRadius}`}
               title="Clear chat"
             >
@@ -776,6 +979,7 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
           <div className="space-y-4">
             {messages.map((message) => {
               const isTool = message.role === "assistant" && isToolMessage(message.content);
+              const isSearch = message.role === "assistant" && isSearchMessage(message.content);
 
               return (
                 <div
@@ -783,8 +987,10 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
                   className={`flex gap-3 group ${message.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   {message.role === "assistant" && (
-                    <div className={`w-8 h-8 ${isTool ? t.colors.bgTertiary : t.colors.accent} ${t.borderRadius} flex items-center justify-center flex-shrink-0`}>
-                      {isTool 
+                    <div className={`w-8 h-8 ${(isTool || isSearch) ? t.colors.bgTertiary : t.colors.accent} ${t.borderRadius} flex items-center justify-center flex-shrink-0`}>
+                      {isSearch
+                        ? <Globe size={16} className="text-blue-400" />
+                        : isTool 
                         ? <Wrench size={16} className={t.colors.textMuted} />
                         : <Bot size={18} className={theme === "highContrast" ? "text-black" : "text-white"} />
                       }
@@ -794,7 +1000,7 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
                     className={`max-w-[80%] px-4 py-2 break-words overflow-hidden ${t.borderRadius} ${
                       message.role === "user"
                         ? `${t.colors.accent} ${theme === "highContrast" ? "text-black" : "text-white"}`
-                        : isTool
+                        : (isTool || isSearch)
                         ? `${t.colors.bgTertiary} ${t.colors.textMuted} text-sm`
                         : `${t.colors.bgSecondary} ${t.colors.text}`
                     }`}
@@ -804,7 +1010,8 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
                     
                     <div className={`${t.fontFamily}`}>
                       {message.content 
-                        ? (message.role === "assistant" && !isTool ? renderMessage(message.content) : message.content)
+                        ? (isSearch ? renderSearchMessage(message.content)
+                          : message.role === "assistant" && !isTool ? renderMessage(message.content) : message.content)
                         : message.images && message.images.length > 0 
                           ? null
                           : "Thinking..."}
@@ -836,10 +1043,49 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
                 </div>
               );
             })}
+            <DiffViewer />
             <div ref={messagesEndRef} />
           </div>
         )}
       </div>
+
+      {/* Auto-fix indicator — shown when automatically fixing build errors */}
+      {isAutoFixing && (
+        <div className={`flex items-center justify-center gap-2 px-4 py-2 ${t.colors.bgSecondary} border-t ${t.colors.border}`}>
+          <AlertCircle size={14} className="text-amber-500" />
+          <span className={`text-xs ${t.colors.textMuted}`}>
+            Fixing build error... (attempt {autoFixCount}/3)
+          </span>
+        </div>
+      )}
+
+      {/* Continue button — shown when AI hits iteration limit */}
+      {showContinue && (
+        <div className="flex justify-center px-4 py-2">
+          <button
+            onClick={handleContinue}
+            className="inline-flex items-center gap-1.5 px-5 py-2 rounded-full text-sm font-medium cursor-pointer transition-all duration-150"
+            style={{
+              border: '1px solid var(--accent-muted, var(--accent, #00DD55))',
+              background: 'var(--accent-glow, rgba(0, 255, 102, 0.15))',
+              color: 'var(--accent-bright, var(--accent, #00FF66))',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--accent-muted, var(--accent, #00AA44))';
+              e.currentTarget.style.color = '#FFFFFF';
+              e.currentTarget.style.borderColor = 'var(--accent-bright, var(--accent, #00FF66))';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--accent-glow, rgba(0, 255, 102, 0.15))';
+              e.currentTarget.style.color = 'var(--accent-bright, var(--accent, #00FF66))';
+              e.currentTarget.style.borderColor = 'var(--accent-muted, var(--accent, #00DD55))';
+            }}
+          >
+            <span>▶</span>
+            <span>Continue</span>
+          </button>
+        </div>
+      )}
 
       {/* Input area */}
       <div className="p-4">
@@ -872,11 +1118,18 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
         )}
 
         <div className="flex gap-2">
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              // Auto-resize
+              e.target.style.height = "auto";
+              const newHeight = Math.min(e.target.scrollHeight, 200);
+              e.target.style.height = newHeight + "px";
+              // Only show scrollbar when content exceeds max height
+              e.target.style.overflowY = e.target.scrollHeight > 200 ? "auto" : "hidden";
+            }}
             onKeyDown={handleKeyDown}
             onPaste={handleInputPaste}
             placeholder={
@@ -887,21 +1140,23 @@ function ChatArea({ onSettingsClick }: { onSettingsClick?: (tab: string) => void
                   : "Type a message... (paste images with Ctrl+V)"
             }
             disabled={isLoading}
-            className={`flex-1 ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-4 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500 ${t.fontFamily} disabled:opacity-50`}
+            rows={1}
+            className={`flex-1 ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-4 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500 ${t.fontFamily} disabled:opacity-50 resize-none overflow-hidden`}
+            style={{ maxHeight: "200px" }}
           />
           {isLoading ? (
             <button
               onClick={handleStop}
-              className={`bg-red-600 hover:bg-red-700 text-white px-4 py-2 ${t.borderRadius} flex items-center gap-2`}
+              className={`bg-red-600 hover:bg-red-700 text-white px-4 py-2 ${t.borderRadius} flex items-center gap-2 self-end`}
               title="Stop generating"
             >
               <Square size={18} fill="currentColor" />
             </button>
           ) : (
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={!input.trim() && pendingImages.length === 0}
-              className={`${t.colors.accent} ${t.colors.accentHover} ${theme === "highContrast" ? "text-black" : "text-white"} px-4 py-2 ${t.borderRadius} flex items-center gap-2 disabled:opacity-50`}
+              className={`${t.colors.accent} ${t.colors.accentHover} ${theme === "highContrast" ? "text-black" : "text-white"} px-4 py-2 ${t.borderRadius} flex items-center gap-2 disabled:opacity-50 self-end`}
             >
               <Send size={18} />
             </button>

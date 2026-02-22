@@ -1,12 +1,14 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
 mod server;
+mod scheduler;
+mod task_runner;
 
 #[derive(Serialize, Deserialize)]
 pub struct FileEntry {
@@ -28,6 +30,11 @@ static mut PROJECT_PATH: Option<PathBuf> = None;
 
 // Store the dev server child process PID so we can kill it later
 static DEV_SERVER_PROCESS: Mutex<Option<u32>> = Mutex::new(None);
+
+// Buffer for dev server output (captured after port is found)
+// Frontend can poll this to check for build errors
+static DEV_SERVER_OUTPUT: once_cell::sync::Lazy<Arc<Mutex<String>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(String::new())));
 
 #[tauri::command]
 fn set_project_path(path: String) -> Result<(), String> {
@@ -284,6 +291,8 @@ fn build_hidden_shell_command(command: &str, cwd: &PathBuf) -> std::process::Com
 /// Start a long-running dev server process (e.g. `npm run dev`).
 /// Captures stdout/stderr, watches for a localhost port in the output,
 /// and returns the port once detected (or errors after timeout).
+/// After port is found, keeps capturing output into DEV_SERVER_OUTPUT buffer
+/// so the frontend can poll for build errors.
 #[tauri::command]
 async fn start_dev_server(command: String, cwd: String, port_pattern: String) -> Result<u16, String> {
     use std::io::{BufRead, BufReader};
@@ -291,6 +300,12 @@ async fn start_dev_server(command: String, cwd: String, port_pattern: String) ->
 
     // Kill any existing dev server first
     stop_dev_server_internal();
+
+    // Clear the output buffer
+    {
+        let mut buf = DEV_SERVER_OUTPUT.lock().unwrap_or_else(|e| e.into_inner());
+        buf.clear();
+    }
 
     let cwd_path = PathBuf::from(&cwd);
     if !cwd_path.exists() || !cwd_path.is_dir() {
@@ -325,25 +340,52 @@ async fn start_dev_server(command: String, cwd: String, port_pattern: String) ->
     // Dev servers vary — some print to stdout, some to stderr.
     let (tx, rx) = std::sync::mpsc::channel::<Result<u16, String>>();
 
+    // Shared flag so both threads know when port has been found
+    let port_found = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
     // Spawn stdout reader
     if let Some(out) = stdout {
         let re_clone = re.clone();
         let tx_clone = tx.clone();
+        let port_found_clone = port_found.clone();
+        let output_buf = DEV_SERVER_OUTPUT.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(out);
             for line in reader.lines() {
                 if let Ok(line) = line {
-                    if let Some(caps) = re_clone.captures(&line) {
-                        if let Some(port_str) = caps.get(1) {
-                            if let Ok(port) = port_str.as_str().parse::<u16>() {
-                                let _ = tx_clone.send(Ok(port));
-                                return;
+                    // Before port is found, check for port pattern
+                    if !port_found_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        if let Some(caps) = re_clone.captures(&line) {
+                            if let Some(port_str) = caps.get(1) {
+                                if let Ok(port) = port_str.as_str().parse::<u16>() {
+                                    port_found_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    let _ = tx_clone.send(Ok(port));
+                                }
                             }
+                        }
+                    }
+
+                    // Always capture output after port is found (for error detection)
+                    if port_found_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        if let Ok(mut buf) = output_buf.lock() {
+                            // Keep buffer under 10KB — drop oldest lines
+                            if buf.len() > 10_000 {
+                                let cutoff = buf.len() - 5_000;
+                                if let Some(pos) = buf[cutoff..].find('\n') {
+                                    let new_start = cutoff + pos + 1;
+                                    *buf = buf[new_start..].to_string();
+                                }
+                            }
+                            buf.push_str(&line);
+                            buf.push('\n');
                         }
                     }
                 }
             }
-            let _ = tx_clone.send(Err("Dev server stdout closed without printing a port".to_string()));
+            // Stream closed — if port was never found, report it
+            if !port_found_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = tx_clone.send(Err("Dev server stdout closed without printing a port".to_string()));
+            }
         });
     }
 
@@ -351,30 +393,52 @@ async fn start_dev_server(command: String, cwd: String, port_pattern: String) ->
     if let Some(err_stream) = stderr {
         let re_clone = re.clone();
         let tx_clone = tx.clone();
+        let port_found_clone = port_found.clone();
+        let output_buf = DEV_SERVER_OUTPUT.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(err_stream);
             let mut captured = String::new();
             for line in reader.lines() {
                 if let Ok(line) = line {
-                    // Keep last ~2000 chars of stderr for error reporting
-                    if captured.len() < 2000 {
-                        captured.push_str(&line);
-                        captured.push('\n');
-                    }
-                    if let Some(caps) = re_clone.captures(&line) {
-                        if let Some(port_str) = caps.get(1) {
-                            if let Ok(port) = port_str.as_str().parse::<u16>() {
-                                let _ = tx_clone.send(Ok(port));
-                                return;
+                    // Before port is found, keep capturing for error reporting
+                    if !port_found_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        if captured.len() < 2000 {
+                            captured.push_str(&line);
+                            captured.push('\n');
+                        }
+                        if let Some(caps) = re_clone.captures(&line) {
+                            if let Some(port_str) = caps.get(1) {
+                                if let Ok(port) = port_str.as_str().parse::<u16>() {
+                                    port_found_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    let _ = tx_clone.send(Ok(port));
+                                }
                             }
+                        }
+                    }
+
+                    // Always capture output after port is found (for error detection)
+                    if port_found_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        if let Ok(mut buf) = output_buf.lock() {
+                            if buf.len() > 10_000 {
+                                let cutoff = buf.len() - 5_000;
+                                if let Some(pos) = buf[cutoff..].find('\n') {
+                                    let new_start = cutoff + pos + 1;
+                                    *buf = buf[new_start..].to_string();
+                                }
+                            }
+                            buf.push_str(&line);
+                            buf.push('\n');
                         }
                     }
                 }
             }
-            let _ = tx_clone.send(Err(format!(
-                "Dev server exited without starting. Output:\n{}",
-                if captured.is_empty() { "(no output)".to_string() } else { captured }
-            )));
+            // Stream closed — if port was never found, report it
+            if !port_found_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = tx_clone.send(Err(format!(
+                    "Dev server exited without starting. Output:\n{}",
+                    if captured.is_empty() { "(no output)".to_string() } else { captured }
+                )));
+            }
         });
     }
 
@@ -395,6 +459,16 @@ async fn start_dev_server(command: String, cwd: String, port_pattern: String) ->
     }
 }
 
+/// Get buffered dev server output and clear the buffer.
+/// Frontend polls this after AI finishes writing files to check for build errors.
+#[tauri::command]
+fn get_dev_server_output() -> String {
+    let mut buf = DEV_SERVER_OUTPUT.lock().unwrap_or_else(|e| e.into_inner());
+    let output = buf.clone();
+    buf.clear();
+    output
+}
+
 /// Internal helper to kill the dev server process tree
 fn stop_dev_server_internal() {
     let pid = {
@@ -404,6 +478,11 @@ fn stop_dev_server_internal() {
 
     if let Some(pid) = pid {
         kill_process_tree(pid);
+    }
+
+    // Clear the output buffer
+    if let Ok(mut buf) = DEV_SERVER_OUTPUT.lock() {
+        buf.clear();
     }
 }
 
@@ -437,6 +516,42 @@ fn stop_dev_server() -> Result<(), String> {
     Ok(())
 }
 
+// ── Scheduled Tasks IPC Commands ──────────────────────────────
+
+#[tauri::command]
+fn create_task(task: scheduler::ScheduledTask) -> Result<scheduler::ScheduledTask, String> {
+    scheduler::create_task(task)
+}
+
+#[tauri::command]
+fn update_task(task: scheduler::ScheduledTask) -> Result<scheduler::ScheduledTask, String> {
+    scheduler::update_task(task)
+}
+
+#[tauri::command]
+fn delete_task(task_id: String) -> Result<(), String> {
+    scheduler::delete_task(&task_id)
+}
+
+#[tauri::command]
+fn toggle_task(task_id: String) -> Result<scheduler::ScheduledTask, String> {
+    scheduler::toggle_task(&task_id)
+}
+
+#[tauri::command]
+fn get_tasks() -> Result<Vec<scheduler::ScheduledTask>, String> {
+    scheduler::get_tasks()
+}
+
+#[tauri::command]
+fn run_task_now(task_id: String) -> Result<(), String> {
+    // Validate the task exists
+    let _ = scheduler::get_task(&task_id)?;
+    // Queue it for immediate execution
+    scheduler::queue_run_now(&task_id);
+    Ok(())
+}
+
 // ───────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -446,6 +561,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_sql::Builder::default().build())
+        .setup(|app| {
+            // Start the background scheduler on app launch
+            scheduler::start_scheduler(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             set_project_path,
             get_project_path,
@@ -460,7 +581,15 @@ pub fn run() {
             stop_preview_server,
             get_preview_port,
             start_dev_server,
-            stop_dev_server
+            stop_dev_server,
+            get_dev_server_output,
+            // Scheduled tasks
+            create_task,
+            update_task,
+            delete_task,
+            toggle_task,
+            get_tasks,
+            run_task_now
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

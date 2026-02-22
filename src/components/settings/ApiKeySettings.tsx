@@ -23,7 +23,7 @@ const DEFAULT_PROVIDERS: Provider[] = [
     description: "Recommended — Smart routing uses Haiku/Sonnet/Opus based on task",
     keyPlaceholder: "sk-ant-...",
     keyPrefix: "sk-ant-",
-    defaultModel: "claude-sonnet-4-20250514",
+    defaultModel: "claude-sonnet-4-5-20250929",
     free: false,
   },
   {
@@ -101,11 +101,34 @@ async function fetchModelsForProvider(
 ): Promise<FetchedModel[]> {
   try {
     if (providerId === "anthropic") {
-      // Anthropic has no list-models endpoint — return known current models
+      // Fetch models from Anthropic's /v1/models endpoint
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/models", {
+          method: "GET",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "User-Agent": "Mozilla/5.0",
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const models = (data.data || [])
+            .map((m: any) => ({
+              id: m.id,
+              name: m.display_name || m.id,
+            }))
+            .sort((a: FetchedModel, b: FetchedModel) => a.name.localeCompare(b.name));
+          if (models.length > 0) return models;
+        }
+      } catch (e) {
+        console.warn("Failed to fetch Anthropic models, using fallback list:", e);
+      }
+      // Fallback if API call fails
       return [
-        { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
-        { id: "claude-haiku-4-20250414", name: "Claude Haiku 4" },
-        { id: "claude-opus-4-20250514", name: "Claude Opus 4" },
+        { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
+        { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5" },
+        { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
       ];
     }
 
@@ -194,11 +217,33 @@ function ApiKeySettings() {
 
   const [providers, setProviders] = useState<Provider[]>(DEFAULT_PROVIDERS);
   const [configuredProviders, setConfiguredProviders] = useState<ConfiguredProvider[]>(() => {
-    const saved = localStorage.getItem("ai-providers");
-    if (saved) {
-      return JSON.parse(saved);
+    try {
+      const saved = localStorage.getItem("ai-providers");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Migrate deprecated Anthropic model IDs to current versions
+        const MODEL_MIGRATIONS: Record<string, string> = {
+          "claude-sonnet-4-20250514": "claude-sonnet-4-5-20250929",
+          "claude-haiku-4-20250414": "claude-haiku-4-5-20251001",
+          "claude-opus-4-20250514": "claude-opus-4-6",
+          "claude-opus-4-0-20250514": "claude-opus-4-6",
+        };
+        let migrated = false;
+        for (const p of parsed) {
+          if (p.selectedModel && MODEL_MIGRATIONS[p.selectedModel]) {
+            p.selectedModel = MODEL_MIGRATIONS[p.selectedModel];
+            migrated = true;
+          }
+        }
+        if (migrated) {
+          localStorage.setItem("ai-providers", JSON.stringify(parsed));
+        }
+        return parsed;
+      }
+    } catch (e) {
+      console.warn("Failed to load/migrate providers from localStorage:", e);
     }
-    return [{ providerId: "anthropic", apiKey: "", selectedModel: "claude-sonnet-4-20250514", status: "idle" }];
+    return [{ providerId: "anthropic", apiKey: "", selectedModel: "claude-sonnet-4-5-20250929", status: "idle" }];
   });
 
   const [activeProvider, setActiveProvider] = useState(() => {

@@ -2,50 +2,18 @@
 // Connections Store - Zustand state management
 // ============================================================
 // Manages connection state for all providers.
-// Tokens stored in localStorage (upgrade to OS keychain in Phase 2).
+// Tokens stored in SQLite (upgrade to OS keychain in Phase 2).
 
 import { create } from 'zustand';
 import type { Connection, ConnectionProvider, ConnectionStatus, AccountInfo } from '../services/connections/types';
 import { PROVIDERS } from '../services/connections/types';
-
-// --------------- LocalStorage Keys ---------------
-
-const STORAGE_KEY = 'mydevify_connections';
+import { dbService } from '../services/dbService';
 
 // --------------- Helpers ---------------
 
 function maskToken(token: string): string {
-  if (token.length <= 8) return '••••••••';
-  return token.slice(0, 4) + '••••' + token.slice(-4);
-}
-
-function loadConnections(): Record<ConnectionProvider, Connection> {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      // Restore connections, but reset 'connecting' status to 'disconnected'
-      for (const key of Object.keys(parsed)) {
-        if (parsed[key].status === 'connecting') {
-          parsed[key].status = 'disconnected';
-        }
-      }
-      return parsed;
-    }
-  } catch (e) {
-    console.warn('Failed to load connections from storage:', e);
-  }
-  return {} as Record<ConnectionProvider, Connection>;
-}
-
-function saveConnections(connections: Record<string, Connection>) {
-  try {
-    // Don't persist tokens in plain localStorage in production
-    // TODO: Phase 2 - use tauri-plugin-stronghold or OS keychain
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(connections));
-  } catch (e) {
-    console.warn('Failed to save connections to storage:', e);
-  }
+  if (token.length <= 8) return '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+  return token.slice(0, 4) + '\u2022\u2022\u2022\u2022' + token.slice(-4);
 }
 
 // --------------- Store Interface ---------------
@@ -66,12 +34,15 @@ interface ConnectionsState {
   isConnected: (provider: ConnectionProvider) => boolean;
   getConnectedProviders: () => ConnectionProvider[];
   getToken: (provider: ConnectionProvider) => string | undefined;
+
+  // New: load from SQLite on startup
+  loadFromDB: () => Promise<void>;
 }
 
 // --------------- Store ---------------
 
 export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
-  connections: loadConnections(),
+  connections: {},
 
   setConnecting: (provider) => {
     set((state) => {
@@ -84,7 +55,18 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
           error: undefined,
         },
       };
-      saveConnections(updated);
+      // Persist to SQLite (fire-and-forget)
+      const conn = updated[provider]!;
+      dbService.saveConnection({
+        provider,
+        token: conn.token || '',
+        tokenLabel: conn.tokenLabel || null,
+        status: 'connecting',
+        accountInfo: conn.accountInfo || null,
+        connectedAt: conn.connectedAt || null,
+        lastTestedAt: conn.lastTestedAt || null,
+        error: null,
+      }).catch((e) => console.warn('Failed to save connection to DB:', e));
       return { connections: updated };
     });
   },
@@ -105,7 +87,17 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
           error: undefined,
         },
       };
-      saveConnections(updated);
+      // Persist to SQLite (fire-and-forget)
+      dbService.saveConnection({
+        provider,
+        token,
+        tokenLabel: maskToken(token),
+        status: 'connected',
+        accountInfo,
+        connectedAt: state.connections[provider]?.connectedAt || now,
+        lastTestedAt: now,
+        error: null,
+      }).catch((e) => console.warn('Failed to save connection to DB:', e));
       return { connections: updated };
     });
   },
@@ -121,7 +113,9 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
           error,
         },
       };
-      saveConnections(updated);
+      // Persist to SQLite (fire-and-forget)
+      dbService.updateConnectionStatus(provider, 'error', error)
+        .catch((e) => console.warn('Failed to update connection status in DB:', e));
       return { connections: updated };
     });
   },
@@ -130,7 +124,9 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
     set((state) => {
       const updated = { ...state.connections };
       delete updated[provider];
-      saveConnections(updated);
+      // Delete from SQLite (fire-and-forget)
+      dbService.deleteConnection(provider)
+        .catch((e) => console.warn('Failed to delete connection from DB:', e));
       return { connections: updated };
     });
   },
@@ -146,7 +142,18 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
           accountInfo: { ...existing.accountInfo, ...info },
         },
       };
-      saveConnections(updated);
+      // Persist to SQLite (fire-and-forget)
+      const conn = updated[provider]!;
+      dbService.saveConnection({
+        provider,
+        token: conn.token || '',
+        tokenLabel: conn.tokenLabel || null,
+        status: conn.status || 'disconnected',
+        accountInfo: conn.accountInfo || null,
+        connectedAt: conn.connectedAt || null,
+        lastTestedAt: conn.lastTestedAt || null,
+        error: conn.error || null,
+      }).catch((e) => console.warn('Failed to save connection to DB:', e));
       return { connections: updated };
     });
   },
@@ -168,5 +175,30 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
   getToken: (provider) => {
     const conn = get().connections[provider];
     return conn?.status === 'connected' ? conn.token : undefined;
+  },
+
+  // Load connections from SQLite on app startup
+  loadFromDB: async () => {
+    try {
+      const rows = await dbService.getConnections();
+      const connections: Partial<Record<ConnectionProvider, Connection>> = {};
+      for (const [provider, conn] of Object.entries(rows)) {
+        const c = conn as any;
+        // Reset 'connecting' status to 'disconnected' on app start
+        connections[provider as ConnectionProvider] = {
+          provider: provider as ConnectionProvider,
+          status: c.status === 'connecting' ? 'disconnected' : c.status,
+          token: c.token,
+          tokenLabel: c.tokenLabel,
+          accountInfo: c.accountInfo,
+          connectedAt: c.connectedAt,
+          lastTestedAt: c.lastTestedAt,
+          error: c.error,
+        };
+      }
+      set({ connections });
+    } catch (e) {
+      console.error('Failed to load connections from DB:', e);
+    }
   },
 }));

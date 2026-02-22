@@ -27,6 +27,7 @@ function FileTreeItem({ entry, depth }: FileTreeItemProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
   const { theme } = useSettingsStore();
   const { selectedFile, setSelectedFile, projectPath, setFileTree, setManifest } = useProjectStore();
@@ -149,6 +150,8 @@ function FileTreeItem({ entry, depth }: FileTreeItemProps) {
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setMenuPosition({ top: rect.bottom + 4, left: rect.right - 160 });
                 setMenuOpen(!menuOpen);
                 setConfirmDelete(false);
               }}
@@ -163,7 +166,8 @@ function FileTreeItem({ entry, depth }: FileTreeItemProps) {
         {menuOpen && (
           <div
             ref={menuRef}
-            className={`absolute right-2 top-full mt-1 z-50 ${t.colors.bgSecondary} ${t.colors.border} border ${t.borderRadius} shadow-lg min-w-[160px]`}
+            className={`fixed z-50 ${t.colors.bgSecondary} ${t.colors.border} border ${t.borderRadius} shadow-lg min-w-[160px]`}
+            style={{ top: menuPosition.top, left: menuPosition.left }}
           >
             {!entry.is_dir && (
               <button
