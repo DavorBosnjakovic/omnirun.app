@@ -1,8 +1,6 @@
 // ============================================================
 // Connection Manager - Orchestrates all connection operations
 // ============================================================
-// Central entry point for connecting, testing, and using services.
-// Follows meta-tool pattern: one execute() per service.
 
 import type { ConnectionProvider, AccountInfo, ConnectionService } from './types';
 import { PROVIDERS } from './types';
@@ -39,11 +37,13 @@ const services: Partial<Record<ConnectionProvider, ConnectionService>> = {
   porkbun: porkbunService,
 };
 
-// --------------- Public API ---------------
+// ════════════════════════════════════════
+// GLOBAL CONNECTIONS
+// ════════════════════════════════════════
 
 /**
  * Connect to a provider by testing the token and storing it.
- * Returns account info on success, throws on failure.
+ * For global-scoped providers only.
  */
 export async function connectProvider(
   provider: ConnectionProvider,
@@ -52,20 +52,13 @@ export async function connectProvider(
   const store = useConnectionsStore.getState();
   const service = services[provider];
 
-  if (!service) {
-    throw new Error(`Service not implemented: ${provider}`);
-  }
+  if (!service) throw new Error(`Service not implemented: ${provider}`);
 
-  // Set connecting state
   store.setConnecting(provider);
 
   try {
-    // Test the token by fetching account info
     const accountInfo = await service.testConnection(token);
-
-    // Success - store the connection
     store.setConnected(provider, token, accountInfo);
-
     console.log(`✓ Connected to ${PROVIDERS[provider].name} as ${accountInfo.name || accountInfo.email || 'unknown'}`);
     return accountInfo;
   } catch (error: any) {
@@ -76,17 +69,15 @@ export async function connectProvider(
 }
 
 /**
- * Disconnect from a provider.
+ * Disconnect from a global-scoped provider.
  */
 export function disconnectProvider(provider: ConnectionProvider): void {
-  const store = useConnectionsStore.getState();
-  store.disconnect(provider);
+  useConnectionsStore.getState().disconnect(provider);
   console.log(`✗ Disconnected from ${PROVIDERS[provider].name}`);
 }
 
 /**
- * Re-test an existing connection (e.g. on app startup).
- * Silently updates status without throwing.
+ * Re-test an existing global connection. Silently updates status without throwing.
  */
 export async function retestConnection(provider: ConnectionProvider): Promise<boolean> {
   const store = useConnectionsStore.getState();
@@ -106,21 +97,16 @@ export async function retestConnection(provider: ConnectionProvider): Promise<bo
 }
 
 /**
- * Re-test all connected providers (call on app startup).
+ * Re-test all connected global providers (call on app startup).
  */
 export async function retestAllConnections(): Promise<void> {
   const store = useConnectionsStore.getState();
   const connected = store.getConnectedProviders();
-
-  // Test in parallel, don't block on failures
-  await Promise.allSettled(
-    connected.map((p) => retestConnection(p))
-  );
+  await Promise.allSettled(connected.map((p) => retestConnection(p)));
 }
 
 /**
- * Execute an action on a connected provider (meta-tool pattern).
- * This is what the AI calls: execute('vercel', 'deploy', { ... })
+ * Execute an action on a connected global provider (meta-tool pattern).
  */
 export async function executeProviderAction(
   provider: ConnectionProvider,
@@ -131,10 +117,7 @@ export async function executeProviderAction(
   const token = store.getToken(provider);
   const service = services[provider];
 
-  if (!service) {
-    throw new Error(`Service not implemented: ${provider}`);
-  }
-
+  if (!service) throw new Error(`Service not implemented: ${provider}`);
   if (!token) {
     throw new Error(
       `Not connected to ${PROVIDERS[provider].name}. Please connect in Settings > Connections.`
@@ -144,7 +127,6 @@ export async function executeProviderAction(
   try {
     return await service.execute(action, params, token);
   } catch (error: any) {
-    // If it's an auth error, mark connection as expired
     if (error?.status === 401 || error?.status === 403) {
       store.setError(provider, 'Token expired or revoked');
     }
@@ -152,16 +134,117 @@ export async function executeProviderAction(
   }
 }
 
+// ════════════════════════════════════════
+// PROJECT-SCOPED CONNECTIONS
+// ════════════════════════════════════════
+
 /**
- * Get the service instance for a provider (for direct use).
+ * Connect a project-scoped provider for a specific project.
+ * Each project has its own credential (e.g. its own Supabase instance).
  */
+export async function connectProjectProvider(
+  projectId: string,
+  provider: ConnectionProvider,
+  token: string
+): Promise<AccountInfo> {
+  const store = useConnectionsStore.getState();
+  const service = services[provider];
+
+  if (!service) throw new Error(`Service not implemented: ${provider}`);
+
+  store.setProjectConnecting(projectId, provider);
+
+  try {
+    const accountInfo = await service.testConnection(token);
+    store.setProjectConnected(projectId, provider, token, accountInfo);
+    console.log(`✓ Connected project ${projectId} to ${PROVIDERS[provider].name}`);
+    return accountInfo;
+  } catch (error: any) {
+    const message = error?.message || 'Connection failed';
+    store.setProjectError(projectId, provider, message);
+    throw error;
+  }
+}
+
+/**
+ * Disconnect a project-scoped provider for a specific project.
+ */
+export function disconnectProjectProvider(
+  projectId: string,
+  provider: ConnectionProvider
+): void {
+  useConnectionsStore.getState().disconnectProject(projectId, provider);
+  console.log(`✗ Disconnected project ${projectId} from ${PROVIDERS[provider].name}`);
+}
+
+/**
+ * Re-test a project-scoped connection. Silently updates status.
+ */
+export async function retestProjectConnection(
+  projectId: string,
+  provider: ConnectionProvider
+): Promise<boolean> {
+  const store = useConnectionsStore.getState();
+  const conn = store.getProjectConnection(projectId, provider);
+  const service = services[provider];
+
+  if (!conn?.token || !service) return false;
+
+  try {
+    const accountInfo = await service.testConnection(conn.token);
+    store.setProjectConnected(projectId, provider, conn.token, accountInfo);
+    return true;
+  } catch {
+    store.setProjectError(projectId, provider, 'Token expired or invalid');
+    return false;
+  }
+}
+
+/**
+ * Execute an action using a project-scoped connection.
+ * Falls back to the global connection if the project has none.
+ */
+export async function executeProjectProviderAction(
+  projectId: string,
+  provider: ConnectionProvider,
+  action: string,
+  params: Record<string, any> = {}
+): Promise<any> {
+  const store = useConnectionsStore.getState();
+
+  // Try project-scoped token first, fall back to global
+  const projectToken = store.getProjectToken(projectId, provider);
+  const globalToken = store.getToken(provider);
+  const token = projectToken || globalToken;
+  const service = services[provider];
+
+  if (!service) throw new Error(`Service not implemented: ${provider}`);
+  if (!token) {
+    throw new Error(
+      `Not connected to ${PROVIDERS[provider].name} for this project. Please connect in Settings > Connections.`
+    );
+  }
+
+  try {
+    return await service.execute(action, params, token);
+  } catch (error: any) {
+    if (error?.status === 401 || error?.status === 403) {
+      if (projectToken) {
+        store.setProjectError(projectId, provider, 'Token expired or revoked');
+      } else {
+        store.setError(provider, 'Token expired or revoked');
+      }
+    }
+    throw error;
+  }
+}
+
+// --------------- Helpers ---------------
+
 export function getService(provider: ConnectionProvider): ConnectionService | undefined {
   return services[provider];
 }
 
-/**
- * Check if a provider has an implemented service.
- */
 export function isServiceAvailable(provider: ConnectionProvider): boolean {
   return !!services[provider];
 }

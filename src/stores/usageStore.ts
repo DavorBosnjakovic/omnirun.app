@@ -31,6 +31,28 @@ interface SessionData {
   totalOutputCost: number;
 }
 
+// ─── Session History Types ──────────────────────────────────────────
+
+export interface SessionSummary {
+  id: string;
+  startTime: number;
+  endTime: number;
+  totalTokens: number;
+  totalCost: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalInputCost: number;
+  totalOutputCost: number;
+  entryCount: number;
+  models: string[];       // Unique models used in this session
+  providers: string[];    // Unique providers used
+}
+
+export interface SessionDetail {
+  summary: SessionSummary;
+  entries: UsageEntry[];
+}
+
 interface UsageState {
   // Current session
   session: SessionData;
@@ -54,6 +76,10 @@ interface UsageState {
   budgetAlertEnabled: boolean;
   budgetAlertThreshold: number; // percentage (0-100), default 80
 
+  // Session history
+  sessionHistory: SessionSummary[];
+  selectedSession: SessionDetail | null;
+
   // Actions
   trackAPICall: (params: {
     model: string;
@@ -69,8 +95,12 @@ interface UsageState {
   setBudgetAlertThreshold: (threshold: number) => void;
   resetSession: () => void;
   clearAllData: () => void;
-  // New: load from SQLite on startup
+  // Load from SQLite on startup
   loadFromDB: () => Promise<void>;
+  // Session history actions
+  loadSessionHistory: (options?: { fromDate?: number; toDate?: number }) => Promise<void>;
+  loadSessionDetail: (sessionId: string) => Promise<void>;
+  clearSelectedSession: () => void;
 }
 
 // ─── Pricing (per 1M tokens) ────────────────────────────────────────
@@ -148,6 +178,22 @@ interface CostBreakdown {
   total: number;
 }
 
+/**
+ * Calculate cost for an API call.
+ *
+ * CRITICAL: For Anthropic (and DeepSeek), `inputTokens` from the API already
+ * INCLUDES `cacheReadTokens`. Those cached tokens are charged at a discounted
+ * rate (0.1x for Anthropic, 0.1x for DeepSeek), NOT at the full input rate.
+ *
+ * `cacheCreationTokens` are NOT included in `inputTokens` — they're separate
+ * and charged at 1.25x the base input rate.
+ *
+ * Correct formula:
+ *   regularInput = (inputTokens - cacheReadTokens) × base_rate
+ *   cacheRead    = cacheReadTokens × cacheRead_rate
+ *   cacheCreate  = cacheCreationTokens × cacheCreation_rate
+ *   output       = outputTokens × output_rate
+ */
 function calculateCost(
   model: string,
   provider: string,
@@ -158,17 +204,27 @@ function calculateCost(
 ): CostBreakdown {
   const pricing = getPricing(model, provider);
 
-  const inputCost = (inputTokens / 1_000_000) * pricing.input;
-  const outputCost = (outputTokens / 1_000_000) * pricing.output;
-  const cacheCreateCost = pricing.cacheCreation
-    ? (cacheCreationTokens / 1_000_000) * pricing.cacheCreation
-    : 0;
+  // ── FIX: Subtract cache_read from input before applying full rate ──
+  // inputTokens already includes cacheReadTokens (Anthropic API behavior).
+  // Only the non-cached portion should be charged at the full input rate.
+  const regularInputTokens = Math.max(0, inputTokens - cacheReadTokens);
+  const regularInputCost = (regularInputTokens / 1_000_000) * pricing.input;
+
+  // Cache read tokens: charged at the discounted cache_read rate
   const cacheReadCost = pricing.cacheRead
     ? (cacheReadTokens / 1_000_000) * pricing.cacheRead
     : 0;
 
-  // Cache costs are part of input cost (they're input token variants)
-  const totalInputCost = inputCost + cacheCreateCost + cacheReadCost;
+  // Cache creation tokens: charged at the premium cache_creation rate
+  // These are NOT included in inputTokens — they're always separate.
+  const cacheCreateCost = pricing.cacheCreation
+    ? (cacheCreationTokens / 1_000_000) * pricing.cacheCreation
+    : 0;
+
+  const outputCost = (outputTokens / 1_000_000) * pricing.output;
+
+  // Total input cost = regular + cache read + cache creation
+  const totalInputCost = regularInputCost + cacheReadCost + cacheCreateCost;
   const totalOutputCost = outputCost;
 
   return {
@@ -213,14 +269,18 @@ export const useUsageStore = create<UsageState>((set, get) => ({
   monthlyBudget: null,
   budgetAlertEnabled: true,
   budgetAlertThreshold: 80,
+  sessionHistory: [],
+  selectedSession: null,
 
   trackAPICall: ({ model, provider, inputTokens, outputTokens, cacheCreationTokens = 0, cacheReadTokens = 0, taskLabel }) => {
     const costBreakdown = calculateCost(model, provider, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens);
 
-    // FIX: Anthropic's input_tokens excludes cache tokens, but their dashboard
-    // counts cache_creation + cache_read as part of total input. Include them
-    // so our numbers match the provider dashboard.
-    const fullInputTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
+    // ── FIX: Correct total input token count ──
+    // Anthropic's input_tokens already INCLUDES cache_read_input_tokens.
+    // It does NOT include cache_creation_input_tokens.
+    // So the full input count is: inputTokens + cacheCreationTokens
+    // (NOT + cacheReadTokens — those are already in inputTokens)
+    const fullInputTokens = inputTokens + cacheCreationTokens;
 
     const entry: UsageEntry = {
       id: `entry_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -237,6 +297,8 @@ export const useUsageStore = create<UsageState>((set, get) => ({
       outputCost: costBreakdown.outputCost,
       taskLabel,
     };
+
+    const sessionId = get().session.id;
 
     set((state) => {
       const newSession: SessionData = {
@@ -263,7 +325,7 @@ export const useUsageStore = create<UsageState>((set, get) => ({
       const newAllTimeInputCost = state.allTimeInputCost + entry.inputCost;
       const newAllTimeOutputCost = state.allTimeOutputCost + entry.outputCost;
 
-      // Persist to SQLite (fire-and-forget)
+      // Persist to SQLite (fire-and-forget) — include session_id for history
       dbService.recordUsage({
         provider: entry.provider,
         model: entry.model,
@@ -277,6 +339,7 @@ export const useUsageStore = create<UsageState>((set, get) => ({
         outputCost: entry.outputCost,
         taskLabel: entry.taskLabel || null,
         timestamp: entry.timestamp,
+        sessionId,
       }).catch((e) => {
         console.error("Failed to record usage to DB:", e);
       });
@@ -345,9 +408,16 @@ export const useUsageStore = create<UsageState>((set, get) => ({
       dbService.saveUsageSession({
         id: state.session.id,
         startTime: state.session.startTime,
+        endTime: Date.now(),
         totalTokens: state.session.totalTokens,
         totalCost: state.session.totalCost,
+        totalInputTokens: state.session.totalInputTokens,
+        totalOutputTokens: state.session.totalOutputTokens,
+        totalInputCost: state.session.totalInputCost,
+        totalOutputCost: state.session.totalOutputCost,
         entryCount: state.session.entries.length,
+        models: [...new Set(state.session.entries.map(e => e.model))],
+        providers: [...new Set(state.session.entries.map(e => e.provider))],
       }).catch((e) => {
         console.error("Failed to save session to DB:", e);
       });
@@ -376,12 +446,17 @@ export const useUsageStore = create<UsageState>((set, get) => ({
       monthlyBudget: null,
       budgetAlertEnabled: true,
       budgetAlertThreshold: 80,
+      sessionHistory: [],
+      selectedSession: null,
     });
   },
 
   // Load aggregates and budget from SQLite on app startup
   loadFromDB: async () => {
     try {
+      // Run cost migration first (fixes historical bad data from the cache double-counting bug)
+      await dbService.migrateCostRecalculation();
+
       const [monthly, allTime, budgetSettings] = await Promise.all([
         dbService.getMonthlyUsage(),
         dbService.getAllTimeUsage(),
@@ -406,5 +481,29 @@ export const useUsageStore = create<UsageState>((set, get) => ({
     } catch (e) {
       console.error("Failed to load usage from DB:", e);
     }
+  },
+
+  // ─── Session History ─────────────────────────────────────────────
+
+  loadSessionHistory: async (options) => {
+    try {
+      const sessions = await dbService.getSessionHistory(options);
+      set({ sessionHistory: sessions });
+    } catch (e) {
+      console.error("Failed to load session history:", e);
+    }
+  },
+
+  loadSessionDetail: async (sessionId: string) => {
+    try {
+      const detail = await dbService.getSessionDetail(sessionId);
+      set({ selectedSession: detail });
+    } catch (e) {
+      console.error("Failed to load session detail:", e);
+    }
+  },
+
+  clearSelectedSession: () => {
+    set({ selectedSession: null });
   },
 }));

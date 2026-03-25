@@ -1,8 +1,6 @@
 // ============================================================
 // ConnectionsSettings.tsx - Connections Hub UI
 // ============================================================
-// Replaces the old placeholder with real connection management.
-// Matches existing settings page patterns (SettingsLayout, themes).
 
 import { useState, useEffect } from 'react';
 import {
@@ -29,17 +27,19 @@ import {
   Rabbit,
   Send,
   Landmark,
+  FolderOpen,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useConnectionsStore } from '../../stores/connectionsStore';
+import { useProjectStore } from '../../stores/projectStore';
 import {
   PROVIDERS,
   MVP_PROVIDERS,
   CATEGORIES,
-  connectProvider,
-  disconnectProvider,
-  retestConnection,
   isServiceAvailable,
+  connectProjectProvider,
+  disconnectProjectProvider,
+  retestProjectConnection,
 } from '../../services/connections';
 import type { ConnectionProvider, ConnectionCategory, ProviderMeta } from '../../services/connections/types';
 
@@ -54,9 +54,9 @@ const ICONS: Record<string, any> = {
   Mail,
   Shield,
   Globe2,
-  Rabbit,       // Bunny.net
-  Send,         // Resend
-  Landmark,     // Porkbun
+  Rabbit,
+  Send,
+  Landmark,
 };
 
 function getIcon(iconName: string) {
@@ -66,42 +66,35 @@ function getIcon(iconName: string) {
 // --------------- Status Badge ---------------
 
 function StatusBadge({ status }: { status: string }) {
-  const { theme } = useSettingsStore();
-
   switch (status) {
     case 'connected':
       return (
         <span className="flex items-center gap-1 text-xs font-medium text-green-400">
-          <CheckCircle size={12} />
-          Connected
+          <CheckCircle size={12} /> Connected
         </span>
       );
     case 'connecting':
       return (
         <span className="flex items-center gap-1 text-xs font-medium text-yellow-400">
-          <Loader2 size={12} className="animate-spin" />
-          Connecting...
+          <Loader2 size={12} className="animate-spin" /> Connecting...
         </span>
       );
     case 'error':
       return (
         <span className="flex items-center gap-1 text-xs font-medium text-red-400">
-          <XCircle size={12} />
-          Error
+          <XCircle size={12} /> Error
         </span>
       );
     case 'expired':
       return (
         <span className="flex items-center gap-1 text-xs font-medium text-orange-400">
-          <AlertCircle size={12} />
-          Expired
+          <AlertCircle size={12} /> Expired
         </span>
       );
     default:
       return (
         <span className="flex items-center gap-1 text-xs opacity-50">
-          <Unplug size={12} />
-          Not connected
+          <Unplug size={12} /> Not connected
         </span>
       );
   }
@@ -111,11 +104,14 @@ function StatusBadge({ status }: { status: string }) {
 
 interface ConnectionCardProps {
   provider: ProviderMeta;
+  projectId: string;
 }
 
-function ConnectionCard({ provider }: ConnectionCardProps) {
+function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
   const { theme } = useSettingsStore();
-  const connection = useConnectionsStore((s) => s.connections[provider.id]);
+  const connection = useConnectionsStore(
+    (s) => s.projectConnections[projectId]?.[provider.id]
+  );
   const status = connection?.status || 'disconnected';
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
@@ -128,7 +124,6 @@ function ConnectionCard({ provider }: ConnectionCardProps) {
 
   const Icon = getIcon(provider.icon);
 
-  // Determine theme-aware colors
   const bgCard = theme === 'light'
     ? 'bg-white border border-gray-200 shadow-sm'
     : theme === 'sepia'
@@ -160,24 +155,23 @@ function ConnectionCard({ provider }: ConnectionCardProps) {
     }
     setError('');
     try {
-      await connectProvider(provider.id, tokenInput.trim());
+      await connectProjectProvider(projectId, provider.id, tokenInput.trim());
       setTokenInput('');
       setShowToken(false);
-      // Don't collapse - show the success state
     } catch (err: any) {
       setError(err.message || 'Connection failed');
     }
   };
 
   const handleDisconnect = () => {
-    disconnectProvider(provider.id);
+    disconnectProjectProvider(projectId, provider.id);
     setTokenInput('');
     setError('');
   };
 
   const handleRetest = async () => {
     setError('');
-    const ok = await retestConnection(provider.id);
+    const ok = await retestProjectConnection(projectId, provider.id);
     if (!ok) setError('Token is no longer valid');
   };
 
@@ -189,9 +183,12 @@ function ConnectionCard({ provider }: ConnectionCardProps) {
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-opacity-20"
+          <div
+            className="w-9 h-9 rounded-lg flex items-center justify-center"
             style={{
-              backgroundColor: isConnected ? 'rgba(74, 222, 128, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+              backgroundColor: isConnected
+                ? 'rgba(74, 222, 128, 0.15)'
+                : 'rgba(148, 163, 184, 0.15)',
             }}
           >
             <Icon size={18} className={isConnected ? 'text-green-400' : 'opacity-60'} />
@@ -211,62 +208,41 @@ function ConnectionCard({ provider }: ConnectionCardProps) {
 
         <div className="flex items-center gap-3">
           <StatusBadge status={status} />
-          {expanded ? <ChevronUp size={14} className="opacity-50" /> : <ChevronDown size={14} className="opacity-50" />}
+          {expanded
+            ? <ChevronUp size={14} className="opacity-50" />
+            : <ChevronDown size={14} className="opacity-50" />
+          }
         </div>
       </div>
 
       {/* Expanded Section */}
       {expanded && (
         <div className="px-4 pb-4 pt-0 border-t border-opacity-10 border-current">
+
           {/* Connected State */}
           {isConnected && connection && (
             <div className="space-y-3 mt-3">
-              {/* Account Info */}
               {connection.accountInfo && (
-                <div className={`rounded-md p-3 text-xs ${theme === 'light' ? 'bg-green-50 text-green-800' : 'bg-green-500/10 text-green-300'}`}>
-                  <div className="flex items-center gap-2">
-                    {connection.accountInfo.avatar && (
-                      <img src={connection.accountInfo.avatar} alt="" className="w-6 h-6 rounded-full" />
-                    )}
-                    <div>
-                      <div className="font-medium">{connection.accountInfo.name}</div>
-                      {connection.accountInfo.email && (
-                        <div className="opacity-70">{connection.accountInfo.email}</div>
-                      )}
-                    </div>
-                  </div>
-                  {/* Provider-specific extras */}
-                  {connection.accountInfo.extra?.login && (
-                    <div className="mt-1 opacity-70">@{connection.accountInfo.extra.login}</div>
+                <div className={`rounded-md p-3 text-xs ${
+                  theme === 'light' ? 'bg-green-50 text-green-800' : 'bg-green-500/10 text-green-300'
+                }`}>
+                  {connection.accountInfo.name && (
+                    <p className="font-medium">{connection.accountInfo.name}</p>
                   )}
-                  {connection.accountInfo.extra?.projectCount !== undefined && (
-                    <div className="mt-1 opacity-70">{connection.accountInfo.extra.projectCount} projects</div>
+                  {connection.accountInfo.email && (
+                    <p className="opacity-70">{connection.accountInfo.email}</p>
                   )}
-                  {connection.accountInfo.extra?.site_count !== undefined && (
-                    <div className="mt-1 opacity-70">{connection.accountInfo.extra.site_count} sites</div>
-                  )}
-                  {connection.accountInfo.extra?.domainCount !== undefined && (
-                    <div className="mt-1 opacity-70">{connection.accountInfo.extra.domainCount} domains</div>
-                  )}
-                  {connection.accountInfo.extra?.pullZoneCount !== undefined && (
-                    <div className="mt-1 opacity-70">{connection.accountInfo.extra.pullZoneCount} pull zones</div>
-                  )}
-                  {connection.accountInfo.extra?.storageZoneCount !== undefined && (
-                    <div className="mt-1 opacity-70">{connection.accountInfo.extra.storageZoneCount} storage zones</div>
-                  )}
-                  {connection.accountInfo.extra?.verifiedDomainCount !== undefined && (
-                    <div className="mt-1 opacity-70">{connection.accountInfo.extra.verifiedDomainCount} verified domains</div>
+                  {connection.accountInfo.plan && (
+                    <p className="opacity-70 mt-1">Plan: {connection.accountInfo.plan}</p>
                   )}
                 </div>
               )}
-
               <div className="flex items-center gap-2 text-xs opacity-50">
                 <span>Token: {connection.tokenLabel}</span>
                 {connection.lastTestedAt && (
                   <span>• Last tested: {new Date(connection.lastTestedAt).toLocaleDateString()}</span>
                 )}
               </div>
-
               <div className="flex gap-2">
                 <button
                   onClick={handleRetest}
@@ -302,7 +278,6 @@ function ConnectionCard({ provider }: ConnectionCardProps) {
           {/* Disconnected / Connect Form */}
           {(status === 'disconnected' || status === 'error' || status === 'expired') && (
             <div className="mt-3 space-y-3">
-              {/* Help Link */}
               <a
                 href={provider.tokenHelpUrl}
                 target="_blank"
@@ -312,8 +287,6 @@ function ConnectionCard({ provider }: ConnectionCardProps) {
               >
                 Get your {provider.tokenName} <ExternalLink size={10} />
               </a>
-
-              {/* Token Input */}
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <input
@@ -337,11 +310,10 @@ function ConnectionCard({ provider }: ConnectionCardProps) {
                   disabled={isConnecting || !tokenInput.trim()}
                   className="flex items-center gap-1.5 px-4 py-2 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
-                  {isConnecting ? (
-                    <><Loader2 size={12} className="animate-spin" /> Testing...</>
-                  ) : (
-                    <><Plug size={12} /> Connect</>
-                  )}
+                  {isConnecting
+                    ? <><Loader2 size={12} className="animate-spin" /> Testing...</>
+                    : <><Plug size={12} /> Connect</>
+                  }
                 </button>
               </div>
 
@@ -351,7 +323,6 @@ function ConnectionCard({ provider }: ConnectionCardProps) {
                 </div>
               )}
 
-              {/* Features list */}
               <div className="text-xs opacity-40">
                 What we automate: {provider.features.join(' • ')}
               </div>
@@ -381,7 +352,6 @@ function CategoryFilter({
   onChange: (cat: ConnectionCategory | 'all') => void;
 }) {
   const { theme } = useSettingsStore();
-  const connectedCount = useConnectionsStore((s) => s.getConnectedProviders().length);
 
   const btnBase = 'px-3 py-1.5 rounded-full text-xs font-medium transition';
   const btnActive = theme === 'light'
@@ -424,23 +394,59 @@ function CategoryFilter({
 
 export default function ConnectionsSettings() {
   const { theme } = useSettingsStore();
-  const connectedCount = useConnectionsStore((s) => s.getConnectedProviders().length);
+  const projects = useProjectStore((s) => s.projects);
+  const currentProject = useProjectStore((s) => s.currentProject);
+  const loadProjectConnectionsFromDB = useConnectionsStore((s) => s.loadProjectConnectionsFromDB);
+  const projectConnections = useConnectionsStore((s) => s.projectConnections);
+
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<ConnectionCategory | 'all'>('all');
 
-  // Filter providers by category
+  // Default to the currently open project, or the first in the list
+  useEffect(() => {
+    if (selectedProjectId) return;
+    const defaultId = currentProject?.id || projects[0]?.id || null;
+    setSelectedProjectId(defaultId);
+  }, [projects, currentProject]);
+
+  // Load this project's connections from DB whenever selection changes
+  useEffect(() => {
+    if (selectedProjectId) {
+      loadProjectConnectionsFromDB(selectedProjectId);
+    }
+  }, [selectedProjectId]);
+
+  const selectedProject = projects.find((p) => p.id === selectedProjectId) || null;
+
+  const connectedCount = selectedProjectId
+    ? Object.values(projectConnections[selectedProjectId] || {}).filter(
+        (c) => c?.status === 'connected'
+      ).length
+    : 0;
+
   const filteredProviders = MVP_PROVIDERS.filter((p) => {
     if (activeCategory === 'all') return true;
     return PROVIDERS[p].category === activeCategory;
   });
 
-  // Sort: connected first, then alphabetical
-  const connections = useConnectionsStore((s) => s.connections);
   const sortedProviders = [...filteredProviders].sort((a, b) => {
-    const aConn = connections[a]?.status === 'connected' ? 0 : 1;
-    const bConn = connections[b]?.status === 'connected' ? 0 : 1;
+    const aConn = projectConnections[selectedProjectId || '']?.[a]?.status === 'connected' ? 0 : 1;
+    const bConn = projectConnections[selectedProjectId || '']?.[b]?.status === 'connected' ? 0 : 1;
     if (aConn !== bConn) return aConn - bConn;
     return PROVIDERS[a].name.localeCompare(PROVIDERS[b].name);
   });
+
+  const bgSelect = theme === 'light'
+    ? 'bg-white border-gray-300 text-gray-900'
+    : theme === 'sepia'
+    ? 'bg-stone-800 border-stone-600 text-orange-100'
+    : theme === 'retro'
+    ? 'bg-black border-green-700 text-green-400 font-mono'
+    : theme === 'midnight'
+    ? 'bg-slate-900 border-slate-600 text-slate-100'
+    : theme === 'highContrast'
+    ? 'bg-black border-white text-white'
+    : 'bg-gray-800 border-gray-600 text-white';
 
   return (
     <div className="space-y-6">
@@ -448,32 +454,74 @@ export default function ConnectionsSettings() {
       <div>
         <h2 className="text-lg font-semibold">Connections</h2>
         <p className="text-sm opacity-60 mt-1">
-          Connect your accounts to deploy, manage databases, process payments, and more — all without leaving Mydevify.
+          Connect your accounts to deploy, manage databases, process payments, and more — all without leaving Omnirun.
         </p>
-        {connectedCount > 0 && (
-          <p className="text-xs mt-2 text-green-400">
-            {connectedCount} service{connectedCount !== 1 ? 's' : ''} connected
+      </div>
+
+      {/* Project Selector */}
+      <div className={`rounded-lg p-4 w-1/3 ${
+        theme === 'light'
+          ? 'bg-gray-50 border border-gray-200'
+          : 'bg-gray-800/60 border border-gray-700'
+      }`}>
+        <div className="flex items-center gap-3">
+          <FolderOpen size={16} className="opacity-60 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <label className="text-xs font-medium opacity-60 block mb-1.5">Project</label>
+            {projects.length === 0 ? (
+              <p className="text-sm opacity-40">No projects yet — create a project first.</p>
+            ) : (
+              <select
+                value={selectedProjectId || ''}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                className={`w-full px-3 py-2 rounded text-sm border outline-none focus:ring-1 focus:ring-blue-500 ${bgSelect}`}
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          {connectedCount > 0 && (
+            <span className="text-xs text-green-400 shrink-0 font-medium">
+              {connectedCount} connected
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Category Tabs + Cards */}
+      {selectedProject ? (
+        <>
+          <CategoryFilter active={activeCategory} onChange={setActiveCategory} />
+
+          <div className="space-y-2">
+            {sortedProviders.map((providerId) => (
+              <ConnectionCard
+                key={providerId}
+                provider={PROVIDERS[providerId]}
+                projectId={selectedProject.id}
+              />
+            ))}
+          </div>
+        </>
+      ) : (
+        projects.length > 0 && (
+          <p className="text-sm opacity-40 text-center py-8">
+            Select a project above to manage its connections.
           </p>
-        )}
-      </div>
-
-      {/* Category Tabs */}
-      <CategoryFilter active={activeCategory} onChange={setActiveCategory} />
-
-      {/* Connection Cards */}
-      <div className="space-y-2">
-        {sortedProviders.map((providerId) => (
-          <ConnectionCard key={providerId} provider={PROVIDERS[providerId]} />
-        ))}
-      </div>
+        )
+      )}
 
       {/* Security Note */}
-      <div className={`rounded-lg p-3 text-xs opacity-50 ${theme === 'light' ? 'bg-gray-50' : 'bg-gray-800/50'}`}>
+      <div className={`rounded-lg p-3 text-xs opacity-50 ${
+        theme === 'light' ? 'bg-gray-50' : 'bg-gray-800/50'
+      }`}>
         <div className="flex items-center gap-1.5 font-medium mb-1">
           <Shield size={12} /> Security
         </div>
         <p>
-          Tokens are stored locally on your device. They are never sent to Mydevify servers.
+          Tokens are stored locally on your device. They are never sent to Omnirun servers.
           All API calls go directly from your machine to the service provider.
         </p>
         <p className="mt-1 opacity-70">
