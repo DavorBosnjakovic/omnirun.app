@@ -1,5 +1,5 @@
 // ============================================================
-// Connection Types - Mydevify Connections Hub
+// Connection Types - Omnirun Connections Hub
 // ============================================================
 
 // --------------- Provider Registry ---------------
@@ -81,6 +81,11 @@ export interface ProviderMeta {
   icon: string;               // Lucide icon name
   docsUrl: string;
   features: string[];         // what we automate
+  /**
+   * 'global'  — one credential shared across all projects (GitHub, Stripe, Vercel, etc.)
+   * 'project' — each project has its own credential (Supabase, Firebase, PlanetScale, etc.)
+   */
+  scope: 'global' | 'project';
 }
 
 // Full provider registry
@@ -97,6 +102,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Github',
     docsUrl: 'https://docs.github.com/en/rest',
     features: ['Push/pull code', 'Create repos', 'Manage branches', 'Create PRs'],
+    scope: 'global',
   },
   vercel: {
     id: 'vercel',
@@ -110,6 +116,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Triangle',
     docsUrl: 'https://vercel.com/docs/rest-api',
     features: ['Deploy projects', 'Manage domains', 'SSL certificates', 'Environment variables', 'Preview deploys'],
+    scope: 'global',
   },
   netlify: {
     id: 'netlify',
@@ -123,6 +130,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Globe',
     docsUrl: 'https://docs.netlify.com/api/get-started/',
     features: ['Deploy sites', 'Manage domains', 'SSL certificates', 'Form submissions', 'Functions'],
+    scope: 'global',
   },
   supabase: {
     id: 'supabase',
@@ -136,6 +144,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Database',
     docsUrl: 'https://supabase.com/docs/reference/api/introduction',
     features: ['Create tables', 'Manage auth', 'File storage', 'Edge functions', 'Database migrations'],
+    scope: 'project',
   },
   stripe: {
     id: 'stripe',
@@ -149,6 +158,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'CreditCard',
     docsUrl: 'https://stripe.com/docs/api',
     features: ['Products & prices', 'Checkout sessions', 'Subscriptions', 'Customer management'],
+    scope: 'global',
   },
   sendgrid: {
     id: 'sendgrid',
@@ -162,6 +172,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Mail',
     docsUrl: 'https://docs.sendgrid.com/api-reference',
     features: ['Send emails', 'Email templates', 'Contact lists', 'Delivery tracking'],
+    scope: 'global',
   },
   namecheap: {
     id: 'namecheap',
@@ -175,6 +186,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Globe2',
     docsUrl: 'https://www.namecheap.com/support/api/methods/',
     features: ['DNS records', 'Domain management', 'Nameserver config'],
+    scope: 'global',
   },
   cloudflare: {
     id: 'cloudflare',
@@ -188,6 +200,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Shield',
     docsUrl: 'https://developers.cloudflare.com/api/',
     features: ['DNS records', 'CDN config', 'Security rules', 'Pages deployment'],
+    scope: 'global',
   },
   bunny: {
     id: 'bunny',
@@ -201,6 +214,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Rabbit',
     docsUrl: 'https://docs.bunny.net',
     features: ['CDN pull zones', 'Edge storage', 'DNS zones', 'Cache purge', 'File management'],
+    scope: 'global',
   },
   godaddy: {
     id: 'godaddy',
@@ -214,6 +228,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Globe2',
     docsUrl: 'https://developer.godaddy.com/doc',
     features: ['Domain management', 'DNS records', 'Domain details'],
+    scope: 'global',
   },
   resend: {
     id: 'resend',
@@ -227,6 +242,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Send',
     docsUrl: 'https://resend.com/docs/api-reference',
     features: ['Send emails', 'Domain verification', 'Delivery tracking'],
+    scope: 'global',
   },
   porkbun: {
     id: 'porkbun',
@@ -240,6 +256,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Landmark',
     docsUrl: 'https://porkbun.com/api/json/v3/documentation',
     features: ['Domain management', 'DNS records', 'DNS editing'],
+    scope: 'global',
   },
   // Phase 2 stubs
   railway: {
@@ -254,6 +271,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Train',
     docsUrl: 'https://docs.railway.app/reference/public-api',
     features: ['Deploy services', 'Manage databases', 'Environment variables'],
+    scope: 'global',
   },
   render: {
     id: 'render',
@@ -267,6 +285,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Server',
     docsUrl: 'https://api-docs.render.com/',
     features: ['Deploy services', 'Managed databases', 'Cron jobs'],
+    scope: 'global',
   },
   firebase: {
     id: 'firebase',
@@ -280,6 +299,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Flame',
     docsUrl: 'https://firebase.google.com/docs/reference/rest',
     features: ['Firestore database', 'Authentication', 'File storage', 'Cloud functions'],
+    scope: 'project',
   },
   planetscale: {
     id: 'planetscale',
@@ -293,6 +313,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Database',
     docsUrl: 'https://api-docs.planetscale.com/',
     features: ['Create databases', 'Database branches', 'Deploy requests', 'Schema management'],
+    scope: 'project',
   },
   paypal: {
     id: 'paypal',
@@ -306,6 +327,7 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     icon: 'Wallet',
     docsUrl: 'https://developer.paypal.com/docs/api/overview/',
     features: ['Payments', 'Subscriptions', 'Invoices'],
+    scope: 'global',
   },
 };
 
@@ -314,6 +336,11 @@ export const MVP_PROVIDERS: ConnectionProvider[] = [
   'github', 'vercel', 'netlify', 'supabase', 'stripe', 'sendgrid', 'namecheap', 'cloudflare',
   'bunny', 'godaddy', 'resend', 'porkbun',
 ];
+
+// Providers that are scoped per-project (each project has its own credential)
+export const PROJECT_SCOPED_PROVIDERS: ConnectionProvider[] = MVP_PROVIDERS.filter(
+  (p) => PROVIDERS[p].scope === 'project'
+);
 
 // Category display order and labels
 export const CATEGORIES: { id: ConnectionCategory; label: string }[] = [

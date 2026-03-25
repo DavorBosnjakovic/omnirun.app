@@ -13,7 +13,7 @@ export type {
   ConnectionService,
 } from './types';
 
-export { PROVIDERS, MVP_PROVIDERS, CATEGORIES } from './types';
+export { PROVIDERS, MVP_PROVIDERS, CATEGORIES, PROJECT_SCOPED_PROVIDERS } from './types';
 
 // Services
 export { githubService } from './github';
@@ -38,4 +38,8 @@ export {
   executeProviderAction,
   getService,
   isServiceAvailable,
+  connectProjectProvider,
+  disconnectProjectProvider,
+  retestProjectConnection,
+  executeProjectProviderAction,
 } from './connectionManager';

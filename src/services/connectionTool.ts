@@ -1,16 +1,10 @@
 // ============================================================
 // Connection Tool - AI Meta-Tool Integration
 // ============================================================
-// This integrates with your existing toolService.ts.
-// Instead of 50+ individual tools, the AI gets ONE tool per service.
-//
-// Add this to your toolService.ts tool definitions and execution logic.
-// Example AI usage:
-//   <tool_call>{"tool": "connection", "params": {"provider": "vercel", "action": "list_projects", "params": {}}}</tool_call>
 
-import { executeProviderAction, isServiceAvailable } from './connections/connectionManager';
+import { executeProviderAction, executeProjectProviderAction, isServiceAvailable } from './connections/connectionManager';
 import { useConnectionsStore } from '../stores/connectionsStore';
-import { PROVIDERS, MVP_PROVIDERS } from './connections/types';
+import { PROVIDERS, MVP_PROVIDERS, PROJECT_SCOPED_PROVIDERS } from './connections/types';
 import type { ConnectionProvider } from './connections/types';
 
 // --------------- Tool Definition (add to buildToolsPrompt) ---------------
@@ -105,42 +99,53 @@ This is a meta-tool — specify the provider, action, and parameters.
 **IMPORTANT:** Before using any provider, check if it's connected. If not, tell the user to connect it in Settings > Connections.
 `;
 
-// --------------- Tool Execution (add to executeTool) ---------------
+// --------------- Tool Execution ---------------
 
 /**
  * Execute a connection tool call from the AI.
- * Returns a string result suitable for tool_result messages.
+ * Pass currentProjectId so project-scoped providers use the right credential.
  */
 export async function executeConnectionTool(
-  toolParams: { provider: string; action: string; params?: Record<string, any> }
+  toolParams: { provider: string; action: string; params?: Record<string, any> },
+  currentProjectId?: string
 ): Promise<string> {
   const { provider, action, params = {} } = toolParams;
 
-  // Validate provider
   if (!MVP_PROVIDERS.includes(provider as ConnectionProvider)) {
     return `Error: Unknown provider "${provider}". Available: ${MVP_PROVIDERS.join(', ')}`;
   }
 
   const p = provider as ConnectionProvider;
 
-  // Check if service is implemented
   if (!isServiceAvailable(p)) {
     return `Error: ${PROVIDERS[p].name} service is not yet implemented.`;
   }
 
-  // Check if connected
   const store = useConnectionsStore.getState();
-  if (!store.isConnected(p)) {
+  const isProjectScoped = PROJECT_SCOPED_PROVIDERS.includes(p);
+
+  // For project-scoped providers, check the project connection first
+  if (isProjectScoped && currentProjectId) {
+    const hasProjectConn = store.isProjectConnected(currentProjectId, p);
+    const hasGlobalConn = store.isConnected(p);
+    if (!hasProjectConn && !hasGlobalConn) {
+      return `Error: ${PROVIDERS[p].name} is not connected for this project. Ask the user to connect it in Settings > Connections.`;
+    }
+  } else if (!store.isConnected(p)) {
     return `Error: Not connected to ${PROVIDERS[p].name}. Please ask the user to connect it in Settings > Connections.`;
   }
 
   try {
-    const result = await executeProviderAction(p, action, params);
+    let result: any;
+    if (isProjectScoped && currentProjectId) {
+      result = await executeProjectProviderAction(currentProjectId, p, action, params);
+    } else {
+      result = await executeProviderAction(p, action, params);
+    }
 
-    // Truncate large responses to avoid blowing up context
     const json = JSON.stringify(result, null, 2);
     if (json.length > 10000) {
-      return JSON.stringify(result, null, 2).slice(0, 10000) + '\n... (truncated)';
+      return json.slice(0, 10000) + '\n... (truncated)';
     }
     return json;
   } catch (err: any) {
@@ -148,23 +153,36 @@ export async function executeConnectionTool(
   }
 }
 
-// --------------- Helper: Get Connected Services Summary ---------------
-// Include this in the system prompt so AI knows what's available
+// --------------- Connected Services Summary ---------------
+// Pass currentProjectId so the AI knows which Supabase instance belongs to this project.
 
-export function getConnectionsSummary(): string {
+export function getConnectionsSummary(currentProjectId?: string): string {
   const store = useConnectionsStore.getState();
   const connected = store.getConnectedProviders();
+  const lines: string[] = [];
 
-  if (connected.length === 0) {
-    return '';
-  }
-
-  const lines = connected.map((p) => {
+  for (const p of connected) {
+    const isProjectScoped = PROJECT_SCOPED_PROVIDERS.includes(p);
+    if (isProjectScoped) continue; // handled separately below
     const conn = store.getConnection(p);
     const meta = PROVIDERS[p];
     const name = conn?.accountInfo?.name || conn?.accountInfo?.email || '';
-    return `- ${meta.name}: Connected${name ? ` (${name})` : ''}`;
-  });
+    lines.push(`- ${meta.name}: Connected${name ? ` (${name})` : ''}`);
+  }
+
+  // Add project-scoped connections for the active project
+  if (currentProjectId) {
+    for (const p of PROJECT_SCOPED_PROVIDERS) {
+      const conn = store.getProjectConnection(currentProjectId, p);
+      if (conn?.status === 'connected') {
+        const meta = PROVIDERS[p];
+        const name = conn.accountInfo?.name || conn.accountInfo?.email || '';
+        lines.push(`- ${meta.name}: Connected for this project${name ? ` (${name})` : ''}`);
+      }
+    }
+  }
+
+  if (lines.length === 0) return '';
 
   return `Connected services:\n${lines.join('\n')}\n\nUse the "connection" tool to interact with these services.`;
 }

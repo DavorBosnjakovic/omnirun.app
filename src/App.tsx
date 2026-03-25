@@ -13,6 +13,7 @@ import { useAuthStore } from "./stores/authStore";
 function App() {
   const [dbReady, setDbReady] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [dbError, setDbError] = useState(false);
 
   // Initialize SQLite and load all stores on startup
   useEffect(() => {
@@ -40,9 +41,7 @@ function App() {
         retestAllConnections();
       } catch (error) {
         console.error("Failed to initialize app:", error);
-        // Still show the UI even if DB fails
-        setDbReady(true);
-        setAuthChecked(true);
+        setDbError(true);
       }
     }
 
@@ -72,6 +71,14 @@ function App() {
   const appFont = fontMap[theme] || "'Inter', sans-serif";
 
   // Don't render until DB and stores are loaded
+  if (dbError) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-black text-white text-sm opacity-60">
+        Failed to initialize database. Please restart the app.
+      </div>
+    );
+  }
+
   if (!dbReady || !authChecked) {
     return null;
   }
