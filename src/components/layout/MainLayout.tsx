@@ -292,14 +292,17 @@ function MainLayout() {
                 </>
               )}
 
-              {/* Preview toggle button (when closed) */}
+              {/* Preview toggle button (when closed) — mirrors sidebar collapse toggle */}
               {!previewOpen && (
-                <button
-                  onClick={() => setPreviewOpen(true)}
-                  className={`w-10 ${t.colors.bgSecondary} ${t.colors.text} flex items-center justify-center hover:opacity-80`}
-                >
-                  <PanelRight size={20} />
-                </button>
+                <div className={`w-12 ${t.colors.bgSecondary} ${t.colors.border} border-l flex flex-col items-center`}>
+                  <button
+                    onClick={() => setPreviewOpen(true)}
+                    className={`h-12 w-full flex items-center justify-center ${t.colors.text} hover:opacity-70`}
+                    title="Open Preview"
+                  >
+                    <PanelRight size={20} />
+                  </button>
+                </div>
               )}
 
               {/* Time Machine panel */}
