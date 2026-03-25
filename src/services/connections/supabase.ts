@@ -5,33 +5,35 @@
 // Token: Access Token from https://supabase.com/dashboard/account/tokens
 // Base URL: https://api.supabase.com
 
+import { invoke } from '@tauri-apps/api/core';
 import type { ConnectionService, AccountInfo } from './types';
 
-const BASE = 'https://api.supabase.com';
-
-function headers(token: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mydevify/1.0.0',
-  };
-}
-
+/**
+ * Proxy all Supabase Management API calls through Tauri's Rust backend
+ * to avoid CORS blocks (the Management API doesn't set Access-Control headers).
+ */
 async function sbFetch(path: string, token: string, options: RequestInit = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers: { ...headers(token), ...options.headers },
+  const method = options.method || 'GET';
+  const body = options.body ? String(options.body) : null;
+
+  const result = await invoke<{ status: number; body: string }>('supabase_management_api', {
+    path,
+    token,
+    method,
+    body,
   });
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const err: any = new Error(body.message || body.msg || `Supabase API error: ${res.status}`);
-    err.status = res.status;
+  if (result.status === 204) return null;
+
+  if (result.status >= 400) {
+    let errorBody: any = {};
+    try { errorBody = JSON.parse(result.body); } catch {}
+    const err: any = new Error(errorBody.message || errorBody.msg || `Supabase API error: ${result.status}`);
+    err.status = result.status;
     throw err;
   }
 
-  if (res.status === 204) return null;
-  return res.json();
+  return JSON.parse(result.body);
 }
 
 /**

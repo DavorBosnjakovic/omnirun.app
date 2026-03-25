@@ -217,16 +217,21 @@ export const useUsageStore = create<UsageState>((set, get) => ({
   trackAPICall: ({ model, provider, inputTokens, outputTokens, cacheCreationTokens = 0, cacheReadTokens = 0, taskLabel }) => {
     const costBreakdown = calculateCost(model, provider, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens);
 
+    // FIX: Anthropic's input_tokens excludes cache tokens, but their dashboard
+    // counts cache_creation + cache_read as part of total input. Include them
+    // so our numbers match the provider dashboard.
+    const fullInputTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
+
     const entry: UsageEntry = {
       id: `entry_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: Date.now(),
       model,
       provider,
-      inputTokens,
+      inputTokens: fullInputTokens,
       outputTokens,
       cacheCreationTokens,
       cacheReadTokens,
-      totalTokens: inputTokens + outputTokens,
+      totalTokens: fullInputTokens + outputTokens,
       cost: costBreakdown.total,
       inputCost: costBreakdown.inputCost,
       outputCost: costBreakdown.outputCost,
@@ -284,7 +289,7 @@ export const useUsageStore = create<UsageState>((set, get) => ({
         state.monthlyCost < state.monthlyBudget * (state.budgetAlertThreshold / 100)
       ) {
         console.warn(
-          `[Mydevify] Budget alert: Monthly cost $${newMonthlyCost.toFixed(2)} ` +
+          `[Omnirun] Budget alert: Monthly cost $${newMonthlyCost.toFixed(2)} ` +
           `reached ${state.budgetAlertThreshold}% of $${state.monthlyBudget} budget`
         );
       }

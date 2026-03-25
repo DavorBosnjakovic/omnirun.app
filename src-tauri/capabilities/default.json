@@ -14,9 +14,15 @@
     "opener:default",
     "dialog:default",
     "fs:default",
-    "fs:allow-read-text-file",
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [{ "path": "**" }]
+    },
     "fs:allow-exists",
-    "fs:allow-watch",
+    {
+      "identifier": "fs:allow-watch",
+      "allow": [{ "path": "**" }]
+    },
     "fs:allow-unwatch",
     "sql:default",
     "sql:allow-execute",

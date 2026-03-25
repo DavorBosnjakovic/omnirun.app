@@ -6,6 +6,7 @@ import { useProjectStore } from "../../stores/projectStore";
 import { themes } from "../../config/themes";
 import { watchProject, unwatchProject, readDirectory } from "../../services/fileService";
 import { generateManifest } from "../../services/manifestService";
+import { refreshContext } from "../../services/contextService";
 import Topbar from "../topbar/Topbar";
 import Sidebar from "../sidebar/Sidebar";
 import ChatArea from "../chat/ChatArea";
@@ -73,6 +74,17 @@ function MainLayout() {
         setManifest(manifest);
       } catch (err) {
         console.error("[watcher] Failed to refresh file tree:", err);
+      }
+
+      // Auto-update .mydevify/context.md so AI always has current project state
+      // Skip if the change was inside .mydevify itself (avoid infinite loop)
+      const hasNonContextChanges = changedPaths.some(
+        (p) => !p.replace(/\\/g, "/").includes("/.mydevify/")
+      );
+      if (hasNonContextChanges) {
+        refreshContext(watchPath).catch((err) =>
+          console.error("[watcher] Failed to refresh context:", err)
+        );
       }
 
       // Check if the currently selected file (in edit mode) was changed externally

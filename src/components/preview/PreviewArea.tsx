@@ -1,4 +1,4 @@
-import { ExternalLink, PanelRightClose, FileCode, Copy, Check, Globe, RefreshCw, Pencil, Save, X, Download, Terminal, AlertCircle, Loader } from "lucide-react";
+import { ExternalLink, PanelRightClose, FileCode, Copy, Check, Globe, RefreshCw, Pencil, Save, X, Download, Terminal, AlertCircle, Loader, Monitor, Tablet, Smartphone, Play, Square } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProjectStore } from "../../stores/projectStore";
@@ -17,14 +17,24 @@ interface PreviewAreaProps {
 
 const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"];
 
+// Responsive viewport presets
+type ViewportSize = "desktop" | "tablet" | "mobile";
+const VIEWPORT_PRESETS: Record<ViewportSize, { width: number | null; label: string; icon: typeof Monitor }> = {
+  desktop: { width: null, label: "Desktop", icon: Monitor },      // null = full width
+  tablet:  { width: 768, label: "Tablet (768px)", icon: Tablet },
+  mobile:  { width: 375, label: "Mobile (375px)", icon: Smartphone },
+};
+
 // Preview states for the universal preview system
 type PreviewStatus =
   | "detecting"        // Checking project type
   | "static"           // Using axum static server
-  | "needs-install"    // Framework project missing node_modules
-  | "installing"       // Running npm/yarn/pnpm install
+  | "needs-install"    // Framework project missing node_modules/deps
+  | "installing"       // Running npm/yarn/pnpm install (or pip, flutter pub get, etc.)
   | "starting-dev"     // Dev server is spinning up
   | "dev-running"      // Dev server is running, iframe loaded
+  | "native-app"       // Native app project (Tauri, Electron, Flutter, Rust, etc.) — no iframe
+  | "native-running"   // Native app process is running — show output panel
   | "non-web"          // Not a web project
   | "error";           // Something went wrong
 
@@ -47,6 +57,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   const [previewMode, setPreviewMode] = useState<"file" | "live">("live");
   const [serverPort, setServerPort] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [viewportSize, setViewportSize] = useState<ViewportSize>("desktop");
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Universal preview state
@@ -54,6 +65,8 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   const [detection, setDetection] = useState<ProjectDetection | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [installOutput, setInstallOutput] = useState<string>("");
+  const [nativeOutput, setNativeOutput] = useState<string>("");
+  const [nativeRunning, setNativeRunning] = useState(false);
 
   const { theme } = useSettingsStore();
   const { selectedFile, projectPath, fileTree, setFileTree, manifest, setManifest, setBuildError, autoFixCount, resetAutoFix, externalFileChange, setExternalFileChange } = useProjectStore();
@@ -62,6 +75,9 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   const [errorPollTrigger, setErrorPollTrigger] = useState(0);
   const previewVersionRef = useRef(0);
   const t = themes[theme];
+
+  // Resolved path: may differ from projectPath if the app lives in a subdirectory
+  const activePath = detection?.resolvedPath || projectPath;
 
   const isImageFile = selectedFile ? IMAGE_EXTENSIONS.some(ext =>
     selectedFile.name.toLowerCase().endsWith(ext)
@@ -100,7 +116,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
                 await new Promise((r) => setTimeout(r, 2000));
               }
               if (previewVersionRef.current !== thisVersion) return;
-              const port = await invoke<number>("start_preview_server", { path: projectPath });
+              const port = await invoke<number>("start_preview_server", { path: result.resolvedPath || projectPath });
               if (!cancelled && previewVersionRef.current === thisVersion) {
                 setServerPort(port);
                 setRefreshKey((k) => k + 1);
@@ -125,6 +141,22 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
               }
             } else {
               await startDevServer(result, oldPort, thisVersion);
+            }
+            break;
+
+          case "native-app":
+            if (result.needsInstall) {
+              if (aiIsLoading) {
+                setPreviewStatus("detecting");
+                setStatusMessage("AI is working, waiting to detect project...");
+              } else {
+                setPreviewStatus("needs-install");
+                setStatusMessage(`This ${result.framework} project needs dependencies installed.`);
+              }
+            } else {
+              setPreviewStatus("native-app");
+              setNativeOutput("");
+              setNativeRunning(false);
             }
             break;
 
@@ -171,7 +203,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
     // Only act when AI just finished (true → false)
     if (wasLoading && !aiIsLoading && projectPath) {
       // Re-detect if not already in a healthy running state
-      if (previewStatus !== "dev-running" && previewStatus !== "installing") {
+      if (previewStatus !== "dev-running" && previewStatus !== "installing" && previewStatus !== "native-running") {
         console.log("[preview] AI finished streaming, re-detecting project type...");
         reDetectAndSwitch();
       }
@@ -285,6 +317,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
 
   const startDevServer = async (det: ProjectDetection, oldPort: number | null = null, version: number = 0) => {
     if (!projectPath || !det.devCommand || !det.portPattern) return;
+    const devPath = det.resolvedPath || projectPath;
 
     const isStale = () => version > 0 && previewVersionRef.current !== version;
 
@@ -310,17 +343,17 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
       //    On Windows, taskkill may not kill the entire process tree if npm
       //    spawns node through an intermediary shell. This is a safety net.
       try {
-        const sep = projectPath.includes("/") ? "/" : "\\";
+        const sep = devPath.includes("/") ? "/" : "\\";
         // Windows: find and kill processes using ports 3000-3010
         await invoke("execute_command", {
           command: 'for /f "tokens=5" %a in (\'netstat -aon ^| findstr ":300[0-9] " ^| findstr LISTENING\') do taskkill /PID %a /F 2>nul',
-          cwd: projectPath,
+          cwd: devPath,
         }).catch(() => {});
 
         // 4. Clean framework lock files that prevent restart
         //    Next.js: .next/dev/lock — left behind when process is force-killed
         if (det.framework === "Next.js") {
-          const lockPath = `${projectPath}${sep}.next${sep}dev${sep}lock`;
+          const lockPath = `${devPath}${sep}.next${sep}dev${sep}lock`;
           await invoke("delete_path", { path: lockPath }).catch(() => {});
           console.log("[preview] Cleaned .next/dev/lock");
         }
@@ -336,7 +369,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
 
       const port = await invoke<number>("start_dev_server", {
         command: det.devCommand,
-        cwd: projectPath,
+        cwd: devPath,
         portPattern: det.portPattern.source,
       });
 
@@ -373,7 +406,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
       case "static":
         setPreviewStatus("static");
         try {
-          const port = await invoke<number>("start_preview_server", { path: projectPath });
+          const port = await invoke<number>("start_preview_server", { path: fresh.resolvedPath || projectPath });
           setServerPort(port);
           setRefreshKey((k) => k + 1);
           setStatusMessage("");
@@ -393,23 +426,36 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
       case "non-web":
         setPreviewStatus("non-web");
         break;
+      case "native-app":
+        if (fresh.needsInstall) {
+          setPreviewStatus("needs-install");
+          setStatusMessage(`This ${fresh.framework} project needs dependencies installed.`);
+        } else {
+          setPreviewStatus("native-app");
+          setNativeOutput("");
+          setNativeRunning(false);
+        }
+        break;
     }
   };
 
   const handleInstallDependencies = async () => {
     if (!projectPath || !detection || !detection.installCommand) return;
+    const installPath = detection.resolvedPath || projectPath;
 
-    // Re-verify package.json still exists — AI may have changed the project
-    try {
-      const pkgPath = projectPath.includes("/")
-        ? `${projectPath}/package.json`
-        : `${projectPath}\\package.json`;
-      await invoke("read_file", { path: pkgPath });
-    } catch {
-      // package.json gone — re-run detection instead of installing
-      console.log("[preview] package.json missing before install, re-detecting...");
-      await reDetectAndSwitch();
-      return;
+    // Re-verify the project marker still exists — AI may have changed the project
+    // For npm projects check package.json, for others check their own marker
+    const markerFile = getProjectMarkerFile(detection.framework);
+    if (markerFile) {
+      try {
+        const sep = installPath.includes("/") ? "/" : "\\";
+        await invoke("read_file", { path: `${installPath}${sep}${markerFile}` });
+      } catch {
+        // Marker gone — re-run detection instead of installing
+        console.log(`[preview] ${markerFile} missing before install, re-detecting...`);
+        await reDetectAndSwitch();
+        return;
+      }
     }
 
     setPreviewStatus("installing");
@@ -419,7 +465,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
     try {
       const result = await invoke<{ stdout: string; stderr: string; exit_code: number }>("execute_command", {
         command: detection.installCommand,
-        cwd: projectPath,
+        cwd: installPath,
       });
 
       if (result.exit_code !== 0) {
@@ -431,7 +477,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
         return;
       }
 
-      // Install succeeded — refresh file tree (node_modules appeared) and start dev server
+      // Install succeeded — refresh file tree and proceed
       try {
         const files = await readDirectory(projectPath, 3);
         setFileTree(files);
@@ -441,7 +487,14 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
       const updatedDetection = { ...detection, needsInstall: false };
       setDetection(updatedDetection);
 
-      await startDevServer(updatedDetection);
+      // For web frameworks → start dev server; for native apps → show status panel
+      if (updatedDetection.type === "native-app") {
+        setPreviewStatus("native-app");
+        setNativeOutput("");
+        setNativeRunning(false);
+      } else {
+        await startDevServer(updatedDetection);
+      }
     } catch (err: any) {
       setPreviewStatus("error");
       setStatusMessage(err.toString());
@@ -453,6 +506,86 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
     // Always re-detect from scratch — project may have changed
     await reDetectAndSwitch();
   };
+
+  // ── Native app management ───────────────────────────────────
+
+  /** Map framework name to the file we check before installing */
+  const getProjectMarkerFile = (framework: string | null): string | null => {
+    switch (framework) {
+      case "Next.js": case "Nuxt": case "SvelteKit": case "Svelte":
+      case "Astro": case "Vite": case "Create React App": case "Angular":
+      case "Vue": case "Expo": case "Tauri": case "Electron":
+      case "React Native":
+        return "package.json";
+      case "Flutter Web": case "Flutter":
+        return "pubspec.yaml";
+      case "Django":
+        return "manage.py";
+      case "FastAPI": case "Flask": case "Python":
+        return "requirements.txt";
+      case ".NET":
+        return null; // *.csproj varies, skip marker check
+      case "Rails":
+        return "Gemfile";
+      case "Laravel":
+        return "composer.json";
+      case "Go":
+        return "go.mod";
+      case "Rust":
+        return "Cargo.toml";
+      default:
+        return "package.json";
+    }
+  };
+
+  const nativeOutputRef = useRef<HTMLPreElement>(null);
+
+  /** Run a native app process and stream output to the panel */
+  const handleRunNativeApp = async () => {
+    if (!detection || !detection.devCommand || !projectPath) return;
+    const runPath = detection.resolvedPath || projectPath;
+
+    setNativeRunning(true);
+    setNativeOutput("");
+    setPreviewStatus("native-running");
+
+    try {
+      const result = await invoke<{ stdout: string; stderr: string; exit_code: number }>("execute_command", {
+        command: detection.devCommand,
+        cwd: runPath,
+      });
+
+      const output = [
+        result.stdout ? result.stdout.trim() : "",
+        result.stderr ? result.stderr.trim() : "",
+      ].filter(Boolean).join("\n");
+
+      setNativeOutput(output || `Process exited with code ${result.exit_code}`);
+      setNativeRunning(false);
+      setPreviewStatus("native-app");
+    } catch (err: any) {
+      setNativeOutput((prev) => prev + "\n" + err.toString());
+      setNativeRunning(false);
+      setPreviewStatus("native-app");
+    }
+  };
+
+  /** Stop the native app process (kills the dev server process which is reused) */
+  const handleStopNativeApp = async () => {
+    try {
+      await invoke("stop_dev_server").catch(() => {});
+    } catch { /* ignore */ }
+    setNativeRunning(false);
+    setPreviewStatus("native-app");
+    setNativeOutput((prev) => prev + "\n— Process stopped —");
+  };
+
+  // Auto-scroll native output to bottom
+  useEffect(() => {
+    if (nativeOutputRef.current) {
+      nativeOutputRef.current.scrollTop = nativeOutputRef.current.scrollHeight;
+    }
+  }, [nativeOutput]);
 
   // ── Load file content ──────────────────────────────────────
 
@@ -759,21 +892,52 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
 
           {/* ── Live mode buttons ── */}
           {previewMode === "live" && serverPort && (
-            <div className="relative">
-              <button
-                onClick={handleRefresh}
-                onMouseEnter={() => setTooltip("refresh")}
-                onMouseLeave={() => setTooltip(null)}
-                className={`${t.colors.bgTertiary} hover:opacity-80 p-2 ${t.borderRadius} ${t.colors.text}`}
-              >
-                <RefreshCw size={15} />
-              </button>
-              {tooltip === "refresh" && (
-                <div className={`absolute right-0 top-full mt-1 px-2 py-1 text-xs whitespace-nowrap ${t.colors.bgTertiary} ${t.colors.text} ${t.borderRadius} shadow-lg z-50`}>
-                  Refresh preview
-                </div>
-              )}
-            </div>
+            <>
+              {/* Viewport size switcher */}
+              <div className={`flex items-center ${t.borderRadius} overflow-hidden border ${t.colors.border}`}>
+                {(Object.entries(VIEWPORT_PRESETS) as [ViewportSize, typeof VIEWPORT_PRESETS[ViewportSize]][]).map(([key, preset]) => {
+                  const Icon = preset.icon;
+                  const isActive = viewportSize === key;
+                  return (
+                    <div className="relative" key={key}>
+                      <button
+                        onClick={() => setViewportSize(key)}
+                        onMouseEnter={() => setTooltip(`viewport-${key}`)}
+                        onMouseLeave={() => setTooltip(null)}
+                        className={`p-1.5 transition-colors ${
+                          isActive
+                            ? `${t.colors.accent} ${theme === "highContrast" ? "text-black" : "text-white"}`
+                            : `${t.colors.bgTertiary} ${t.colors.textMuted} hover:${t.colors.text}`
+                        }`}
+                      >
+                        <Icon size={14} />
+                      </button>
+                      {tooltip === `viewport-${key}` && (
+                        <div className={`absolute left-1/2 -translate-x-1/2 top-full mt-1 px-2 py-1 text-xs whitespace-nowrap ${t.colors.bgTertiary} ${t.colors.text} ${t.borderRadius} shadow-lg z-50`}>
+                          {preset.label}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="relative">
+                <button
+                  onClick={handleRefresh}
+                  onMouseEnter={() => setTooltip("refresh")}
+                  onMouseLeave={() => setTooltip(null)}
+                  className={`${t.colors.bgTertiary} hover:opacity-80 p-2 ${t.borderRadius} ${t.colors.text}`}
+                >
+                  <RefreshCw size={15} />
+                </button>
+                {tooltip === "refresh" && (
+                  <div className={`absolute right-0 top-full mt-1 px-2 py-1 text-xs whitespace-nowrap ${t.colors.bgTertiary} ${t.colors.text} ${t.borderRadius} shadow-lg z-50`}>
+                    Refresh preview
+                  </div>
+                )}
+              </div>
+            </>
           )}
 
           {/* Open in Browser - always available when server is running */}
@@ -915,16 +1079,93 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
               </div>
             )}
 
-            {/* Non-web project */}
+            {/* Native app — ready to run (not yet running) */}
+            {previewStatus === "native-app" && (
+              <div className={`flex flex-col h-full ${t.colors.textMuted}`}>
+                {/* Header */}
+                <div className={`flex items-center justify-between px-4 py-3 border-b ${t.colors.border}`}>
+                  <div className="flex items-center gap-2">
+                    <Terminal size={16} />
+                    <span className={`text-sm font-medium ${t.colors.text}`}>
+                      {detection?.framework || "Native App"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleRunNativeApp}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm ${t.colors.accent} ${theme === "highContrast" ? "text-black" : "text-white"} ${t.borderRadius}`}
+                  >
+                    <Play size={14} />
+                    Run
+                  </button>
+                </div>
+                {/* Info + previous output */}
+                <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6">
+                  <Terminal size={32} className="opacity-50" />
+                  <div className="text-center max-w-xs">
+                    <p className={`text-sm font-medium ${t.colors.text} mb-2`}>
+                      {detection?.framework} project detected
+                    </p>
+                    <p className="text-xs mb-1">
+                      Run command: <code className={`px-1.5 py-0.5 ${t.colors.bgTertiary} ${t.borderRadius} text-xs`}>{detection?.devCommand}</code>
+                    </p>
+                    <p className="text-xs opacity-70 mt-3">
+                      This app opens in its own window. Click Run to start it, or ask the AI to run it for you.
+                    </p>
+                  </div>
+                  {/* Show previous output if any */}
+                  {nativeOutput && (
+                    <pre
+                      ref={nativeOutputRef}
+                      className={`text-xs w-full max-h-48 overflow-auto p-3 mt-2 ${t.colors.bgTertiary} ${t.borderRadius} ${t.colors.textMuted}`}
+                      style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}
+                    >
+                      {nativeOutput}
+                    </pre>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Native app — currently running */}
+            {previewStatus === "native-running" && (
+              <div className={`flex flex-col h-full ${t.colors.textMuted}`}>
+                {/* Header */}
+                <div className={`flex items-center justify-between px-4 py-3 border-b ${t.colors.border}`}>
+                  <div className="flex items-center gap-2">
+                    <Loader size={16} className="animate-spin" />
+                    <span className={`text-sm font-medium ${t.colors.text}`}>
+                      {detection?.framework || "Native App"} — Running
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleStopNativeApp}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white ${t.borderRadius}`}
+                  >
+                    <Square size={14} />
+                    Stop
+                  </button>
+                </div>
+                {/* Live output */}
+                <pre
+                  ref={nativeOutputRef}
+                  className={`flex-1 overflow-auto p-4 text-xs ${t.colors.bg} ${t.colors.textMuted}`}
+                  style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}
+                >
+                  {nativeOutput || "Starting process..."}
+                </pre>
+              </div>
+            )}
+
+            {/* Non-web project (no framework detected at all) */}
             {previewStatus === "non-web" && (
               <div className={`flex flex-col items-center justify-center h-full gap-3 p-6 ${t.colors.textMuted}`}>
                 <Terminal size={32} className="opacity-50" />
                 <div className="text-center max-w-xs">
                   <p className={`text-sm font-medium ${t.colors.text} mb-2`}>
-                    No web preview available
+                    No preview available
                   </p>
                   <p className="text-sm">
-                    This project doesn't have a web preview. Run it from the terminal below, or ask the AI to run it for you.
+                    Run it from the terminal below, or ask the AI to run it for you.
                   </p>
                 </div>
               </div>
@@ -964,13 +1205,45 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
             {/* Live iframe — shown for both static and dev-running, with AI building overlay */}
             {showIframe && (
               <div className="relative w-full h-full">
-                <iframe
-                  ref={iframeRef}
-                  key={refreshKey}
-                  src={`http://localhost:${serverPort}?_r=${refreshKey}`}
-                  className="w-full h-full border-0 bg-white"
-                  title="Live Preview"
-                />
+                {viewportSize === "desktop" ? (
+                  /* Desktop: full-width iframe */
+                  <iframe
+                    ref={iframeRef}
+                    key={refreshKey}
+                    src={`http://localhost:${serverPort}?_r=${refreshKey}`}
+                    className="w-full h-full border-0 bg-white"
+                    title="Live Preview"
+                  />
+                ) : (
+                  /* Tablet / Mobile: constrained iframe centered with device chrome */
+                  <div className={`flex flex-col items-center h-full py-4 px-2 overflow-auto ${t.colors.bgSecondary}`}>
+                    {/* Viewport width label */}
+                    <div className={`text-xs mb-2 ${t.colors.textMuted} flex items-center gap-1.5`}>
+                      {viewportSize === "tablet" ? <Tablet size={12} /> : <Smartphone size={12} />}
+                      {VIEWPORT_PRESETS[viewportSize].label}
+                    </div>
+                    {/* Device frame */}
+                    <div
+                      className={`relative flex-1 min-h-0 border ${t.colors.border} ${t.borderRadius} overflow-hidden shadow-lg`}
+                      style={{
+                        width: `${VIEWPORT_PRESETS[viewportSize].width}px`,
+                        maxWidth: "100%",
+                      }}
+                    >
+                      <iframe
+                        ref={iframeRef}
+                        key={refreshKey}
+                        src={`http://localhost:${serverPort}?_r=${refreshKey}`}
+                        className="border-0 bg-white"
+                        title="Live Preview"
+                        style={{
+                          width: `${VIEWPORT_PRESETS[viewportSize].width}px`,
+                          height: "100%",
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
                 {aiIsLoading && (
                   <div className={`absolute inset-0 flex flex-col items-center justify-center z-10 ${t.colors.bg}`} style={{ opacity: 0.97 }}>
                     <Loader size={28} className={`animate-spin mb-3 ${t.colors.textMuted}`} />
