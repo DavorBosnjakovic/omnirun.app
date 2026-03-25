@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Eye, EyeOff, CheckCircle, XCircle, Loader, Plus, Trash2, Star, X, RefreshCw } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { themes } from "../../config/themes";
@@ -212,7 +212,7 @@ async function fetchModelsForProvider(
 // ── Component ──────────────────────────────────────────────────
 
 function ApiKeySettings() {
-  const { theme } = useSettingsStore();
+  const { theme, smartRouting, setSmartRouting } = useSettingsStore();
   const t = themes[theme];
 
   const [providers, setProviders] = useState<Provider[]>(DEFAULT_PROVIDERS);
@@ -250,7 +250,6 @@ function ApiKeySettings() {
     return localStorage.getItem("ai-active-provider") || "anthropic";
   });
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
-  const [smartRouting, setSmartRouting] = useState(true);
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customForm, setCustomForm] = useState<CustomProviderForm>({
     name: "",
@@ -367,7 +366,7 @@ function ApiKeySettings() {
               "User-Agent": "Mozilla/5.0",
             },
             body: JSON.stringify({
-              model: "claude-haiku-4-20250414",
+              model: "claude-haiku-4-5-20251001",
               max_tokens: 1,
               messages: [{ role: "user", content: "hi" }],
             }),
@@ -377,9 +376,9 @@ function ApiKeySettings() {
           setFetchedModels((prev) => ({
             ...prev,
             anthropic: [
-              { id: "claude-sonnet-4-20250514", name: "Claude Sonnet 4" },
-              { id: "claude-haiku-4-20250414", name: "Claude Haiku 4" },
-              { id: "claude-opus-4-20250514", name: "Claude Opus 4" },
+              { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
+              { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5" },
+              { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" },
             ],
           }));
         } catch {
@@ -423,6 +422,18 @@ function ApiKeySettings() {
     setCustomForm({ name: "", endpoint: "", apiKey: "", modelName: "" });
     setShowCustomModal(false);
   };
+
+  // Auto-fetch models for configured providers that have an API key
+  useEffect(() => {
+    for (const config of configuredProviders) {
+      if (config.apiKey.trim() || config.providerId === "ollama") {
+        // Only fetch if we don't already have models cached
+        if (!fetchedModels[config.providerId] || fetchedModels[config.providerId].length === 0) {
+          handleFetchModels(config.providerId);
+        }
+      }
+    }
+  }, []); // Run once on mount
 
   const unconfiguredProviders = providers.filter(
     (p) => !configuredProviders.some((cp) => cp.providerId === p.id) && !p.isCustom

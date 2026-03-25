@@ -42,6 +42,10 @@ function Sidebar({ isOpen, onToggle, onSettingsClick }: SidebarProps) {
 
   const handleProjectReady = async (selectedPath: string, folderName: string, templateId?: string, templateName?: string) => {
     try {
+      // Tell Rust backend about the project path FIRST (before Zustand triggers re-renders)
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_project_path", { path: selectedPath });
+
       const project = {
         id: Date.now().toString(),
         name: folderName,
@@ -53,10 +57,6 @@ function Sidebar({ isOpen, onToggle, onSettingsClick }: SidebarProps) {
       addProject(project);
       setCurrentProject(project);
       setProjectPath(selectedPath);
-
-      // Tell Rust backend about the project path
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("set_project_path", { path: selectedPath });
 
       const files = await readDirectory(selectedPath, 3);
       setFileTree(files);
@@ -74,13 +74,13 @@ function Sidebar({ isOpen, onToggle, onSettingsClick }: SidebarProps) {
 
   const handleOpenProject = async (project: { id: string; name: string; path: string }) => {
     try {
+      // Tell Rust backend about the project path FIRST (before Zustand triggers re-renders)
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("set_project_path", { path: project.path });
+
       setCurrentProject(project);
       setProjectPath(project.path);
       useProjectStore.getState().setSelectedFile(null);
-      
-      // Tell Rust backend about the project path (security scope)
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("set_project_path", { path: project.path });
       
       const files = await readDirectory(project.path, 3);
       setFileTree(files);

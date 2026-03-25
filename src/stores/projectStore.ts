@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
 import { FileEntry } from "../services/fileService";
 import { ProjectManifest } from "../services/manifestService";
 import { dbService } from "../services/dbService";
@@ -84,7 +85,17 @@ export const useProjectStore = create<ProjectState>((set) => ({
       return { projects: newProjects };
     }),
 
-  setProjectPath: (path) => set({ projectPath: path }),
+  setProjectPath: (path) => {
+    set({ projectPath: path });
+    // Tell the Rust backend which folder is the allowed project scope.
+    // Without this, is_path_allowed() always returns false and every
+    // file tool call gets "Access denied: path outside project scope".
+    if (path) {
+      invoke("set_project_path", { path }).catch((e) => {
+        console.error("Failed to set project path in Rust backend:", e);
+      });
+    }
+  },
   setFileTree: (tree) => set({ fileTree: tree }),
   setSelectedFile: (file) => set({ selectedFile: file }),
   setManifest: (manifest) => set({ manifest: manifest }),

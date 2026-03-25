@@ -89,6 +89,9 @@ export default function NewProjectModal({ isOpen, onClose, onProjectReady }: New
       const safeName = projectName.trim().replace(/[<>:"/\\|?*]/g, "-");
       const projectPath = `${projectLocation}${projectLocation.endsWith("/") || projectLocation.endsWith("\\") ? "" : "/"}${safeName}`;
 
+      // Tell Rust this is the allowed project path BEFORE creating anything
+      await invoke("set_project_path", { path: projectPath });
+
       // Create the project directory
       await invoke("create_directory", { path: projectPath });
 

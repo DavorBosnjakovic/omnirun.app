@@ -2,7 +2,7 @@ import { readFile, writeFile, readDirectory, createDirectory, deletePath, FileEn
 import { updateManifestEntry, removeManifestEntry, getRelativePath, ProjectManifest } from "./manifestService";
 import { executeConnectionTool, connectionToolPrompt } from "./connectionTool";
 import { webSearch, formatResultsForAI } from "./webSearchService";
-import { updateContextFromAI, type ProjectContext as ContextData } from "./contextService";
+import { updateContextFromAI, VALID_SECTIONS, type ContextSection, type ProjectContext as ContextData } from "./contextService";
 import { createTask } from "../stores/taskStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { invoke } from "@tauri-apps/api/core";
@@ -257,8 +257,8 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
   },
   {
     name: "write_context",
-    description: "Save important decisions or user preferences so you remember them in future conversations. Use after completing tasks to note things like design choices, tech decisions, or user style preferences.",
-    parameters: '{"section": "decisions", "entries": ["Using localStorage for cart", "Stripe for payments"]}',
+    description: "Save project knowledge that persists across conversations. Sections: 'about' (product description, audience, flows, business rules, status — REPLACE), 'styles' (colors as hex, fonts, spacing, border-radius, shadows, animations, layout patterns, responsive rules, dark/light mode, component styling — REPLACE), 'conventions' (coding patterns, naming rules, file structure — REPLACE), 'routes' (API endpoints and page routes — REPLACE), 'schema' (database tables/columns/relationships — REPLACE), 'progress' (current work in progress — REPLACE), 'decisions' (architectural choices — APPEND), 'preferences' (user workflow preferences — APPEND), 'built' (completed features — APPEND). IMPORTANT: On first interaction with a new project, ASK the user about the product (about), visual design (styles), and coding patterns (conventions). Gather this info, save it, and never ask again.",
+    parameters: '{"section": "styles", "entries": ["Theme: dark", "Primary: #8b5cf6 (purple)", "Secondary: #1e1e2e", "Accent: #22d3ee (cyan)", "Background: #0a0a0f", "Text: #f5f5f7", "Fonts: Inter (body), Space Grotesk (headings)", "Border-radius: 12px cards, 8px buttons, 6px inputs", "Shadows: 0 4px 24px rgba(0,0,0,0.3)", "Animations: framer-motion, 200ms transitions", "Layout: max-w-7xl centered, 24px gap grid", "Responsive: mobile-first, bottom tab nav on mobile"]}',
   },
   {
     name: "create_scheduled_task",
@@ -1592,13 +1592,13 @@ export async function executeTool(
           };
         }
 
-        const section = args.section as "preferences" | "decisions";
-        if (!section || !["preferences", "decisions"].includes(section)) {
+        const section = args.section as ContextSection;
+        if (!section || !(VALID_SECTIONS as readonly string[]).includes(section)) {
           return {
             result: {
               tool: name,
               success: false,
-              result: '❌ Invalid section. Use "preferences" or "decisions".',
+              result: `❌ Invalid section "${section}". Valid sections: ${VALID_SECTIONS.join(", ")}`,
             },
             updatedManifest,
           };
@@ -1616,7 +1616,7 @@ export async function executeTool(
             result: {
               tool: name,
               success: false,
-              result: '❌ Missing entries. Use: {"section": "decisions", "entries": ["Using Stripe for payments"]}',
+              result: `❌ Missing entries. Use: {"section": "${section}", "entries": ["entry1", "entry2"]}`,
             },
             updatedManifest,
           };
@@ -1769,6 +1769,15 @@ export async function executeToolCalls(
   onApproval?: ApprovalCallback,
   contextData?: ContextData | null
 ): Promise<{ results: ToolResult[]; updatedManifest: ProjectManifest | null; filesChanged: string[]; updatedContext?: ContextData | null }> {
+  // Ensure Rust backend is scoped to this project before any tool runs.
+  // Prevents "Access denied: path outside project scope" if set_project_path
+  // hasn't completed yet (race on startup) or failed silently on project switch.
+  try {
+    await invoke("set_project_path", { path: projectPath });
+  } catch (e) {
+    console.error("Failed to set project path before tool execution:", e);
+  }
+
   const results: ToolResult[] = [];
   let currentManifest = manifest;
   let currentContext = contextData || null;
@@ -1792,6 +1801,90 @@ export async function executeToolCalls(
     filesChanged: allFilesChanged,
     updatedContext: currentContext,
   };
+}
+
+// ── Human-readable summaries for tool actions ───────────────────
+
+/**
+ * Generate a short, human-readable summary line for a tool call.
+ * Used in the chat UI instead of showing raw tool_call JSON.
+ */
+export function generateToolSummary(toolCall: ToolCall): string {
+  const { name, arguments: args } = toolCall;
+  const path = args.path || args.paths?.[0] || "";
+  const filename = path ? path.split(/[/\\]/).pop() || path : "";
+
+  switch (name) {
+    case "write_file": {
+      const lines = args.content ? args.content.split("\n").length : 0;
+      return `Writing ${filename}` + (lines > 0 ? ` (${lines} lines)` : "");
+    }
+    case "read_file":
+      return `Reading ${filename}`;
+    case "read_multiple_files": {
+      const paths: string[] = args.paths || [];
+      if (paths.length <= 2) return `Reading ${paths.map((p: string) => p.split(/[/\\]/).pop()).join(", ")}`;
+      return `Reading ${paths.length} files`;
+    }
+    case "edit_file":
+    case "str_replace":
+    case "find_replace":
+    case "search_replace":
+      return `Editing ${filename}`;
+    case "list_directory":
+      return `Listing ${filename || "directory"}`;
+    case "create_directory":
+      return `Creating folder ${filename}`;
+    case "delete_file":
+      return `Deleting ${filename}`;
+    case "run_command": {
+      const cmd = args.command || "";
+      const shortCmd = cmd.length > 40 ? cmd.slice(0, 37) + "…" : cmd;
+      return `Running: ${shortCmd}`;
+    }
+    case "web_search":
+      return `Searching: ${args.query || "web"}`;
+    case "write_context":
+      return `Saving project context`;
+    case "create_scheduled_task":
+      return `Creating scheduled task: ${args.name || ""}`;
+    default:
+      return `${name}${filename ? `: ${filename}` : ""}`;
+  }
+}
+
+/**
+ * Generate a short result summary from a ToolResult.
+ * Extracts just the first-line status (✅, ❌, ⏭️) without verbose details.
+ */
+export function generateResultSummary(result: ToolResult): string {
+  if (result.tool === "web_search") {
+    if (result.result.startsWith("Web search error:") || result.result.includes("returned no results")) {
+      return `Search failed`;
+    }
+    // Count results
+    const urls = result.result.split("\n").filter(l => l.trim().startsWith("http"));
+    return `Found ${urls.length || "some"} results`;
+  }
+
+  // Extract first line which usually has the status emoji + short message
+  const firstLine = result.result.split("\n")[0] || "";
+
+  // Strip "Contents of path:" prefix for reads — just say "Read X"
+  if (firstLine.startsWith("Contents of ")) {
+    const filePath = firstLine.replace("Contents of ", "").replace(/:$/, "");
+    const fname = filePath.split(/[/\\]/).pop() || filePath;
+    return `Read ${fname}`;
+  }
+
+  // For directory listings
+  if (firstLine.includes("Directory listing:") || firstLine.includes("entries)")) {
+    return firstLine.split("\n")[0];
+  }
+
+  // Success/error messages are already short enough — take first line, cap length
+  if (firstLine.length > 80) return firstLine.slice(0, 77) + "…";
+  return firstLine;
 }
 
 /**

@@ -14,13 +14,16 @@ export type ConnectionProvider =
   | 'sendgrid'
   | 'namecheap'
   | 'cloudflare'
+  | 'bunny'
+  | 'godaddy'
+  | 'resend'
+  | 'porkbun'
   // Phase 2
   | 'railway'
   | 'render'
   | 'firebase'
   | 'planetscale'
-  | 'paypal'
-  | 'resend';
+  | 'paypal';
 
 export type ConnectionCategory =
   | 'hosting'
@@ -28,7 +31,8 @@ export type ConnectionCategory =
   | 'version-control'
   | 'payments'
   | 'email'
-  | 'domains';
+  | 'domains'
+  | 'storage';
 
 export type AuthMethod = 'api-key' | 'personal-token' | 'oauth';
 
@@ -185,6 +189,58 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     docsUrl: 'https://developers.cloudflare.com/api/',
     features: ['DNS records', 'CDN config', 'Security rules', 'Pages deployment'],
   },
+  bunny: {
+    id: 'bunny',
+    name: 'Bunny.net',
+    description: 'CDN, edge storage, DNS',
+    category: 'storage',
+    authMethod: 'api-key',
+    tokenName: 'Account API Key',
+    tokenHelpUrl: 'https://dash.bunny.net/account',
+    tokenPlaceholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+    icon: 'Rabbit',
+    docsUrl: 'https://docs.bunny.net',
+    features: ['CDN pull zones', 'Edge storage', 'DNS zones', 'Cache purge', 'File management'],
+  },
+  godaddy: {
+    id: 'godaddy',
+    name: 'GoDaddy',
+    description: 'Domains, DNS records',
+    category: 'domains',
+    authMethod: 'api-key',
+    tokenName: 'API Key:Secret',
+    tokenHelpUrl: 'https://developer.godaddy.com/keys',
+    tokenPlaceholder: 'key:secret',
+    icon: 'Globe2',
+    docsUrl: 'https://developer.godaddy.com/doc',
+    features: ['Domain management', 'DNS records', 'Domain details'],
+  },
+  resend: {
+    id: 'resend',
+    name: 'Resend',
+    description: 'Modern transactional email',
+    category: 'email',
+    authMethod: 'api-key',
+    tokenName: 'API Key',
+    tokenHelpUrl: 'https://resend.com/api-keys',
+    tokenPlaceholder: 're_...',
+    icon: 'Send',
+    docsUrl: 'https://resend.com/docs/api-reference',
+    features: ['Send emails', 'Domain verification', 'Delivery tracking'],
+  },
+  porkbun: {
+    id: 'porkbun',
+    name: 'Porkbun',
+    description: 'Domains, DNS records',
+    category: 'domains',
+    authMethod: 'api-key',
+    tokenName: 'API Key:Secret Key',
+    tokenHelpUrl: 'https://porkbun.com/account/api',
+    tokenPlaceholder: 'pk1_xxx:sk1_xxx',
+    icon: 'Landmark',
+    docsUrl: 'https://porkbun.com/api/json/v3/documentation',
+    features: ['Domain management', 'DNS records', 'DNS editing'],
+  },
   // Phase 2 stubs
   railway: {
     id: 'railway',
@@ -251,24 +307,12 @@ export const PROVIDERS: Record<ConnectionProvider, ProviderMeta> = {
     docsUrl: 'https://developer.paypal.com/docs/api/overview/',
     features: ['Payments', 'Subscriptions', 'Invoices'],
   },
-  resend: {
-    id: 'resend',
-    name: 'Resend',
-    description: 'Modern transactional email',
-    category: 'email',
-    authMethod: 'api-key',
-    tokenName: 'API Key',
-    tokenHelpUrl: 'https://resend.com/api-keys',
-    tokenPlaceholder: 're_...',
-    icon: 'Send',
-    docsUrl: 'https://resend.com/docs/api-reference',
-    features: ['Send emails', 'React email templates', 'Delivery tracking'],
-  },
 };
 
 // Which providers are available in MVP
 export const MVP_PROVIDERS: ConnectionProvider[] = [
   'github', 'vercel', 'netlify', 'supabase', 'stripe', 'sendgrid', 'namecheap', 'cloudflare',
+  'bunny', 'godaddy', 'resend', 'porkbun',
 ];
 
 // Category display order and labels
@@ -279,6 +323,7 @@ export const CATEGORIES: { id: ConnectionCategory; label: string }[] = [
   { id: 'payments', label: 'Payments' },
   { id: 'domains', label: 'Domains & DNS' },
   { id: 'email', label: 'Email' },
+  { id: 'storage', label: 'CDN & Storage' },
 ];
 
 // --------------- Service Interface ---------------

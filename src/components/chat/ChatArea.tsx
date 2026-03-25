@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Square, User, Bot, Trash2, Wrench, Pencil, Coins, X, Image, MessageSquarePlus, Globe, AlertCircle } from "lucide-react";
+import { Send, Square, User, Bot, Trash2, Wrench, Pencil, Coins, X, Image, MessageSquarePlus, Globe, AlertCircle, ChevronDown } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useChatStore } from "../../stores/chatStore";
 import { useProjectStore } from "../../stores/projectStore";
@@ -10,13 +10,66 @@ import MarkdownRenderer from "./MarkdownRenderer";
 import { sendMessage } from "../../services/aiService";
 import { writeFile, readDirectory } from "../../services/fileService";
 import { updateManifestEntry, getRelativePath } from "../../services/manifestService";
-import { parseToolCalls, executeToolCalls, formatToolResults } from "../../services/toolService";
-import { initContext, saveContext, addRecentChange, contextToPromptString, type ProjectContext as ContextData } from "../../services/contextService";
+import { parseToolCalls, executeToolCalls, formatToolResults, generateToolSummary, generateResultSummary } from "../../services/toolService";
+import { initContext, saveContext, addRecentChange, compressSession, contextToPromptString, type ProjectContext as ContextData } from "../../services/contextService";
+import { getErrors, clearErrors, onErrorsChange } from "../../services/errorCapture";
 import { useDiffStore } from "../../stores/diffStore";
 import DiffViewer from "../diff/DiffViewer";
 import type { MessageImage } from "../../stores/chatStore";
 
 const MAX_TOOL_ITERATIONS = 10;
+
+// ── Collapsible tool action display ────────────────────────────
+// Shows a compact summary of what the AI is doing, with optional
+// expand for full details (Technical mode only).
+
+function ToolActionLine({ content, theme: t, themeKey, mode }: {
+  content: string;
+  theme: any;
+  themeKey: string;
+  mode: "simple" | "technical";
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Parse the tool message content into lines
+  // Format: "summary\n---\ndetails" (separator added during creation)
+  const separatorIdx = content.indexOf("\n---\n");
+  const hasSeparator = separatorIdx !== -1;
+  const summary = hasSeparator ? content.slice(0, separatorIdx) : content;
+  const details = hasSeparator ? content.slice(separatorIdx + 5) : null;
+
+  // Split summary into individual action lines for nice display
+  const summaryLines = summary.split("\n").filter(l => l.trim());
+
+  const showExpandButton = mode === "technical" && details;
+
+  return (
+    <div className="space-y-0.5">
+      {summaryLines.map((line, i) => (
+        <div key={i} className="leading-snug">{line}</div>
+      ))}
+      {showExpandButton && (
+        <>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className={`inline-flex items-center gap-1 mt-1 text-xs ${t.colors.textMuted} hover:${t.colors.text} transition-colors cursor-pointer`}
+          >
+            <ChevronDown
+              size={12}
+              className={`transition-transform duration-150 ${expanded ? "" : "-rotate-90"}`}
+            />
+            {expanded ? "Hide details" : "Show details"}
+          </button>
+          {expanded && (
+            <pre className={`mt-1 text-xs ${t.colors.textMuted} whitespace-pre-wrap opacity-70 max-h-[200px] overflow-y-auto`}>
+              {details}
+            </pre>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 // Allowed image types
 const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
@@ -31,13 +84,16 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
   const [isDragging, setIsDragging] = useState(false);
   const [showContinue, setShowContinue] = useState(false);
   const [isAutoFixing, setIsAutoFixing] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState("");
+  const [consoleErrors, setConsoleErrors] = useState<string[]>(() => getErrors());
   const [projectContextData, setProjectContextData] = useState<ContextData | null>(null);
   const stoppedRef = useRef(false);
   const readerRef = useRef<ReadableStreamDefaultReader | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const dragCounterRef = useRef(0);
-  const { theme, timeFormat } = useSettingsStore();
+  const { theme, timeFormat, mode } = useSettingsStore();
   const { messages, isLoading, addMessage, setLoading, clearMessages } = useChatStore();
   const { currentProject, projectPath, fileTree, selectedFile, setFileTree, manifest, setManifest, buildError, autoFixCount, setBuildError, incrementAutoFix, resetAutoFix } = useProjectStore();
   const { saveConversation, currentChatId, setCurrentChatId } = useChatHistoryStore();
@@ -48,6 +104,11 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Subscribe to console errors from errorCapture service
+  useEffect(() => {
+    return onErrorsChange((errors) => setConsoleErrors(errors));
+  }, []);
 
   // Scroll to bottom when a diff approval appears
   const pendingDiff = useDiffStore((s) => s.pendingDiff);
@@ -61,22 +122,49 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
   useEffect(() => {
     if (!projectPath) {
       setProjectContextData(null);
+      setIsScanning(false);
+      setScanProgress("");
       return;
     }
 
     const init = async () => {
+      setIsScanning(true);
+      setScanProgress("Reading your project...");
       try {
-        // Get root file names for tech stack detection
-        const rootFiles = fileTree?.map((f: any) => f.name) || [];
-        const ctx = await initContext(projectPath, rootFiles);
+        const { context: ctx, isFirstScan } = await initContext(
+          projectPath,
+          (progress) => setScanProgress(progress)
+        );
         setProjectContextData(ctx);
+
+        // Show summary message on first scan
+        if (isFirstScan && useChatStore.getState().messages.length === 0) {
+          const parts: string[] = [];
+          if (ctx.techStack.length > 0) parts.push(`**Tech:** ${ctx.techStack.join(", ")}`);
+          if (ctx.appRoot) parts.push(`**App root:** \`${ctx.appRoot}/\``);
+          if (ctx.summarizedFiles.length > 0) parts.push(`**Knowledge files:** ${ctx.summarizedFiles.length} summarized`);
+          if (ctx.structure) {
+            const count = ctx.structure.split("\n").filter(l => l.trim()).length;
+            parts.push(`**Structure:** ${count} items mapped`);
+          }
+
+          addMessage({
+            id: `scan_${Date.now()}`,
+            role: "assistant",
+            content: `📂 **Project scanned: ${ctx.projectName}**\n\n${parts.join("\n")}\n\nProject context saved to \`.mydevify/context.md\`. I'm ready to help.`,
+            timestamp: new Date(),
+          });
+        }
       } catch (e) {
         console.error("Failed to init context:", e);
+      } finally {
+        setIsScanning(false);
+        setScanProgress("");
       }
     };
 
     init();
-  }, [projectPath, fileTree]);
+  }, [projectPath]);
 
   // ── Auto-send pending message (from Tasks page suggestions) ──
   const lastPendingRef = useRef<string | null>(null);
@@ -340,6 +428,14 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
     handleSend("Continue where you left off.");
   };
 
+  const handleFixConsoleErrors = () => {
+    const errors = getErrors();
+    if (!errors.length) return;
+    clearErrors();
+    const errorText = errors.slice(0, 10).join("\n\n");
+    handleSend(`Fix these console errors I'm seeing in the app:\n\n\`\`\`\n${errorText}\n\`\`\``);
+  };
+
   // Collapse incomplete code blocks and tool calls during streaming
   const getStreamingDisplay = (content: string): string => {
     // If there's an unclosed <tool_call> tag, hide everything from it onward
@@ -529,15 +625,17 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
         // ── Execute tool calls ──────────────────────────────
 
-        const toolNames = parsed.toolCalls.map((tc) => tc.name).join(", ");
         const hasSearch = parsed.toolCalls.some((tc) => tc.name === "web_search");
+        const actionSummaries = parsed.toolCalls
+          .map((tc) => `${hasSearch && tc.name === "web_search" ? "🔍" : "✏️"} ${generateToolSummary(tc)}`)
+          .join("\n");
 
         // Add a tool execution status message
         const toolStatusId = (Date.now() + iterations + 1000).toString();
         addMessage({
           id: toolStatusId,
           role: "assistant",
-          content: hasSearch ? `🔍 Searching...` : `🔧 Executing: ${toolNames}...`,
+          content: hasSearch ? `🔍 ${actionSummaries}` : `🔧 ${actionSummaries}`,
           timestamp: new Date(),
         });
 
@@ -593,11 +691,10 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
         }
 
         // Update tool status message with results
-        const toolResultsSummary = results
+        const resultSummaries = results
           .map((r) => {
             if (r.tool === "web_search") {
               // Parse the AI-formatted result back into a chat-friendly format
-              // The result starts with 'Search: "query"' or 'Web search error:'
               if (r.result.startsWith("Web search error:") || r.result.includes("returned no results")) {
                 return `🔍 ${r.result}`;
               }
@@ -613,15 +710,25 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
               }
               return `🔍 ${queryLine}${urls.length > 0 ? "\n" + urls.map((u, i) => `  ${i + 1}. ${u}`).join("\n") : ""}`;
             }
-            return r.success ? r.result.split("\n")[0] : `❌ ${r.result}`;
+            const icon = r.success ? "✅" : "❌";
+            return `${icon} ${generateResultSummary(r)}`;
           })
           .join("\n");
 
+        // Full details for Technical mode expand
+        const fullDetails = results
+          .map((r) => `[${r.tool}] ${r.result.split("\n").slice(0, 5).join("\n")}`)
+          .join("\n\n");
+
         // Use 🔍 prefix if any search results, 🔧 otherwise
         const hasSearchResult = results.some((r) => r.tool === "web_search");
+        const contentWithDetails = hasSearchResult
+          ? resultSummaries
+          : `${resultSummaries}\n---\n${fullDetails}`;
+
         useChatStore.setState((state) => ({
           messages: state.messages.map((m) =>
-            m.id === toolStatusId ? { ...m, content: hasSearchResult ? toolResultsSummary : `🔧 ${toolResultsSummary}` } : m
+            m.id === toolStatusId ? { ...m, content: contentWithDetails } : m
           ),
         }));
 
@@ -938,6 +1045,12 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
                 if (currentProject?.id && messages.length > 0) {
                   saveConversation(currentProject.id, messages);
                 }
+                // Compress session: move progress + recent into "built"
+                if (projectContextData && projectPath) {
+                  const compressed = compressSession(projectContextData);
+                  setProjectContextData(compressed);
+                  saveContext(projectPath, compressed).catch(() => {});
+                }
                 clearMessages();
                 setCurrentChatId(null);
                 setShowContinue(false);
@@ -952,6 +1065,12 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           {messages.length > 0 && (
             <button
               onClick={() => {
+                // Compress session: move progress + recent into "built"
+                if (projectContextData && projectPath) {
+                  const compressed = compressSession(projectContextData);
+                  setProjectContextData(compressed);
+                  saveContext(projectPath, compressed).catch(() => {});
+                }
                 clearMessages();
                 setCurrentChatId(null);
                 setShowContinue(false);
@@ -970,7 +1089,12 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
       <div className="flex-1 overflow-y-auto p-4 select-text">
         {messages.length === 0 ? (
           <div className={`${t.colors.textMuted} text-center mt-8 ${t.fontFamily}`}>
-            {projectPath 
+            {isScanning ? (
+              <div className="flex flex-col items-center gap-3">
+                <div className="animate-spin w-6 h-6 border-2 border-current border-t-transparent rounded-full" />
+                <span>{scanProgress || "Reading your project..."}</span>
+              </div>
+            ) : projectPath 
               ? `Project loaded: ${projectPath.split(/[/\\]/).pop()}. Ask me to create or edit files!`
               : "Start a conversation, or open a project first..."
             }
@@ -1011,7 +1135,8 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
                     <div className={`${t.fontFamily}`}>
                       {message.content 
                         ? (isSearch ? renderSearchMessage(message.content)
-                          : message.role === "assistant" && !isTool ? renderMessage(message.content) : message.content)
+                          : isTool ? <ToolActionLine content={message.content} theme={t} themeKey={theme} mode={mode} />
+                          : message.role === "assistant" ? renderMessage(message.content) : message.content)
                         : message.images && message.images.length > 0 
                           ? null
                           : "Thinking..."}
@@ -1084,6 +1209,45 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
             <span>▶</span>
             <span>Continue</span>
           </button>
+        </div>
+      )}
+
+      {/* Console error banner — shown when JS errors are captured */}
+      {consoleErrors.length > 0 && !isLoading && (
+        <div className={`flex items-center justify-between gap-3 px-4 py-2 border-t ${t.colors.border}`}
+          style={{ background: "rgba(239, 68, 68, 0.08)" }}>
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertCircle size={14} className="text-red-400 flex-shrink-0" />
+            <span className={`text-xs text-red-400 truncate`}>
+              {consoleErrors.length} console error{consoleErrors.length > 1 ? "s" : ""} detected
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleFixConsoleErrors}
+              className="text-xs px-3 py-1 rounded font-medium transition-colors"
+              style={{
+                background: "rgba(239, 68, 68, 0.15)",
+                border: "1px solid rgba(239, 68, 68, 0.4)",
+                color: "#f87171",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(239, 68, 68, 0.3)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(239, 68, 68, 0.15)";
+              }}
+            >
+              Fix errors
+            </button>
+            <button
+              onClick={() => { clearErrors(); }}
+              className={`text-xs ${t.colors.textMuted} hover:text-red-400 transition-colors`}
+              title="Dismiss"
+            >
+              <X size={13} />
+            </button>
+          </div>
         </div>
       )}
 

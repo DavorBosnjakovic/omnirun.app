@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from "react";
+import React, { useCallback, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import hljs from "highlight.js";
@@ -121,6 +121,16 @@ function MarkdownRenderer({ content, theme: t, themeKey, projectPath, onSaveCode
 
         // ── Block elements ───────────────────────────────────────
         p({ children }) {
+          // Detect block-level children (div, pre, table, etc.) that can't be nested inside <p>
+          const hasBlockChild = React.Children.toArray(children).some(
+            (child) =>
+              React.isValidElement(child) &&
+              typeof child.type === "string" &&
+              ["div", "pre", "table", "ul", "ol", "blockquote", "hr", "h1", "h2", "h3", "h4", "h5", "h6"].includes(child.type)
+          );
+          if (hasBlockChild) {
+            return <div className="mb-2 last:mb-0">{children}</div>;
+          }
           return <p className="mb-2 last:mb-0">{children}</p>;
         },
 

@@ -12,6 +12,7 @@ interface SettingsState {
   webSearchEnabled: boolean;
   searchApiKey: string;
   onboardingCompleted: boolean;
+  smartRouting: boolean;
   setTheme: (theme: ThemeKey) => void;
   setMode: (mode: "simple" | "technical") => void;
   setTimeFormat: (format: "12h" | "24h") => void;
@@ -21,6 +22,7 @@ interface SettingsState {
   setWebSearchEnabled: (value: boolean) => void;
   setSearchApiKey: (key: string) => void;
   setOnboardingCompleted: (value: boolean) => void;
+  setSmartRouting: (value: boolean) => void;
   cycleTheme: () => void;
   toggleMode: () => void;
   resetToDefaults: () => void;
@@ -40,6 +42,7 @@ const defaults = {
   webSearchEnabled: false,
   searchApiKey: "",
   onboardingCompleted: false,
+  smartRouting: true,
 };
 
 // Persist a single setting to SQLite (fire-and-forget)
@@ -95,6 +98,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setOnboardingCompleted: (onboardingCompleted) => {
     set({ onboardingCompleted });
     persistSetting("onboardingCompleted", onboardingCompleted);
+  },
+
+  setSmartRouting: (smartRouting) => {
+    set({ smartRouting });
+    persistSetting("smartRouting", smartRouting);
   },
 
   cycleTheme: () =>
@@ -154,6 +162,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       }
       if (all.onboardingCompleted !== undefined) {
         try { updates.onboardingCompleted = JSON.parse(all.onboardingCompleted); } catch { /* keep default */ }
+      }
+      if (all.smartRouting !== undefined) {
+        try { updates.smartRouting = JSON.parse(all.smartRouting); } catch { /* keep default */ }
       }
 
       if (Object.keys(updates).length > 0) {

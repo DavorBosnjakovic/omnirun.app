@@ -26,6 +26,9 @@ import {
   Unplug,
   Plug,
   RefreshCw,
+  Rabbit,
+  Send,
+  Landmark,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useConnectionsStore } from '../../stores/connectionsStore';
@@ -51,6 +54,9 @@ const ICONS: Record<string, any> = {
   Mail,
   Shield,
   Globe2,
+  Rabbit,       // Bunny.net
+  Send,         // Resend
+  Landmark,     // Porkbun
 };
 
 function getIcon(iconName: string) {
@@ -241,6 +247,15 @@ function ConnectionCard({ provider }: ConnectionCardProps) {
                   )}
                   {connection.accountInfo.extra?.domainCount !== undefined && (
                     <div className="mt-1 opacity-70">{connection.accountInfo.extra.domainCount} domains</div>
+                  )}
+                  {connection.accountInfo.extra?.pullZoneCount !== undefined && (
+                    <div className="mt-1 opacity-70">{connection.accountInfo.extra.pullZoneCount} pull zones</div>
+                  )}
+                  {connection.accountInfo.extra?.storageZoneCount !== undefined && (
+                    <div className="mt-1 opacity-70">{connection.accountInfo.extra.storageZoneCount} storage zones</div>
+                  )}
+                  {connection.accountInfo.extra?.verifiedDomainCount !== undefined && (
+                    <div className="mt-1 opacity-70">{connection.accountInfo.extra.verifiedDomainCount} verified domains</div>
                   )}
                 </div>
               )}

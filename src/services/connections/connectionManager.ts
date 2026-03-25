@@ -17,6 +17,10 @@ import { netlifyService } from './netlify';
 import { sendgridService } from './sendgrid';
 import { cloudflareService } from './cloudflare';
 import { namecheapService } from './namecheap';
+import { bunnyService } from './bunny';
+import { godaddyService } from './godaddy';
+import { resendService } from './resend';
+import { porkbunService } from './porkbun';
 
 // --------------- Service Registry ---------------
 
@@ -29,6 +33,10 @@ const services: Partial<Record<ConnectionProvider, ConnectionService>> = {
   sendgrid: sendgridService,
   cloudflare: cloudflareService,
   namecheap: namecheapService,
+  bunny: bunnyService,
+  godaddy: godaddyService,
+  resend: resendService,
+  porkbun: porkbunService,
 };
 
 // --------------- Public API ---------------

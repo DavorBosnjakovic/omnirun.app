@@ -55,8 +55,10 @@ fn set_project_path(path: String) -> Result<(), String> {
     if !path_buf.is_dir() {
         return Err("Path exists but is not a directory".to_string());
     }
-    // Canonicalize to resolve any symlinks and get absolute path
+    // Canonicalize to resolve any symlinks and get absolute path,
+    // then strip the Windows \\?\ UNC prefix so stored path stays plain (D:\...)
     let canonical = path_buf.canonicalize().map_err(|e| e.to_string())?;
+    let canonical = strip_unc_prefix(canonical);
     unsafe {
         PROJECT_PATH = Some(canonical);
     }
@@ -70,19 +72,34 @@ fn get_project_path() -> Option<String> {
     }
 }
 
+/// On Windows, std::fs::canonicalize() returns extended-length UNC paths
+/// like \\?\D:\Inkformer. This prefix breaks every downstream path comparison
+/// because TypeScript splits on backslashes and loses the leading \\.
+/// Stripping \\?\ is safe — it is only needed for paths longer than MAX_PATH.
+fn strip_unc_prefix(path: PathBuf) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let s = path.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped.to_string());
+        }
+    }
+    path
+}
+
 fn is_path_allowed(requested: &PathBuf) -> bool {
     unsafe {
         if let Some(ref allowed) = PROJECT_PATH {
-            // If path exists, canonicalize and check directly
+            // If path exists, canonicalize, strip UNC prefix, and check
             if let Ok(canonical) = requested.canonicalize() {
-                return canonical.starts_with(allowed);
+                return strip_unc_prefix(canonical).starts_with(allowed);
             }
             // For new files/dirs that don't exist yet, walk up until we find
             // an existing ancestor and verify it's within the project scope
             let mut ancestor = requested.parent();
             while let Some(parent) = ancestor {
                 if let Ok(canonical_parent) = parent.canonicalize() {
-                    return canonical_parent.starts_with(allowed);
+                    return strip_unc_prefix(canonical_parent).starts_with(allowed);
                 }
                 ancestor = parent.parent();
             }
@@ -530,6 +547,51 @@ fn stop_dev_server() -> Result<(), String> {
     Ok(())
 }
 
+// ── Supabase Management API Proxy ─────────────────────────────
+// The Supabase Management API (api.supabase.com) doesn't set
+// Access-Control-Allow-Origin, so browser/webview requests fail
+// with CORS errors. This command proxies those calls through Rust.
+
+#[derive(Serialize)]
+pub struct ProxyResponse {
+    pub status: u16,
+    pub body: String,
+}
+
+#[tauri::command]
+async fn supabase_management_api(
+    path: String,
+    token: String,
+    method: String,
+    body: Option<String>,
+) -> Result<ProxyResponse, String> {
+    let client = reqwest::Client::new();
+    let url = format!("https://api.supabase.com{}", path);
+
+    let mut request = match method.as_str() {
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "PATCH" => client.patch(&url),
+        "DELETE" => client.delete(&url),
+        _ => client.get(&url),
+    };
+
+    request = request
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "Mydevify/1.0.0");
+
+    if let Some(b) = body {
+        request = request.body(b);
+    }
+
+    let response = request.send().await.map_err(|e| e.to_string())?;
+    let status = response.status().as_u16();
+    let response_body = response.text().await.map_err(|e| e.to_string())?;
+
+    Ok(ProxyResponse { status, body: response_body })
+}
+
 // ── Scheduled Tasks IPC Commands ──────────────────────────────
 
 #[tauri::command]
@@ -597,6 +659,8 @@ pub fn run() {
             start_dev_server,
             stop_dev_server,
             get_dev_server_output,
+            // Supabase Management API proxy
+            supabase_management_api,
             // Scheduled tasks
             create_task,
             update_task,
