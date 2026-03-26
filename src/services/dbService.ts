@@ -306,6 +306,9 @@ async function init(): Promise<void> {
     // One-time migration from localStorage
     await migrateFromLocalStorage();
 
+    // One-time cost recalculation (fixes cache double-counting bug in historical data)
+    await migrateCostRecalculation();
+
     console.log('[DB] SQLite initialized successfully');
   } catch (error) {
     console.error('[DB] Failed to initialize database:', error);

@@ -454,9 +454,6 @@ export const useUsageStore = create<UsageState>((set, get) => ({
   // Load aggregates and budget from SQLite on app startup
   loadFromDB: async () => {
     try {
-      // Run cost migration first (fixes historical bad data from the cache double-counting bug)
-      await dbService.migrateCostRecalculation();
-
       const [monthly, allTime, budgetSettings] = await Promise.all([
         dbService.getMonthlyUsage(),
         dbService.getAllTimeUsage(),
