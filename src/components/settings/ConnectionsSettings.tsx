@@ -1,5 +1,5 @@
 // ============================================================
-// ConnectionsSettings.tsx - Connections Hub UI
+// ConnectionsSettings.tsx - Project Connections Hub UI
 // ============================================================
 
 import { useState, useEffect } from 'react';
@@ -452,9 +452,9 @@ export default function ConnectionsSettings() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-lg font-semibold">Connections</h2>
+        <h2 className="text-lg font-semibold">Project Connections</h2>
         <p className="text-sm opacity-60 mt-1">
-          Connect your accounts to deploy, manage databases, process payments, and more — all without leaving Omnirun.
+          Connect your project accounts to deploy, manage databases, process payments, and more — all without leaving Omnirun.
         </p>
       </div>
 

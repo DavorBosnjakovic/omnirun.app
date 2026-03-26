@@ -6,17 +6,18 @@ function BillingSettings() {
   const { theme } = useSettingsStore();
   const t = themes[theme];
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
+  const [planTab, setPlanTab] = useState<"solo" | "teams">("solo");
 
   // TODO: Replace with real plan status from license/auth system
   const currentPlan = "starter";
   const trialDaysLeft = 0; // 0 = not on trial
 
-  const plans = [
+  const soloPlans = [
     {
       id: "starter",
       name: "Starter",
-      monthlyPrice: 39,
-      annualPrice: 390,
+      monthlyPrice: 10,
+      annualPrice: 100,
       description: "For solo creators & indie hackers",
       badge: null,
       features: [
@@ -32,13 +33,13 @@ function BillingSettings() {
     {
       id: "pro",
       name: "Pro",
-      monthlyPrice: 69,
-      annualPrice: 690,
+      monthlyPrice: 29,
+      annualPrice: 290,
       description: "For freelancers & power users",
       badge: "Most Popular",
       features: [
         { text: "5 projects", highlight: true },
-        { text: "5 integrations (your choice)", highlight: false },
+        { text: "10 integrations (your choice)", highlight: false },
         { text: "Voice control", highlight: true },
         { text: "Web search", highlight: false },
         { text: "Full template library", highlight: true },
@@ -48,42 +49,85 @@ function BillingSettings() {
       cta: "Upgrade to Pro",
     },
     {
+      id: "studio",
+      name: "Studio",
+      monthlyPrice: 59,
+      annualPrice: 590,
+      description: "For serious builders & power creators",
+      badge: null,
+      features: [
+        { text: "15 projects", highlight: true },
+        { text: "25 integrations (your choice)", highlight: true },
+        { text: "Voice control", highlight: false },
+        { text: "Web search", highlight: false },
+        { text: "Full template library", highlight: false },
+        { text: "Unlimited chat history", highlight: false },
+        { text: "Priority email support", highlight: true },
+      ],
+      cta: "Upgrade to Studio",
+    },
+  ];
+
+  const teamPlans = [
+    {
+      id: "team",
+      name: "Team",
+      monthlyPrice: 99,
+      annualPrice: 990,
+      description: "For small teams & startups",
+      badge: null,
+      features: [
+        { text: "5 team seats", highlight: true },
+        { text: "10 projects", highlight: false },
+        { text: "All integrations", highlight: true },
+        { text: "Voice control", highlight: false },
+        { text: "Full template library", highlight: false },
+        { text: "Unlimited chat history", highlight: false },
+        { text: "Activity log", highlight: false },
+        { text: "Email support", highlight: false },
+      ],
+      cta: "Upgrade to Team",
+    },
+    {
       id: "business",
       name: "Business",
       monthlyPrice: 199,
       annualPrice: 1990,
-      description: "For teams & agencies",
-      badge: null,
+      description: "For agencies & growing companies",
+      badge: "Most Popular",
       features: [
-        { text: "15 projects", highlight: true },
+        { text: "15 team seats", highlight: true },
+        { text: "30 projects", highlight: true },
         { text: "All integrations", highlight: true },
         { text: "Voice control", highlight: false },
-        { text: "Web search", highlight: false },
         { text: "Full template library", highlight: false },
-        { text: "5 team seats", highlight: true },
         { text: "Unlimited chat history", highlight: false },
+        { text: "Advanced admin controls", highlight: true },
         { text: "Priority email support", highlight: false },
       ],
       cta: "Upgrade to Business",
     },
   ];
 
-  const getPrice = (plan: (typeof plans)[0]) => {
+  const getPrice = (plan: (typeof soloPlans)[0]) => {
     return billingCycle === "annual" ? plan.annualPrice : plan.monthlyPrice;
   };
 
-  const getMonthlyEquivalent = (plan: (typeof plans)[0]) => {
+  const getMonthlyEquivalent = (plan: (typeof soloPlans)[0]) => {
     if (billingCycle === "annual") {
       return Math.round(plan.annualPrice / 12);
     }
     return plan.monthlyPrice;
   };
 
-  const getAnnualSavings = (plan: (typeof plans)[0]) => {
+  const getAnnualSavings = (plan: (typeof soloPlans)[0]) => {
     return plan.monthlyPrice * 12 - plan.annualPrice;
   };
 
-  const planIndex = (id: string) => plans.findIndex((p) => p.id === id);
+  const allPlans = [...soloPlans, ...teamPlans];
+  const planIndex = (id: string) => allPlans.findIndex((p) => p.id === id);
+
+  const activePlans = planTab === "solo" ? soloPlans : teamPlans;
 
   return (
     <div className={`${t.colors.text} max-w-6xl`}>
@@ -134,6 +178,36 @@ function BillingSettings() {
         </div>
       </div>
 
+      {/* Solo / Teams tab toggle */}
+      <div className="flex items-center justify-center mb-5">
+        <div
+          className={`inline-flex items-center ${t.colors.bgSecondary} ${t.borderRadius} p-1 border ${t.colors.border}`}
+        >
+          <button
+            onClick={() => setPlanTab("solo")}
+            className={`px-5 py-1.5 text-sm font-medium ${t.borderRadius} transition-all duration-150 ${
+              planTab === "solo"
+                ? "text-white shadow-sm"
+                : `${t.colors.textMuted} hover:${t.colors.text}`
+            }`}
+            style={planTab === "solo" ? { background: "#7C3AED" } : {}}
+          >
+            Solo
+          </button>
+          <button
+            onClick={() => setPlanTab("teams")}
+            className={`px-5 py-1.5 text-sm font-medium ${t.borderRadius} transition-all duration-150 ${
+              planTab === "teams"
+                ? "text-white shadow-sm"
+                : `${t.colors.textMuted} hover:${t.colors.text}`
+            }`}
+            style={planTab === "teams" ? { background: "#7C3AED" } : {}}
+          >
+            Teams
+          </button>
+        </div>
+      </div>
+
       {/* Billing cycle toggle */}
       <div className="flex items-center justify-center mb-6">
         <div
@@ -173,9 +247,9 @@ function BillingSettings() {
         </div>
       </div>
 
-      {/* Plan cards — single row, all plans */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        {plans.map((plan) => {
+      {/* Plan cards */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        {activePlans.map((plan) => {
           const isCurrent = currentPlan === plan.id;
           const isPopular = plan.badge === "Most Popular";
           const isUpgrade = planIndex(plan.id) > planIndex(currentPlan);
@@ -205,7 +279,7 @@ function BillingSettings() {
                 </div>
               )}
 
-              {/* Plan header — no icon */}
+              {/* Plan header */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-1">
                   <h3 className="font-semibold text-lg">{plan.name}</h3>
@@ -248,7 +322,7 @@ function BillingSettings() {
                 style={{ height: 1, background: "#1E1E1E" }}
               />
 
-              {/* Features — clean list, no icons */}
+              {/* Features */}
               <ul className="space-y-2.5 mb-5 flex-1">
                 {plan.features.map((feature, i) => (
                   <li key={i} className="flex items-start gap-2.5 text-sm">
@@ -325,91 +399,93 @@ function BillingSettings() {
           );
         })}
 
-        {/* Enterprise card — same row */}
-        <div
-          className={`relative ${t.colors.bgSecondary} ${t.borderRadius} p-5 flex flex-col transition-all duration-150`}
-          style={{
-            border: "1px solid rgba(124, 58, 237, 0.15)",
-            background:
-              "linear-gradient(180deg, rgba(124, 58, 237, 0.06) 0%, transparent 100%)",
-          }}
-        >
-          {/* Header */}
-          <div className="mb-4">
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-semibold text-lg">Enterprise</h3>
-            </div>
-            <p className={`text-xs ${t.colors.textMuted}`}>
-              For orgs with custom needs
-            </p>
-          </div>
-
-          {/* Price */}
-          <div className="mb-4">
-            <div className="flex items-baseline gap-1">
-              <span className="text-3xl font-bold">Custom</span>
-            </div>
-            <div className="mt-1">
-              <span className={`text-xs ${t.colors.textMuted}`}>
-                tailored to your team
-              </span>
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="mb-4" style={{ height: 1, background: "#1E1E1E" }} />
-
-          {/* Features */}
-          <ul className="space-y-2.5 mb-5 flex-1">
-            {[
-              { text: "Unlimited projects", highlight: true },
-              { text: "All integrations", highlight: true },
-              { text: "Unlimited team members", highlight: true },
-              { text: "Voice control", highlight: false },
-              { text: "Full template library", highlight: false },
-              { text: "Unlimited chat history", highlight: false },
-              { text: "Dedicated support", highlight: true },
-              { text: "Custom onboarding", highlight: false },
-            ].map((feature, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-sm">
-                <span
-                  className="mt-[7px] flex-shrink-0 rounded-full"
-                  style={{
-                    width: 5,
-                    height: 5,
-                    background: feature.highlight ? "#7C3AED" : "#555555",
-                  }}
-                />
-                <span
-                  className={
-                    feature.highlight ? t.colors.text : t.colors.textMuted
-                  }
-                >
-                  {feature.text}
-                </span>
-              </li>
-            ))}
-          </ul>
-
-          {/* CTA */}
-          <button
-            className={`w-full py-2 ${t.borderRadius} text-sm font-medium transition-all duration-150`}
-            style={{ background: "#7C3AED", color: "#FFFFFF" }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "#5B21B6";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "#7C3AED";
-            }}
-            onClick={() => {
-              import("@tauri-apps/plugin-opener")
-                .then(({ open }) => open("https://mydevify.com/enterprise"))
-                .catch(() => {});
+        {/* Enterprise card — Teams tab only */}
+        {planTab === "teams" && (
+          <div
+            className={`relative ${t.colors.bgSecondary} ${t.borderRadius} p-5 flex flex-col transition-all duration-150`}
+            style={{
+              border: "1px solid rgba(124, 58, 237, 0.15)",
+              background:
+                "linear-gradient(180deg, rgba(124, 58, 237, 0.06) 0%, transparent 100%)",
             }}
           >
-            Contact Sales
-          </button>
-        </div>
+            {/* Header */}
+            <div className="mb-4">
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="font-semibold text-lg">Enterprise</h3>
+              </div>
+              <p className={`text-xs ${t.colors.textMuted}`}>
+                For orgs with custom needs
+              </p>
+            </div>
+
+            {/* Price */}
+            <div className="mb-4">
+              <div className="flex items-baseline gap-1">
+                <span className="text-3xl font-bold">Custom</span>
+              </div>
+              <div className="mt-1">
+                <span className={`text-xs ${t.colors.textMuted}`}>
+                  tailored to your team
+                </span>
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div className="mb-4" style={{ height: 1, background: "#1E1E1E" }} />
+
+            {/* Features */}
+            <ul className="space-y-2.5 mb-5 flex-1">
+              {[
+                { text: "Unlimited team members", highlight: true },
+				{ text: "Unlimited projects", highlight: true },
+                { text: "All integrations", highlight: true },
+                { text: "Voice control", highlight: false },
+                { text: "Full template library", highlight: false },
+                { text: "Unlimited chat history", highlight: false },
+                { text: "Dedicated support", highlight: true },
+                { text: "Custom onboarding", highlight: false },
+              ].map((feature, i) => (
+                <li key={i} className="flex items-start gap-2.5 text-sm">
+                  <span
+                    className="mt-[7px] flex-shrink-0 rounded-full"
+                    style={{
+                      width: 5,
+                      height: 5,
+                      background: feature.highlight ? "#7C3AED" : "#555555",
+                    }}
+                  />
+                  <span
+                    className={
+                      feature.highlight ? t.colors.text : t.colors.textMuted
+                    }
+                  >
+                    {feature.text}
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            {/* CTA */}
+            <button
+              className={`w-full py-2 ${t.borderRadius} text-sm font-medium transition-all duration-150`}
+              style={{ background: "#7C3AED", color: "#FFFFFF" }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#5B21B6";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#7C3AED";
+              }}
+              onClick={() => {
+                import("@tauri-apps/plugin-opener")
+                  .then(({ open }) => open("https://mydevify.com/enterprise"))
+                  .catch(() => {});
+              }}
+            >
+              Contact Sales
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Payment method */}

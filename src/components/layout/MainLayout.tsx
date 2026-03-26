@@ -15,6 +15,9 @@ import SettingsLayout from "../settings/SettingsLayout";
 import TimeMachine from "../timemachine/TimeMachine";
 import TerminalPanel from "../terminal/TerminalPanel";
 import TasksPage from "../tasks/TasksPage";
+import HomePage from "../home/HomePage";
+import AssistantSection from "../assistant/AssistantSection";
+import type { AppSection } from "../home/HomePage";
 
 function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -22,10 +25,14 @@ function MainLayout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState("general");
 
-  // Tools page navigation (null = chat view, "tasks" | "deploy" | "health" | "routines")
+  // Top-level section nav state
+  const [activeSection, setActiveSection] = useState<AppSection>('projects');
+
+  // Tools page navigation within the Projects section
+  // (null = chat view, "deploy" | "health" | "routines")
   const [toolsPage, setToolsPage] = useState<string | null>(null);
 
-  // Message to auto-send when switching back to chat (e.g. from task suggestions)
+  // Message to auto-send when switching back to chat
   const [pendingChatMessage, setPendingChatMessage] = useState<string | null>(null);
 
   // Vertical divider (chat <-> preview)
@@ -44,11 +51,10 @@ function MainLayout() {
 
   const showTerminal = mode === "technical" && terminalOpen;
 
-  // ── File watcher — refresh tree on external changes ──────
+  // ── File watcher — refresh tree on external changes ──────────────
   const watcherPathRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Clean up previous watcher
     if (watcherPathRef.current && watcherPathRef.current !== projectPath) {
       unwatchProject();
     }
@@ -64,20 +70,15 @@ function MainLayout() {
     watchProject(watchPath, async (changedPaths) => {
       console.log("[watcher] Files changed externally:", changedPaths.length);
 
-      // Refresh file tree
       try {
         const files = await readDirectory(watchPath, 3);
         setFileTree(files);
-
-        // Regenerate manifest
         const manifest = await generateManifest(watchPath, files);
         setManifest(manifest);
       } catch (err) {
         console.error("[watcher] Failed to refresh file tree:", err);
       }
 
-      // Auto-update .mydevify/context.md so AI always has current project state
-      // Skip if the change was inside .mydevify itself (avoid infinite loop)
       const hasNonContextChanges = changedPaths.some(
         (p) => !p.replace(/\\/g, "/").includes("/.mydevify/")
       );
@@ -87,7 +88,6 @@ function MainLayout() {
         );
       }
 
-      // Check if the currently selected file (in edit mode) was changed externally
       const { selectedFile } = useProjectStore.getState();
       if (selectedFile && !selectedFile.is_dir) {
         const selectedNorm = selectedFile.path.replace(/\\/g, "/");
@@ -106,23 +106,21 @@ function MainLayout() {
     };
   }, [projectPath]);
 
-  // --- Vertical divider handlers (chat <-> preview) ---
+  // ── Divider drag handlers ─────────────────────────────────────────
+
   const handleVerticalMouseDown = useCallback(() => {
     setIsDraggingVertical(true);
   }, []);
 
-  // --- Horizontal divider handlers (editor <-> terminal) ---
   const handleHorizontalMouseDown = useCallback(() => {
     setIsDraggingHorizontal(true);
   }, []);
 
-  // --- Unified mouse up ---
   const handleMouseUp = useCallback(() => {
     setIsDraggingVertical(false);
     setIsDraggingHorizontal(false);
   }, []);
 
-  // --- Unified mouse move ---
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (isDraggingVertical) {
@@ -144,7 +142,6 @@ function MainLayout() {
         const topbarHeight = 48;
         const availableHeight = rect.height - topbarHeight;
         const mouseY = e.clientY - rect.top - topbarHeight;
-        // Terminal height is measured from bottom, so invert
         const newTerminalPercent =
           ((availableHeight - mouseY) / availableHeight) * 100;
         setTerminalHeight(Math.min(Math.max(newTerminalPercent, 10), 70));
@@ -153,6 +150,8 @@ function MainLayout() {
     [isDraggingVertical, isDraggingHorizontal, sidebarOpen]
   );
 
+  // ── Navigation handlers ───────────────────────────────────────────
+
   const handleSettingsClick = (tab: string = "general") => {
     setSettingsTab(tab);
     setSettingsOpen(true);
@@ -160,8 +159,16 @@ function MainLayout() {
   };
 
   const handleToolsNavigate = (page: string) => {
+    // Tasks now has its own top-level section
+    if (page === "tasks") {
+      setActiveSection('tasks');
+      setSettingsOpen(false);
+      return;
+    }
     setToolsPage(page);
     setSettingsOpen(false);
+    // Make sure we're in the projects section to see tools pages
+    setActiveSection('projects');
   };
 
   const handleBackToChat = () => {
@@ -169,8 +176,6 @@ function MainLayout() {
   };
 
   const handleSendToChat = (message: string, switchToProjectPath?: string) => {
-    // If a project path is provided (e.g. from Tasks page), switch to that project
-    // so the AI operates on the correct project files and context
     if (switchToProjectPath) {
       const { projects, setCurrentProject, setProjectPath } = useProjectStore.getState();
       const targetProject = projects.find(
@@ -184,7 +189,19 @@ function MainLayout() {
     setPendingChatMessage(message);
     setToolsPage(null);
     setSettingsOpen(false);
+    setActiveSection('projects');
   };
+
+  const handleSectionChange = (section: AppSection) => {
+    setActiveSection(section);
+    // Close settings and tools pages when switching sections
+    setSettingsOpen(false);
+    if (section !== 'projects') {
+      setToolsPage(null);
+    }
+  };
+
+  // ── Render ────────────────────────────────────────────────────────
 
   return (
     <div
@@ -203,128 +220,140 @@ function MainLayout() {
 
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar - always visible */}
+        {/* Sidebar */}
         <Sidebar
           isOpen={sidebarOpen}
           onToggle={() => setSidebarOpen(!sidebarOpen)}
           onSettingsClick={handleSettingsClick}
+          activeSection={activeSection}
+          onSectionChange={handleSectionChange}
         />
 
-        {/* Settings view */}
+        {/* ── Settings overlay ── */}
         {settingsOpen ? (
           <SettingsLayout
             onClose={() => setSettingsOpen(false)}
             initialTab={settingsTab}
           />
-        ) : toolsPage ? (
-          /* Tools page view — replaces chat area */
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Back to Chat header */}
-            <div className={`flex items-center gap-2 px-4 py-3 ${t.colors.border} border-b`}>
-              <button
-                onClick={handleBackToChat}
-                className={`flex items-center gap-1.5 text-sm ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
-              >
-                <ArrowLeft size={16} />
-                Back to Chat
-              </button>
-            </div>
 
-            {/* Tools page content */}
+        ) : activeSection === 'home' ? (
+          /* ── Home dashboard ── */
+          <HomePage
+            onNavigate={handleSectionChange}
+            onSettingsClick={handleSettingsClick}
+          />
+
+        ) : activeSection === 'assistant' ? (
+          /* ── Assistant section ── */
+          <AssistantSection />
+
+        ) : activeSection === 'tasks' ? (
+          /* ── Tasks section ── */
+          <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-6">
-              {toolsPage === "tasks" && <TasksPage onSendToChat={handleSendToChat} />}
-              {toolsPage === "deploy" && (
-                <div className={`${t.colors.textMuted} text-center py-20`}>
-                  <p className="text-lg mb-2">Deploy</p>
-                  <p className="text-sm">Coming soon</p>
-                </div>
-              )}
-              {toolsPage === "health" && (
-                <div className={`${t.colors.textMuted} text-center py-20`}>
-                  <p className="text-lg mb-2">Health Checks</p>
-                  <p className="text-sm">Coming soon</p>
-                </div>
-              )}
-              {toolsPage === "routines" && (
-                <div className={`${t.colors.textMuted} text-center py-20`}>
-                  <p className="text-lg mb-2">Routines</p>
-                  <p className="text-sm">Coming soon</p>
-                </div>
-              )}
+              <TasksPage onSendToChat={handleSendToChat} />
             </div>
           </div>
+
         ) : (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* ── Upper area: Chat + Preview ── */}
-            <div
-              className="flex overflow-hidden"
-              style={{
-                height: showTerminal
-                  ? `${100 - terminalHeight}%`
-                  : "100%",
-              }}
-            >
-              {/* Chat area */}
+          /* ── Projects section (default) ── */
+          toolsPage ? (
+            /* Tools page within projects */
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className={`flex items-center gap-2 px-4 py-3 ${t.colors.border} border-b`}>
+                <button
+                  onClick={handleBackToChat}
+                  className={`flex items-center gap-1.5 text-sm ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
+                >
+                  <ArrowLeft size={16} />
+                  Back to Chat
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6">
+                {toolsPage === "deploy" && (
+                  <div className={`${t.colors.textMuted} text-center py-20`}>
+                    <p className="text-lg mb-2">Deploy</p>
+                    <p className="text-sm">Coming soon</p>
+                  </div>
+                )}
+                {toolsPage === "health" && (
+                  <div className={`${t.colors.textMuted} text-center py-20`}>
+                    <p className="text-lg mb-2">Health Checks</p>
+                    <p className="text-sm">Coming soon</p>
+                  </div>
+                )}
+                {toolsPage === "routines" && (
+                  <div className={`${t.colors.textMuted} text-center py-20`}>
+                    <p className="text-lg mb-2">Routines</p>
+                    <p className="text-sm">Coming soon</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Chat + Preview layout */
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* ── Upper area: Chat + Preview ── */}
               <div
-                className={`flex flex-col ${t.colors.border} ${previewOpen ? "border-r" : ""}`}
-                style={{
-                  width: previewOpen ? `${chatWidth}%` : "100%",
-                }}
+                className="flex overflow-hidden"
+                style={{ height: showTerminal ? `${100 - terminalHeight}%` : "100%" }}
               >
-                <ChatArea
-                  onSettingsClick={handleSettingsClick}
-                  pendingMessage={pendingChatMessage}
-                  onPendingMessageConsumed={() => setPendingChatMessage(null)}
-                />
+                {/* Chat area */}
+                <div
+                  className={`flex flex-col ${t.colors.border} ${previewOpen ? "border-r" : ""}`}
+                  style={{ width: previewOpen ? `${chatWidth}%` : "100%" }}
+                >
+                  <ChatArea
+                    onSettingsClick={handleSettingsClick}
+                    pendingMessage={pendingChatMessage}
+                    onPendingMessageConsumed={() => setPendingChatMessage(null)}
+                  />
+                </div>
+
+                {previewOpen && (
+                  <>
+                    <div
+                      className={`w-1 cursor-col-resize ${isDraggingVertical ? "bg-blue-500" : t.colors.bgSecondary} hover:bg-blue-500 transition-colors`}
+                      onMouseDown={handleVerticalMouseDown}
+                    />
+                    <div className="flex-1 flex flex-col">
+                      <PreviewArea onClose={() => setPreviewOpen(false)} />
+                    </div>
+                  </>
+                )}
+
+                {!previewOpen && (
+                  <div className={`w-12 ${t.colors.bgSecondary} ${t.colors.border} border-l flex flex-col items-center`}>
+                    <button
+                      onClick={() => setPreviewOpen(true)}
+                      className={`h-12 w-full flex items-center justify-center ${t.colors.text} hover:opacity-70`}
+                      title="Open Preview"
+                    >
+                      <PanelRight size={20} />
+                    </button>
+                  </div>
+                )}
+
+                {timeMachineOpen && <TimeMachine />}
               </div>
 
-              {previewOpen && (
+              {/* ── Terminal ── */}
+              {showTerminal && (
                 <>
-                  {/* Vertical resize handle */}
                   <div
-                    className={`w-1 cursor-col-resize ${isDraggingVertical ? "bg-blue-500" : t.colors.bgSecondary} hover:bg-blue-500 transition-colors`}
-                    onMouseDown={handleVerticalMouseDown}
+                    className={`h-1 cursor-row-resize ${isDraggingHorizontal ? "bg-blue-500" : t.colors.bgSecondary} hover:bg-blue-500 transition-colors`}
+                    onMouseDown={handleHorizontalMouseDown}
                   />
-                  {/* Preview area */}
-                  <div className="flex-1 flex flex-col">
-                    <PreviewArea onClose={() => setPreviewOpen(false)} />
+                  <div
+                    className={`overflow-hidden ${t.colors.border} border-t`}
+                    style={{ height: `${terminalHeight}%` }}
+                  >
+                    <TerminalPanel />
                   </div>
                 </>
               )}
-
-              {/* Preview toggle button (when closed) — mirrors sidebar collapse toggle */}
-              {!previewOpen && (
-                <div className={`w-12 ${t.colors.bgSecondary} ${t.colors.border} border-l flex flex-col items-center`}>
-                  <button
-                    onClick={() => setPreviewOpen(true)}
-                    className={`h-12 w-full flex items-center justify-center ${t.colors.text} hover:opacity-70`}
-                    title="Open Preview"
-                  >
-                    <PanelRight size={20} />
-                  </button>
-                </div>
-              )}
-
-              {/* Time Machine panel */}
-              {timeMachineOpen && <TimeMachine />}
             </div>
-
-            {/* ── Horizontal resize divider + Terminal ── */}
-            {showTerminal && (
-              <>
-                <div
-                  className={`h-1 cursor-row-resize ${isDraggingHorizontal ? "bg-blue-500" : t.colors.bgSecondary} hover:bg-blue-500 transition-colors`}
-                  onMouseDown={handleHorizontalMouseDown}
-                />
-                <div
-                  className={`overflow-hidden ${t.colors.border} border-t`}
-                  style={{ height: `${terminalHeight}%` }}
-                >
-                  <TerminalPanel />
-                </div>
-              </>
-            )}
-          </div>
+          )
         )}
       </div>
     </div>
