@@ -30,7 +30,7 @@ function SettingsLayout({ onClose, initialTab = "general" }: SettingsLayoutProps
     { id: "general", label: "General", icon: Settings },
     { id: "apikey", label: "API Key", icon: Key },
     { id: "usage", label: "Usage", icon: BarChart3 },
-    { id: "connections", label: "Connections", icon: Plug },
+    { id: "connections", label: "Project Connections", icon: Plug },
     { id: "voice", label: "Voice", icon: Mic },
     { id: "billing", label: "Billing", icon: CreditCard },
     { id: "about", label: "About", icon: Info },

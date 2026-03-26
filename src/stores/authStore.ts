@@ -38,7 +38,7 @@ interface AuthState {
   // Actions
   initialize: () => Promise<void>;
   login: (email: string, password: string) => Promise<{ error: string | null }>;
-  signup: (email: string, password: string, displayName: string) => Promise<{ error: string | null }>;
+  signup: (email: string, password: string, displayName: string) => Promise<{ error: string | null; needsConfirmation: boolean }>;
   sendMagicLink: (email: string) => Promise<{ error: string | null }>;
   logout: () => Promise<void>;
   fetchProfile: () => Promise<void>;
@@ -166,13 +166,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (error) {
       set({ isLoading: false, authError: error });
-      return { error };
+      return { error, needsConfirmation: false };
     }
 
     // If email confirmation is required, session will be null
     if (!session) {
       set({ isLoading: false });
-      return { error: null }; // Caller should show "check your email" message
+      return { error: null, needsConfirmation: true };
     }
 
     const user: AuthUser = {
@@ -191,7 +191,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     get().fetchProfile();
 
-    return { error: null };
+    return { error: null, needsConfirmation: false };
   },
 
   /**

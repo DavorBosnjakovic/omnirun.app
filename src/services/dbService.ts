@@ -59,11 +59,24 @@ interface DBConnection {
   error: string | null;
 }
 
+interface DBAssistantAccount {
+  id: string;
+  user_id: string;
+  provider: string;
+  provider_type: string;
+  email: string;
+  display_name: string | null;
+  account_label: string | null;
+  is_active: number; // 0 or 1
+  connected_at: string | null;
+  synced_at: string;
+}
+
 // ─── Database Instance ───────────────────────────────────────
 
 let db: Database | null = null;
 
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 
 // ─── Schema Creation ─────────────────────────────────────────
 
@@ -167,6 +180,19 @@ const CREATE_TABLES_SQL = `
     PRIMARY KEY (project_id, provider),
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS assistant_accounts_cache (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_type TEXT NOT NULL DEFAULT 'email',
+    email TEXT NOT NULL,
+    display_name TEXT,
+    account_label TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    connected_at TEXT,
+    synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `;
 
 // ─── Initialization ──────────────────────────────────────────
@@ -195,8 +221,6 @@ async function init(): Promise<void> {
     const currentVersion = versionRows.length > 0 ? versionRows[0].version : 0;
 
     if (currentVersion < CURRENT_SCHEMA_VERSION) {
-      // Run any future migrations here based on currentVersion
-      // For now, just set the version
       if (currentVersion === 0) {
         await db.execute(
           'INSERT OR REPLACE INTO schema_version (version) VALUES (?)',
@@ -224,15 +248,12 @@ async function init(): Promise<void> {
 
       // v2 → v3: Add session_id to usage, expand usage_sessions for session history
       if (currentVersion >= 1 && currentVersion < 3) {
-        // Add session_id column to usage table (safe if already exists via CREATE TABLE)
         try {
           await db.execute('ALTER TABLE usage ADD COLUMN session_id TEXT');
         } catch {
-          // Column already exists (from fresh install with v3 schema) — ignore
+          // Column already exists — ignore
         }
 
-        // Expand usage_sessions table — recreate with new schema
-        // Preserve any existing session data by migrating rows
         await db.execute(`
           CREATE TABLE IF NOT EXISTS usage_sessions_new (
             id TEXT PRIMARY KEY,
@@ -249,14 +270,13 @@ async function init(): Promise<void> {
             providers TEXT
           )
         `);
-        // Copy existing rows (only id, start_time, total_tokens, total_cost, entry_count)
         try {
           await db.execute(`
             INSERT OR IGNORE INTO usage_sessions_new (id, start_time, total_tokens, total_cost, entry_count)
             SELECT id, start_time, total_tokens, total_cost, entry_count FROM usage_sessions
           `);
         } catch {
-          // Original table might not exist or have different schema — safe to ignore
+          // Original table might not exist — safe to ignore
         }
         await db.execute('DROP TABLE IF EXISTS usage_sessions');
         await db.execute('ALTER TABLE usage_sessions_new RENAME TO usage_sessions');
@@ -290,6 +310,29 @@ async function init(): Promise<void> {
           [4]
         );
         console.log('[DB] Migrated schema v3 → v4 (project_connections)');
+      }
+
+      // v4 → v5: Add assistant_accounts_cache table
+      if (currentVersion >= 1 && currentVersion < 5) {
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS assistant_accounts_cache (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            provider_type TEXT NOT NULL DEFAULT 'email',
+            email TEXT NOT NULL,
+            display_name TEXT,
+            account_label TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            connected_at TEXT,
+            synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+          )
+        `);
+        await db.execute(
+          'INSERT OR REPLACE INTO schema_version (version) VALUES (?)',
+          [5]
+        );
+        console.log('[DB] Migrated schema v4 → v5 (assistant_accounts_cache)');
       }
     }
 
@@ -325,7 +368,6 @@ function getDb(): Database {
 
 async function migrateFromLocalStorage(): Promise<void> {
   try {
-    // Check if migration was already done
     const migrated = await getSetting('localStorage_migrated');
     if (migrated === 'true') return;
 
@@ -374,7 +416,6 @@ async function migrateFromLocalStorage(): Promise<void> {
         try {
           const chats = JSON.parse(chatRaw);
           for (const chat of chats) {
-            // Restore Date objects in messages before storing
             const messages = (chat.messages || []).map((msg: any) => ({
               ...msg,
               timestamp: msg.timestamp,
@@ -419,7 +460,6 @@ async function migrateFromLocalStorage(): Promise<void> {
             timestamp: entry.timestamp || Date.now(),
           });
         }
-        // Migrate session summaries
         const sessions = usageData.sessions || [];
         for (const session of sessions) {
           await saveUsageSession(session);
@@ -480,11 +520,9 @@ async function migrateFromLocalStorage(): Promise<void> {
       migrationHappened = true;
     }
 
-    // Mark migration as complete
     await setSetting('localStorage_migrated', 'true');
 
     if (migrationHappened) {
-      // Clean up localStorage after successful migration
       localStorage.removeItem('mydevify-projects');
       localStorage.removeItem('mydevify-settings');
       localStorage.removeItem('mydevify_usage');
@@ -492,7 +530,6 @@ async function migrateFromLocalStorage(): Promise<void> {
       localStorage.removeItem('mydevify_connections');
       localStorage.removeItem('mydevify-last-project');
 
-      // Clean up per-project chat keys
       for (const project of projectsForChats) {
         localStorage.removeItem(`mydevify_chats_${project.id}`);
       }
@@ -503,7 +540,6 @@ async function migrateFromLocalStorage(): Promise<void> {
     }
   } catch (error) {
     console.error('[DB] Migration error (non-fatal):', error);
-    // Don't throw — the app should still work even if migration fails
   }
 }
 
@@ -542,7 +578,6 @@ async function saveProject(project: ProjectInput): Promise<void> {
 
 async function deleteProject(id: string): Promise<void> {
   const d = getDb();
-  // Foreign key CASCADE will delete related chat_history rows
   await d.execute('DELETE FROM projects WHERE id = ?', [id]);
 }
 
@@ -751,9 +786,6 @@ async function getMonthlyUsage(): Promise<{
   outputCost: number;
 }> {
   const d = getDb();
-  // ── FIX: Use UTC for month boundary to match UTC timestamps in DB ──
-  // Timestamps are stored as UTC ISO strings (via toISOString()).
-  // Use Date.UTC to avoid local timezone shifting the boundary.
   const now = new Date();
   const startOfMonthUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
     .toISOString().replace('T', ' ').replace('Z', '');
@@ -920,10 +952,6 @@ async function saveUsageSession(session: {
 }
 
 // ─── Session History Queries ────────────────────────────────
-// These query the `usage` table directly — no dependency on
-// usage_sessions being populated. Entries are grouped by
-// session_id when available, or by calendar date for older
-// entries that predate session tracking.
 
 interface DerivedSessionRow {
   group_key: string;
@@ -959,10 +987,6 @@ async function getSessionHistory(options?: {
 }>> {
   const d = getDb();
 
-  // Group entries by session_id if present, otherwise by calendar date.
-  // COALESCE gives us a unified grouping key:
-  //   - "session_1234567890" for tagged entries
-  //   - "date_2025-03-15" for untagged historical entries
   let whereClause = '';
   const params: any[] = [];
 
@@ -1047,11 +1071,9 @@ async function getSessionDetail(groupKey: string): Promise<{
 } | null> {
   const d = getDb();
 
-  // Determine query based on groupKey format
   let entryRows: DBUsageEntry[];
 
   if (groupKey.startsWith('date_')) {
-    // Historical entries grouped by date — match on date(timestamp)
     const dateStr = groupKey.replace('date_', '');
     entryRows = await d.select<DBUsageEntry[]>(
       `SELECT * FROM usage
@@ -1060,7 +1082,6 @@ async function getSessionDetail(groupKey: string): Promise<{
       [dateStr]
     );
   } else {
-    // Tagged entries — match on session_id
     entryRows = await d.select<DBUsageEntry[]>(
       'SELECT * FROM usage WHERE session_id = ? ORDER BY timestamp ASC',
       [groupKey]
@@ -1084,7 +1105,6 @@ async function getSessionDetail(groupKey: string): Promise<{
     timestamp: new Date(r.timestamp + 'Z').getTime(),
   }));
 
-  // Build summary from entries
   const models = [...new Set(entries.map(e => e.model))];
   const providers = [...new Set(entries.map(e => e.provider))];
 
@@ -1107,11 +1127,7 @@ async function getSessionDetail(groupKey: string): Promise<{
 }
 
 // ─── Cost Recalculation Migration ───────────────────────────
-// One-time fix for historical data that was stored with the
-// cache double-counting bug. Recalculates cost, input_cost,
-// total_tokens, and input_tokens for all existing rows.
 
-// Import the same pricing logic used in usageStore
 const MIGRATION_PRICING: Record<string, { input: number; output: number; cacheCreation?: number; cacheRead?: number }> = {
   "claude-opus": { input: 15, output: 75, cacheCreation: 18.75, cacheRead: 1.50 },
   "claude-sonnet": { input: 3, output: 15, cacheCreation: 3.75, cacheRead: 0.30 },
@@ -1125,7 +1141,6 @@ function getMigrationPricing(model: string, provider: string) {
   for (const [key, pricing] of Object.entries(MIGRATION_PRICING)) {
     if (m.includes(key)) return pricing;
   }
-  // Fallback — non-Anthropic providers weren't affected by cache bug
   const fallbacks: Record<string, { input: number; output: number }> = {
     openai: { input: 2.50, output: 10 },
     anthropic: { input: 3, output: 15 },
@@ -1139,13 +1154,11 @@ function getMigrationPricing(model: string, provider: string) {
 async function migrateCostRecalculation(): Promise<void> {
   const d = getDb();
 
-  // Check if migration already ran
   const migrated = await getSetting('cost_recalc_v1');
   if (migrated === 'done') return;
 
   console.log('[DB] Running cost recalculation migration...');
 
-  // Get all rows that might have cache tokens (the bug only affects these)
   const rows = await d.select<{
     id: number;
     provider: string;
@@ -1168,17 +1181,9 @@ async function migrateCostRecalculation(): Promise<void> {
   for (const row of rows) {
     const pricing = getMigrationPricing(row.model, row.provider);
 
-    // OLD BUG: input_tokens was stored as (api_input + cacheCreate + cacheRead)
-    //   but api_input already includes cacheRead, so cacheRead was double-counted.
-    // CORRECT: input_tokens should be (api_input + cacheCreate) — no cacheRead addition.
-    // To reverse: subtract cacheRead from the stored input_tokens.
     const correctedInputTokens = row.input_tokens - row.cache_read_tokens;
     const correctedTotalTokens = correctedInputTokens + row.output_tokens;
 
-    // Recalculate cost with the correct formula:
-    // regularInput = (api_input_tokens - cacheRead) at full rate
-    // But we need api_input_tokens. Since correctedInputTokens = api_input + cacheCreate,
-    // the api_input_tokens = correctedInputTokens - cacheCreate
     const apiInputTokens = correctedInputTokens - row.cache_creation_tokens;
     const regularInputTokens = Math.max(0, apiInputTokens - row.cache_read_tokens);
 
@@ -1377,6 +1382,90 @@ async function updateProjectConnectionStatus(
   );
 }
 
+// ─── Assistant Accounts Cache ─────────────────────────────────
+// Local cache of connected personal integrations (Gmail, Outlook, etc.)
+// Source of truth is Supabase assistant_email_accounts table.
+// This cache is synced on Assistant section open so the UI loads instantly.
+
+export interface AssistantAccount {
+  id: string;           // matches Supabase UUID
+  userId: string;
+  provider: string;     // 'gmail' | 'outlook' | future providers
+  providerType: string; // 'email' | 'calendar' | 'messaging' | 'other'
+  email: string;
+  displayName: string | null;
+  accountLabel: string | null; // user-given nickname
+  isActive: boolean;
+  connectedAt: string | null;
+  syncedAt: string;
+}
+
+async function getAssistantAccounts(userId: string): Promise<AssistantAccount[]> {
+  const d = getDb();
+  const rows = await d.select<DBAssistantAccount[]>(
+    'SELECT * FROM assistant_accounts_cache WHERE user_id = ? AND is_active = 1 ORDER BY connected_at ASC',
+    [userId]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    provider: r.provider,
+    providerType: r.provider_type,
+    email: r.email,
+    displayName: r.display_name,
+    accountLabel: r.account_label,
+    isActive: r.is_active === 1,
+    connectedAt: r.connected_at,
+    syncedAt: r.synced_at,
+  }));
+}
+
+async function upsertAssistantAccount(account: AssistantAccount): Promise<void> {
+  const d = getDb();
+  const syncedIso = new Date().toISOString().replace('T', ' ').replace('Z', '');
+  await d.execute(
+    `INSERT OR REPLACE INTO assistant_accounts_cache
+       (id, user_id, provider, provider_type, email, display_name, account_label, is_active, connected_at, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      account.id,
+      account.userId,
+      account.provider,
+      account.providerType,
+      account.email,
+      account.displayName,
+      account.accountLabel,
+      account.isActive ? 1 : 0,
+      account.connectedAt,
+      syncedIso,
+    ]
+  );
+}
+
+async function updateAssistantAccountLabel(id: string, label: string): Promise<void> {
+  const d = getDb();
+  await d.execute(
+    'UPDATE assistant_accounts_cache SET account_label = ? WHERE id = ?',
+    [label, id]
+  );
+}
+
+async function deleteAssistantAccount(id: string): Promise<void> {
+  const d = getDb();
+  await d.execute(
+    'DELETE FROM assistant_accounts_cache WHERE id = ?',
+    [id]
+  );
+}
+
+async function clearAssistantAccountsForUser(userId: string): Promise<void> {
+  const d = getDb();
+  await d.execute(
+    'DELETE FROM assistant_accounts_cache WHERE user_id = ?',
+    [userId]
+  );
+}
+
 // ─── Last Project ────────────────────────────────────────────
 
 async function getLastProjectId(): Promise<string | null> {
@@ -1486,6 +1575,13 @@ export const dbService = {
   saveProjectConnection,
   deleteProjectConnection,
   updateProjectConnectionStatus,
+
+  // Assistant accounts cache
+  getAssistantAccounts,
+  upsertAssistantAccount,
+  updateAssistantAccountLabel,
+  deleteAssistantAccount,
+  clearAssistantAccountsForUser,
 
   // Last project
   getLastProjectId,

@@ -436,22 +436,65 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
     handleSend(`Fix these console errors I'm seeing in the app:\n\n\`\`\`\n${errorText}\n\`\`\``);
   };
 
+  // Extract a human-readable action label from partial <tool_call> content
+  const describeToolCall = (partial: string): string => {
+    const nameMatch = partial.match(/"name"\s*:\s*"([^"]+)"/);
+    const toolName = nameMatch?.[1];
+    const pathMatch = partial.match(/"path"\s*:\s*"([^"]+)"/);
+    const filePath = pathMatch?.[1];
+    const fileName = filePath ? filePath.split(/[/\\]/).pop() : null;
+    const queryMatch = partial.match(/"query"\s*:\s*"([^"]+)"/);
+
+    if (!toolName) return "⏳ Working...";
+
+    const labels: Record<string, string> = {
+      edit_file:      fileName ? `✏️ Editing ${fileName}...`   : "✏️ Editing file...",
+      create_file:    fileName ? `📝 Creating ${fileName}...`  : "📝 Creating file...",
+      read_file:      fileName ? `📖 Reading ${fileName}...`   : "📖 Reading file...",
+      delete_file:    fileName ? `🗑️ Deleting ${fileName}...`  : "🗑️ Deleting file...",
+      list_directory: "📂 Listing directory...",
+      web_search:     queryMatch?.[1] ? `🔍 Searching: ${queryMatch[1]}...` : "🔍 Searching the web...",
+      write_context:  "💾 Saving context...",
+    };
+
+    return labels[toolName] ?? `⏳ ${toolName.replace(/_/g, " ")}...`;
+  };
+
   // Collapse incomplete code blocks and tool calls during streaming
   const getStreamingDisplay = (content: string): string => {
-    // If there's an unclosed <tool_call> tag, hide everything from it onward
-    const openTag = content.lastIndexOf("<tool_call>");
-    const closeTag = content.lastIndexOf("</tool_call>");
-    if (openTag !== -1 && (closeTag === -1 || closeTag < openTag)) {
-      const textBefore = content.slice(0, openTag).trim();
-      return textBefore || "⏳ Working on files...";
+    // If there's an unclosed <tool_call> tag, parse it to show what the AI is doing
+    const openCallTag = content.lastIndexOf("<tool_call>");
+    const closeCallTag = content.lastIndexOf("</tool_call>");
+    if (openCallTag !== -1 && (closeCallTag === -1 || closeCallTag < openCallTag)) {
+      const textBefore = content.slice(0, openCallTag).trim();
+      const partialCall = content.slice(openCallTag);
+      const actionLabel = describeToolCall(partialCall);
+      return textBefore ? `${textBefore}\n\n${actionLabel}` : actionLabel;
     }
 
-    // Strip completed tool_call blocks
-    const clean = content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+    // If there's an unclosed <tool_result> tag, look back at the last tool_call
+    // to show what we're waiting on
+    const openResultTag = content.lastIndexOf("<tool_result>");
+    const closeResultTag = content.lastIndexOf("</tool_result>");
+    if (openResultTag !== -1 && (closeResultTag === -1 || closeResultTag < openResultTag)) {
+      const textBefore = content.slice(0, openResultTag).trim();
+      // Find the most recent completed tool_call to describe what's running
+      const lastCall = content.slice(0, openResultTag).match(/<tool_call>([\s\S]*?)<\/tool_call>/g);
+      const actionLabel = lastCall?.length
+        ? describeToolCall(lastCall[lastCall.length - 1])
+        : "⏳ Working...";
+      return textBefore ? `${textBefore}\n\n${actionLabel}` : actionLabel;
+    }
+
+    // Strip completed tool_call and tool_result blocks
+    const clean = content
+      .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
+      .replace(/<tool_result>[\s\S]*?<\/tool_result>/g, "")
+      .trim();
 
     // Count backtick fences
     const fences = clean.match(/```/g);
-    if (!fences || fences.length % 2 === 0) return content; // All code blocks are closed
+    if (!fences || fences.length % 2 === 0) return clean; // All code blocks are closed
 
     // Odd number = unclosed code block. Show text before it + placeholder
     const originalBeforeFence = content.slice(0, content.lastIndexOf("```"));
@@ -551,10 +594,11 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
         fullResponse = result.text;
 
-        // Update with full content (replaces streaming placeholders)
+        // Use getStreamingDisplay here too — it handles both complete and unclosed
+        // tool blocks, so we never flash raw XML regardless of where streaming stopped
         useChatStore.setState((state) => ({
           messages: state.messages.map((m) =>
-            m.id === assistantId ? { ...m, content: fullResponse } : m
+            m.id === assistantId ? { ...m, content: getStreamingDisplay(fullResponse) } : m
           ),
         }));
 
@@ -891,8 +935,11 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
   // Parse message for code blocks and tool call blocks
   const renderMessage = (content: string) => {
-    // Strip tool_call blocks from display — show clean text only
-    const cleanContent = content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+    // Strip tool_call and tool_result blocks from display — show clean text only
+    const cleanContent = content
+      .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
+      .replace(/<tool_result>[\s\S]*?<\/tool_result>/g, "")
+      .trim();
     if (!cleanContent) return <span className={`${t.colors.textMuted} italic`}>Working with files...</span>;
 
     return (

@@ -42,8 +42,8 @@ export default function SignupPage({ onBack }: SignupPageProps) {
     if (!email.trim() || !password.trim() || !displayName.trim()) return;
     if (password.length < 6) return;
 
-    const { error } = await signup(email.trim(), password.trim(), displayName.trim());
-    if (!error && !isAuthenticated) {
+    const { error, needsConfirmation } = await signup(email.trim(), password.trim(), displayName.trim());
+    if (!error && needsConfirmation) {
       setConfirmSent(true);
     }
   };
