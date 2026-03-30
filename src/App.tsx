@@ -11,15 +11,17 @@ import { useConnectionsStore } from "./stores/connectionsStore";
 import { useAuthStore } from "./stores/authStore";
 
 function App() {
-  const [dbReady, setDbReady] = useState(false);
-  const [authChecked, setAuthChecked] = useState(false);
+  // Single atomic flag — nothing renders until the entire init sequence
+  // is complete. Splitting into dbReady + authChecked allowed React to
+  // re-render between steps, causing "DB not initialized" errors when
+  // auth listeners tried to persist tokens mid-init.
+  const [appReady, setAppReady] = useState(false);
   const [dbError, setDbError] = useState(false);
 
-  // Initialize SQLite and load all stores on startup
   useEffect(() => {
     async function initApp() {
       try {
-        // 1. Initialize database (creates tables, runs migration from localStorage)
+        // 1. Initialize database (creates tables, runs migrations)
         await dbService.init();
 
         // 2. Load all stores from SQLite
@@ -30,14 +32,15 @@ function App() {
           useConnectionsStore.getState().loadFromDB(),
         ]);
 
-        // 3. Mark DB ready
-        setDbReady(true);
-
-        // 4. Try restoring auth session from stored tokens
+        // 3. Restore auth session from stored tokens.
+        //    Must run AFTER DB is fully initialized because the auth
+        //    state-change listener will immediately try to persist tokens.
         await useAuthStore.getState().initialize();
-        setAuthChecked(true);
 
-        // 5. Re-test all saved connections (after DB is loaded)
+        // 4. Mark fully ready — ONE render, at the very end.
+        setAppReady(true);
+
+        // 5. Re-test saved connections in the background (non-blocking)
         retestAllConnections();
       } catch (error) {
         console.error("Failed to initialize app:", error);
@@ -47,7 +50,6 @@ function App() {
 
     initApp();
 
-    // Cleanup auth listener on unmount
     return () => {
       useAuthStore.getState().cleanup();
     };
@@ -70,7 +72,6 @@ function App() {
 
   const appFont = fontMap[theme] || "'Inter', sans-serif";
 
-  // Don't render until DB and stores are loaded
   if (dbError) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-black text-white text-sm opacity-60">
@@ -79,11 +80,12 @@ function App() {
     );
   }
 
-  if (!dbReady || !authChecked) {
+  // Nothing renders until the full init sequence is done
+  if (!appReady) {
     return null;
   }
 
-  // Flow: Onboarding (first launch) → Auth (login/signup) → MainLayout (app)
+  // Flow: Onboarding (first launch) → Auth (login/signup) → MainLayout
   if (!onboardingCompleted) {
     return (
       <div style={{ fontFamily: appFont }} className="h-screen w-screen">

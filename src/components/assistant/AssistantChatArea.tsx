@@ -8,6 +8,7 @@
 // - System prompt focused on personal assistant tasks
 // - Aware of connected email accounts so it can reference them
 // - Shows onboarding empty state when no accounts are connected
+// - Records usage to SQLite with source: 'assistant' for Usage dashboard
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Square, Bot, User, Trash2, MessageSquarePlus, Mail } from 'lucide-react';
@@ -15,6 +16,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { themes } from '../../config/themes';
 import { useAssistantStore, selectEmailAccounts } from '../../stores/assistantStore';
 import { sendMessage } from '../../services/aiService';
+import { dbService } from '../../services/dbService';
 import MarkdownRenderer from '../chat/MarkdownRenderer';
 
 interface AssistantChatAreaProps {
@@ -177,6 +179,52 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
     setLoading(false);
   };
 
+  // ── Record assistant usage to SQLite ─────────────────────
+  // Fires after each completed response. Never throws — usage tracking
+  // is non-critical and must not interrupt the chat flow.
+  //
+  // Safely handles whatever shape sendMessage returns for usage data.
+  // Cost defaults to 0 if not pre-calculated by aiService; token counts
+  // are always accurate. Cost calculation is handled by usageStore when
+  // the shared trackUsage path is later integrated here.
+  const recordAssistantUsage = async (
+    result: any,
+    providerConfig: { id: string; model: string }
+  ) => {
+    try {
+      const raw = result?.usage ?? {};
+
+      const inputTokens        = raw.inputTokens        ?? raw.input_tokens                 ?? 0;
+      const outputTokens       = raw.outputTokens       ?? raw.output_tokens                ?? 0;
+      const cacheCreationTokens = raw.cacheCreationTokens ?? raw.cache_creation_input_tokens ?? 0;
+      const cacheReadTokens    = raw.cacheReadTokens    ?? raw.cache_read_input_tokens       ?? 0;
+      const totalTokens        = inputTokens + outputTokens;
+
+      const cost       = raw.cost       ?? result?.cost       ?? 0;
+      const inputCost  = raw.inputCost  ?? result?.inputCost  ?? 0;
+      const outputCost = raw.outputCost ?? result?.outputCost ?? 0;
+
+      await dbService.recordUsage({
+        provider:             providerConfig.id,
+        model:                providerConfig.model ?? '',
+        inputTokens,
+        outputTokens,
+        cacheCreationTokens,
+        cacheReadTokens,
+        totalTokens,
+        cost,
+        inputCost,
+        outputCost,
+        taskLabel:  null,
+        timestamp:  Date.now(),
+        sessionId:  null,
+        source:     'assistant',
+      });
+    } catch (err) {
+      console.error('[AssistantChatArea] recordUsage failed:', err);
+    }
+  };
+
   // ── Send message ──────────────────────────────────────────
   const handleSend = useCallback(async (overrideText?: string) => {
     const messageText = overrideText || input.trim();
@@ -249,6 +297,12 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
           m.id === assistantId ? { ...m, content: fullResponse } : m
         ),
       }));
+
+      // ── Track usage (source: 'assistant') ────────────────
+      // Only record if the stream completed (not stopped by user).
+      if (!stoppedRef.current) {
+        await recordAssistantUsage(result, { id: provider.id, model: provider.model ?? '' });
+      }
 
     } catch (error: any) {
       if (!stoppedRef.current) {

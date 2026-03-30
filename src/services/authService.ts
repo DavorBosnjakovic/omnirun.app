@@ -207,7 +207,7 @@ export async function getProfile(): Promise<UserProfile | null> {
     .from('profiles')
     .select('*')
     .eq('id', user.id)
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error('[Auth] Failed to fetch profile:', error.message);

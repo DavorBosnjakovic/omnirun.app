@@ -23,6 +23,7 @@ function BillingSettings() {
       features: [
         { text: "1 project", highlight: false },
         { text: "3 integrations (your choice)", highlight: false },
+        { text: "Voice control", highlight: false },
         { text: "Web search", highlight: false },
         { text: "5 project templates", highlight: false },
         { text: "Last 10 chat histories", highlight: false },
@@ -38,11 +39,11 @@ function BillingSettings() {
       description: "For freelancers & power users",
       badge: "Most Popular",
       features: [
-        { text: "5 projects", highlight: true },
+        { text: "5 projects", highlight: false },
         { text: "10 integrations (your choice)", highlight: false },
-        { text: "Voice control", highlight: true },
+        { text: "Voice control", highlight: false },
         { text: "Web search", highlight: false },
-        { text: "Full template library", highlight: true },
+        { text: "Full template library", highlight: false },
         { text: "Unlimited chat history", highlight: false },
         { text: "Email support", highlight: false },
       ],
@@ -56,13 +57,13 @@ function BillingSettings() {
       description: "For serious builders & power creators",
       badge: null,
       features: [
-        { text: "15 projects", highlight: true },
-        { text: "25 integrations (your choice)", highlight: true },
+        { text: "15 projects", highlight: false },
+        { text: "25 integrations (your choice)", highlight: false },
         { text: "Voice control", highlight: false },
         { text: "Web search", highlight: false },
         { text: "Full template library", highlight: false },
         { text: "Unlimited chat history", highlight: false },
-        { text: "Priority email support", highlight: true },
+        { text: "Priority email support", highlight: false },
       ],
       cta: "Upgrade to Studio",
     },
@@ -77,10 +78,11 @@ function BillingSettings() {
       description: "For small teams & startups",
       badge: null,
       features: [
-        { text: "5 team seats", highlight: true },
+        { text: "5 team seats", highlight: false },
         { text: "10 projects", highlight: false },
-        { text: "All integrations", highlight: true },
+        { text: "All integrations", highlight: false },
         { text: "Voice control", highlight: false },
+        { text: "Web search", highlight: false },
         { text: "Full template library", highlight: false },
         { text: "Unlimited chat history", highlight: false },
         { text: "Activity log", highlight: false },
@@ -96,13 +98,15 @@ function BillingSettings() {
       description: "For agencies & growing companies",
       badge: "Most Popular",
       features: [
-        { text: "15 team seats", highlight: true },
-        { text: "30 projects", highlight: true },
-        { text: "All integrations", highlight: true },
+        { text: "15 team seats", highlight: false },
+        { text: "30 projects", highlight: false },
+        { text: "All integrations", highlight: false },
         { text: "Voice control", highlight: false },
+        { text: "Web search", highlight: false },
         { text: "Full template library", highlight: false },
         { text: "Unlimited chat history", highlight: false },
-        { text: "Advanced admin controls", highlight: true },
+        { text: "Activity log", highlight: false },
+        { text: "Advanced admin controls", highlight: false },
         { text: "Priority email support", highlight: false },
       ],
       cta: "Upgrade to Business",
@@ -167,9 +171,9 @@ function BillingSettings() {
             <button
               className={`px-3 py-1.5 ${t.borderRadius} text-sm font-medium`}
               style={{
-                background: "rgba(124, 58, 237, 0.15)",
-                color: "#A78BFA",
-                border: "1px solid rgba(124, 58, 237, 0.3)",
+                background: "rgba(45, 184, 122, 0.15)",
+                color: "#5DE8A0",
+                border: "1px solid rgba(45, 184, 122, 0.3)",
               }}
             >
               Manage billing
@@ -190,7 +194,7 @@ function BillingSettings() {
                 ? "text-white shadow-sm"
                 : `${t.colors.textMuted} hover:${t.colors.text}`
             }`}
-            style={planTab === "solo" ? { background: "#7C3AED" } : {}}
+            style={planTab === "solo" ? { background: "#2DB87A" } : {}}
           >
             Solo
           </button>
@@ -201,7 +205,7 @@ function BillingSettings() {
                 ? "text-white shadow-sm"
                 : `${t.colors.textMuted} hover:${t.colors.text}`
             }`}
-            style={planTab === "teams" ? { background: "#7C3AED" } : {}}
+            style={planTab === "teams" ? { background: "#2DB87A" } : {}}
           >
             Teams
           </button>
@@ -220,7 +224,7 @@ function BillingSettings() {
                 ? "text-white shadow-sm"
                 : `${t.colors.textMuted} hover:${t.colors.text}`
             }`}
-            style={billingCycle === "monthly" ? { background: "#7C3AED" } : {}}
+            style={billingCycle === "monthly" ? { background: "#2DB87A" } : {}}
           >
             Monthly
           </button>
@@ -231,7 +235,7 @@ function BillingSettings() {
                 ? "text-white shadow-sm"
                 : `${t.colors.textMuted} hover:${t.colors.text}`
             }`}
-            style={billingCycle === "annual" ? { background: "#7C3AED" } : {}}
+            style={billingCycle === "annual" ? { background: "#2DB87A" } : {}}
           >
             Annual
             <span
@@ -260,12 +264,12 @@ function BillingSettings() {
               className={`relative ${t.colors.bgSecondary} ${t.borderRadius} p-5 flex flex-col transition-all duration-150`}
               style={{
                 border: isPopular
-                  ? "2px solid #7C3AED"
+                  ? "2px solid #2DB87A"
                   : isCurrent
                   ? "2px solid #2A2A2A"
                   : "1px solid #1E1E1E",
                 ...(isPopular
-                  ? { boxShadow: "0 0 20px rgba(124, 58, 237, 0.12)" }
+                  ? { boxShadow: "0 0 20px rgba(45, 184, 122, 0.12)" }
                   : {}),
               }}
             >
@@ -273,7 +277,7 @@ function BillingSettings() {
               {isPopular && (
                 <div
                   className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs font-semibold px-3 py-0.5 rounded-full text-white"
-                  style={{ background: "#7C3AED" }}
+                  style={{ background: "#2DB87A" }}
                 >
                   {plan.badge}
                 </div>
@@ -331,7 +335,7 @@ function BillingSettings() {
                       style={{
                         width: 5,
                         height: 5,
-                        background: feature.highlight ? "#7C3AED" : "#555555",
+                        background: feature.highlight ? "#2DB87A" : "#555555",
                       }}
                     />
                     <span
@@ -362,12 +366,12 @@ function BillingSettings() {
                   className={`w-full py-2 ${t.borderRadius} text-sm font-medium transition-all duration-150`}
                   style={
                     isPopular
-                      ? { background: "#7C3AED", color: "#FFFFFF" }
+                      ? { background: "#2DB87A", color: "#FFFFFF" }
                       : isUpgrade
                       ? {
-                          background: "rgba(124, 58, 237, 0.12)",
-                          color: "#A78BFA",
-                          border: "1px solid rgba(124, 58, 237, 0.3)",
+                          background: "rgba(45, 184, 122, 0.12)",
+                          color: "#5DE8A0",
+                          border: "1px solid rgba(45, 184, 122, 0.3)",
                         }
                       : {
                           background: "transparent",
@@ -377,18 +381,18 @@ function BillingSettings() {
                   }
                   onMouseEnter={(e) => {
                     if (isPopular) {
-                      e.currentTarget.style.background = "#5B21B6";
+                      e.currentTarget.style.background = "#1a9e63";
                     } else if (isUpgrade) {
                       e.currentTarget.style.background =
-                        "rgba(124, 58, 237, 0.2)";
+                        "rgba(45, 184, 122, 0.2)";
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (isPopular) {
-                      e.currentTarget.style.background = "#7C3AED";
+                      e.currentTarget.style.background = "#2DB87A";
                     } else if (isUpgrade) {
                       e.currentTarget.style.background =
-                        "rgba(124, 58, 237, 0.12)";
+                        "rgba(45, 184, 122, 0.12)";
                     }
                   }}
                 >
@@ -404,9 +408,9 @@ function BillingSettings() {
           <div
             className={`relative ${t.colors.bgSecondary} ${t.borderRadius} p-5 flex flex-col transition-all duration-150`}
             style={{
-              border: "1px solid rgba(124, 58, 237, 0.15)",
+              border: "1px solid rgba(45, 184, 122, 0.15)",
               background:
-                "linear-gradient(180deg, rgba(124, 58, 237, 0.06) 0%, transparent 100%)",
+                "linear-gradient(180deg, rgba(45, 184, 122, 0.06) 0%, transparent 100%)",
             }}
           >
             {/* Header */}
@@ -437,13 +441,16 @@ function BillingSettings() {
             {/* Features */}
             <ul className="space-y-2.5 mb-5 flex-1">
               {[
-                { text: "Unlimited team members", highlight: true },
-				{ text: "Unlimited projects", highlight: true },
-                { text: "All integrations", highlight: true },
+                { text: "Unlimited team members", highlight: false },
+                { text: "Unlimited projects", highlight: false },
+                { text: "All integrations", highlight: false },
                 { text: "Voice control", highlight: false },
+                { text: "Web search", highlight: false },
                 { text: "Full template library", highlight: false },
                 { text: "Unlimited chat history", highlight: false },
-                { text: "Dedicated support", highlight: true },
+                { text: "Activity log", highlight: false },
+                { text: "Advanced admin controls", highlight: false },
+                { text: "Dedicated support", highlight: false },
                 { text: "Custom onboarding", highlight: false },
               ].map((feature, i) => (
                 <li key={i} className="flex items-start gap-2.5 text-sm">
@@ -452,7 +459,7 @@ function BillingSettings() {
                     style={{
                       width: 5,
                       height: 5,
-                      background: feature.highlight ? "#7C3AED" : "#555555",
+                      background: feature.highlight ? "#2DB87A" : "#555555",
                     }}
                   />
                   <span
@@ -469,12 +476,12 @@ function BillingSettings() {
             {/* CTA */}
             <button
               className={`w-full py-2 ${t.borderRadius} text-sm font-medium transition-all duration-150`}
-              style={{ background: "#7C3AED", color: "#FFFFFF" }}
+              style={{ background: "#2DB87A", color: "#FFFFFF" }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = "#5B21B6";
+                e.currentTarget.style.background = "#1a9e63";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = "#7C3AED";
+                e.currentTarget.style.background = "#2DB87A";
               }}
               onClick={() => {
                 import("@tauri-apps/plugin-opener")
