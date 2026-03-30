@@ -351,9 +351,20 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
     const files = Array.from(e.dataTransfer?.files || []);
     const imageFiles = files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type));
+    const textFiles = files.filter((f) => f.type === "text/plain" || f.name.endsWith(".txt"));
 
     if (imageFiles.length > 0) {
       await addImages(imageFiles);
+    }
+
+    if (textFiles.length > 0) {
+      const textContents = await Promise.all(
+        textFiles.map((f) => f.text().then((content) => `**${f.name}:**\n\`\`\`\n${content}\n\`\`\``))
+      );
+      setInput((prev) => (prev ? prev + "\n\n" : "") + textContents.join("\n\n"));
+    }
+
+    if (imageFiles.length > 0 || textFiles.length > 0) {
       inputRef.current?.focus();
     }
   }, [addImages]);
@@ -614,6 +625,8 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
             outputTokens: result.usage.outputTokens,
             cacheCreationTokens: result.usage.cacheCreationTokens,
             cacheReadTokens: result.usage.cacheReadTokens,
+            source: 'project',
+            projectName: currentProject?.name ?? null,
           });
         }
 
@@ -631,12 +644,14 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
               outputTokens: fallbackResult.usage.outputTokens,
               cacheCreationTokens: fallbackResult.usage.cacheCreationTokens,
               cacheReadTokens: fallbackResult.usage.cacheReadTokens,
+              source: 'project',
+              projectName: currentProject?.name ?? null,
             });
           }
 
           useChatStore.setState((state) => ({
             messages: state.messages.map((m) =>
-              m.id === assistantId ? { ...m, content: fullResponse } : m
+              m.id === assistantId ? { ...m, content: getStreamingDisplay(fullResponse) } : m
             ),
           }));
         }

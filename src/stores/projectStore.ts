@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { FileEntry } from "../services/fileService";
 import { ProjectManifest } from "../services/manifestService";
 import { dbService } from "../services/dbService";
+import { useChatStore } from "./chatStore";
+import { useDiffStore } from "./diffStore";
 
 interface Project {
   id: string;
@@ -43,7 +45,7 @@ interface ProjectState {
   loadFromDB: () => Promise<void>;
 }
 
-export const useProjectStore = create<ProjectState>((set) => ({
+export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   currentProject: null,
   projectPath: null,
@@ -57,6 +59,11 @@ export const useProjectStore = create<ProjectState>((set) => ({
   externalFileChange: null,
 
   setCurrentProject: (project) => {
+    const prev = get().currentProject;
+    if (prev?.id !== project?.id) {
+      useChatStore.getState().clearMessages();
+      useDiffStore.getState().clear();
+    }
     set({ currentProject: project });
     // Update last opened in DB (fire-and-forget)
     if (project) {

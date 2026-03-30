@@ -89,6 +89,8 @@ interface UsageState {
     cacheCreationTokens?: number;
     cacheReadTokens?: number;
     taskLabel?: string;
+    source?: 'project' | 'assistant';
+    projectName?: string | null;
   }) => UsageEntry;
   setMonthlyBudget: (budget: number | null) => void;
   setBudgetAlertEnabled: (enabled: boolean) => void;
@@ -181,15 +183,13 @@ interface CostBreakdown {
 /**
  * Calculate cost for an API call.
  *
- * CRITICAL: For Anthropic (and DeepSeek), `inputTokens` from the API already
- * INCLUDES `cacheReadTokens`. Those cached tokens are charged at a discounted
- * rate (0.1x for Anthropic, 0.1x for DeepSeek), NOT at the full input rate.
- *
- * `cacheCreationTokens` are NOT included in `inputTokens` — they're separate
- * and charged at 1.25x the base input rate.
+ * Anthropic returns all three token types as separate fields:
+ *   inputTokens         = regular (non-cached) input tokens
+ *   cacheReadTokens     = tokens read from cache (charged at cacheRead rate)
+ *   cacheCreationTokens = tokens written to cache (charged at cacheCreation rate)
  *
  * Correct formula:
- *   regularInput = (inputTokens - cacheReadTokens) × base_rate
+ *   regularInput = inputTokens × base_rate
  *   cacheRead    = cacheReadTokens × cacheRead_rate
  *   cacheCreate  = cacheCreationTokens × cacheCreation_rate
  *   output       = outputTokens × output_rate
@@ -204,11 +204,8 @@ function calculateCost(
 ): CostBreakdown {
   const pricing = getPricing(model, provider);
 
-  // ── FIX: Subtract cache_read from input before applying full rate ──
-  // inputTokens already includes cacheReadTokens (Anthropic API behavior).
-  // Only the non-cached portion should be charged at the full input rate.
-  const regularInputTokens = Math.max(0, inputTokens - cacheReadTokens);
-  const regularInputCost = (regularInputTokens / 1_000_000) * pricing.input;
+  // inputTokens = regular (non-cached) input only — Anthropic returns all three separately.
+  const regularInputCost = (inputTokens / 1_000_000) * pricing.input;
 
   // Cache read tokens: charged at the discounted cache_read rate
   const cacheReadCost = pricing.cacheRead
@@ -272,15 +269,11 @@ export const useUsageStore = create<UsageState>((set, get) => ({
   sessionHistory: [],
   selectedSession: null,
 
-  trackAPICall: ({ model, provider, inputTokens, outputTokens, cacheCreationTokens = 0, cacheReadTokens = 0, taskLabel }) => {
+  trackAPICall: ({ model, provider, inputTokens, outputTokens, cacheCreationTokens = 0, cacheReadTokens = 0, taskLabel, source = 'project', projectName = null }) => {
     const costBreakdown = calculateCost(model, provider, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens);
 
-    // ── FIX: Correct total input token count ──
-    // Anthropic's input_tokens already INCLUDES cache_read_input_tokens.
-    // It does NOT include cache_creation_input_tokens.
-    // So the full input count is: inputTokens + cacheCreationTokens
-    // (NOT + cacheReadTokens — those are already in inputTokens)
-    const fullInputTokens = inputTokens + cacheCreationTokens;
+    // Total input = regular input + cache creation + cache read (all separate from Anthropic)
+    const fullInputTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
 
     const entry: UsageEntry = {
       id: `entry_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -340,6 +333,8 @@ export const useUsageStore = create<UsageState>((set, get) => ({
         taskLabel: entry.taskLabel || null,
         timestamp: entry.timestamp,
         sessionId,
+        source,
+        projectName,
       }).catch((e) => {
         console.error("Failed to record usage to DB:", e);
       });

@@ -46,6 +46,8 @@ interface DBUsageEntry {
   task_label: string | null;
   session_id: string | null;
   timestamp: string;
+  source: string;              // 'project' | 'assistant'
+  project_name: string | null;
 }
 
 interface DBConnection {
@@ -73,10 +75,17 @@ interface DBAssistantAccount {
 }
 
 // ─── Database Instance ───────────────────────────────────────
+// The instance is also stored on window so it survives Vite HMR module
+// reloads in development (HMR re-executes this module, resetting `db` to
+// null, but window persists — so getDb() can recover without re-init).
+
+declare global {
+  interface Window { __mydevifyDb?: Database; }
+}
 
 let db: Database | null = null;
 
-const CURRENT_SCHEMA_VERSION = 5;
+const CURRENT_SCHEMA_VERSION = 6;
 
 // ─── Schema Creation ─────────────────────────────────────────
 
@@ -123,7 +132,9 @@ const CREATE_TABLES_SQL = `
     output_cost REAL NOT NULL DEFAULT 0,
     task_label TEXT,
     session_id TEXT,
-    timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    source TEXT NOT NULL DEFAULT 'project',
+    project_name TEXT
   );
 
   CREATE TABLE IF NOT EXISTS usage_budget (
@@ -202,6 +213,7 @@ async function init(): Promise<void> {
 
   try {
     db = await Database.load('sqlite:mydevify.db');
+    window.__mydevifyDb = db; // Persist across Vite HMR module reloads
 
     // Create all tables
     const statements = CREATE_TABLES_SQL
@@ -334,6 +346,29 @@ async function init(): Promise<void> {
         );
         console.log('[DB] Migrated schema v4 → v5 (assistant_accounts_cache)');
       }
+
+      // v5 → v6: Add source + project_name columns to usage table
+      if (currentVersion >= 1 && currentVersion < 6) {
+        try {
+          await db.execute(
+            "ALTER TABLE usage ADD COLUMN source TEXT NOT NULL DEFAULT 'project'"
+          );
+        } catch {
+          // Already exists — ignore
+        }
+        try {
+          await db.execute(
+            'ALTER TABLE usage ADD COLUMN project_name TEXT'
+          );
+        } catch {
+          // Already exists — ignore
+        }
+        await db.execute(
+          'INSERT OR REPLACE INTO schema_version (version) VALUES (?)',
+          [6]
+        );
+        console.log('[DB] Migrated schema v5 → v6 (usage source + project_name)');
+      }
     }
 
     // Initialize budget row if it doesn't exist
@@ -360,6 +395,10 @@ async function init(): Promise<void> {
 }
 
 function getDb(): Database {
+  // Recover from Vite HMR module reset (db becomes null but window survives)
+  if (!db && window.__mydevifyDb) {
+    db = window.__mydevifyDb;
+  }
   if (!db) throw new Error('Database not initialized. Call dbService.init() first.');
   return db;
 }
@@ -740,7 +779,9 @@ interface UsageInput {
   outputCost: number;
   taskLabel: string | null;
   timestamp: number;
-  sessionId?: string;
+  sessionId?: string | null;
+  source?: 'project' | 'assistant'; // defaults to 'project'
+  projectName?: string | null;      // project name when source='project'
 }
 
 async function recordUsage(entry: UsageInput): Promise<void> {
@@ -748,8 +789,11 @@ async function recordUsage(entry: UsageInput): Promise<void> {
   const ts = new Date(entry.timestamp).toISOString().replace('T', ' ').replace('Z', '');
 
   await d.execute(
-    `INSERT INTO usage (provider, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, total_tokens, cost, input_cost, output_cost, task_label, session_id, timestamp)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO usage
+       (provider, model, input_tokens, output_tokens, cache_creation_tokens,
+        cache_read_tokens, total_tokens, cost, input_cost, output_cost,
+        task_label, session_id, timestamp, source, project_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       entry.provider,
       entry.model,
@@ -764,8 +808,38 @@ async function recordUsage(entry: UsageInput): Promise<void> {
       entry.taskLabel,
       entry.sessionId || null,
       ts,
+      entry.source ?? 'project',
+      entry.projectName ?? null,
     ]
   );
+}
+
+// ─── Usage filter helper ──────────────────────────────────────
+
+interface UsageFilter {
+  source?: 'project' | 'assistant';
+  projectName?: string;
+}
+
+// Builds optional WHERE fragment + params array for source/project_name filtering.
+// baseParams is the array of params that come BEFORE the filter conditions.
+function buildFilterClause(
+  filter: UsageFilter | undefined,
+  baseParams: any[]
+): { clause: string; params: any[] } {
+  const params = [...baseParams];
+  let clause = '';
+
+  if (filter?.source) {
+    clause += ' AND source = ?';
+    params.push(filter.source);
+  }
+  if (filter?.projectName) {
+    clause += ' AND project_name = ?';
+    params.push(filter.projectName);
+  }
+
+  return { clause, params };
 }
 
 interface UsageAggregateRow {
@@ -777,7 +851,7 @@ interface UsageAggregateRow {
   total_output_cost: number;
 }
 
-async function getMonthlyUsage(): Promise<{
+async function getMonthlyUsage(filter?: UsageFilter): Promise<{
   tokens: number;
   cost: number;
   inputTokens: number;
@@ -790,6 +864,8 @@ async function getMonthlyUsage(): Promise<{
   const startOfMonthUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
     .toISOString().replace('T', ' ').replace('Z', '');
 
+  const { clause, params } = buildFilterClause(filter, [startOfMonthUTC]);
+
   const rows = await d.select<UsageAggregateRow[]>(
     `SELECT
        COALESCE(SUM(total_tokens), 0) as total_tokens,
@@ -799,8 +875,8 @@ async function getMonthlyUsage(): Promise<{
        COALESCE(SUM(input_cost), 0) as total_input_cost,
        COALESCE(SUM(output_cost), 0) as total_output_cost
      FROM usage
-     WHERE timestamp >= ?`,
-    [startOfMonthUTC]
+     WHERE timestamp >= ?${clause}`,
+    params
   );
 
   const r = rows[0];
@@ -814,7 +890,7 @@ async function getMonthlyUsage(): Promise<{
   };
 }
 
-async function getAllTimeUsage(): Promise<{
+async function getAllTimeUsage(filter?: UsageFilter): Promise<{
   tokens: number;
   cost: number;
   inputTokens: number;
@@ -823,6 +899,10 @@ async function getAllTimeUsage(): Promise<{
   outputCost: number;
 }> {
   const d = getDb();
+
+  const { clause, params } = buildFilterClause(filter, []);
+  const whereClause = clause ? `WHERE 1=1${clause}` : '';
+
   const rows = await d.select<UsageAggregateRow[]>(
     `SELECT
        COALESCE(SUM(total_tokens), 0) as total_tokens,
@@ -831,7 +911,8 @@ async function getAllTimeUsage(): Promise<{
        COALESCE(SUM(output_tokens), 0) as total_output_tokens,
        COALESCE(SUM(input_cost), 0) as total_input_cost,
        COALESCE(SUM(output_cost), 0) as total_output_cost
-     FROM usage`
+     FROM usage ${whereClause}`,
+    params
   );
 
   const r = rows[0];
@@ -843,6 +924,82 @@ async function getAllTimeUsage(): Promise<{
     inputCost: r.total_input_cost,
     outputCost: r.total_output_cost,
   };
+}
+
+
+// Flexible filtered aggregate for any date range — used by UsageSettings
+// to power all timeframe tabs when a source/project filter is active.
+async function getUsageInRange(options?: {
+  fromDate?: number;
+  toDate?: number;
+  filter?: UsageFilter;
+}): Promise<{
+  tokens: number;
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+  inputCost: number;
+  outputCost: number;
+}> {
+  const d = getDb();
+  const params: any[] = [];
+  const conditions: string[] = [];
+
+  if (options?.fromDate) {
+    const fromIso = new Date(options.fromDate).toISOString().replace('T', ' ').replace('Z', '');
+    conditions.push('timestamp >= ?');
+    params.push(fromIso);
+  }
+  if (options?.toDate) {
+    const toIso = new Date(options.toDate).toISOString().replace('T', ' ').replace('Z', '');
+    conditions.push('timestamp <= ?');
+    params.push(toIso);
+  }
+  if (options?.filter?.source) {
+    conditions.push('source = ?');
+    params.push(options.filter.source);
+  }
+  if (options?.filter?.projectName) {
+    conditions.push('project_name = ?');
+    params.push(options.filter.projectName);
+  }
+
+  const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
+  const rows = await d.select<UsageAggregateRow[]>(
+    `SELECT
+       COALESCE(SUM(total_tokens), 0) as total_tokens,
+       COALESCE(SUM(cost), 0) as total_cost,
+       COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+       COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+       COALESCE(SUM(input_cost), 0) as total_input_cost,
+       COALESCE(SUM(output_cost), 0) as total_output_cost
+     FROM usage ${where}`,
+    params
+  );
+
+  const r = rows[0];
+  return {
+    tokens: r.total_tokens,
+    cost: r.total_cost,
+    inputTokens: r.total_input_tokens,
+    outputTokens: r.total_output_tokens,
+    inputCost: r.total_input_cost,
+    outputCost: r.total_output_cost,
+  };
+}
+
+// Returns distinct project names that have usage entries, sorted A→Z.
+// Used to populate the project dropdown in UsageSettings.
+async function getProjectNamesFromUsage(): Promise<string[]> {
+  const d = getDb();
+  const rows = await d.select<{ project_name: string }[]>(
+    `SELECT DISTINCT project_name
+     FROM usage
+     WHERE source = 'project' AND project_name IS NOT NULL AND project_name != ''
+     ORDER BY project_name ASC`
+  );
+  return rows.map((r) => r.project_name);
 }
 
 async function getAllUsageEntries(): Promise<UsageInput[]> {
@@ -863,6 +1020,8 @@ async function getAllUsageEntries(): Promise<UsageInput[]> {
     outputCost: r.output_cost,
     taskLabel: r.task_label,
     timestamp: new Date(r.timestamp + 'Z').getTime(),
+    source: r.source as 'project' | 'assistant',
+    projectName: r.project_name,
   }));
 }
 
@@ -1554,6 +1713,8 @@ export const dbService = {
   getAllUsageEntries,
   clearAllUsage,
   migrateCostRecalculation,
+  getUsageInRange,
+  getProjectNamesFromUsage,
 
   // Usage budget
   getBudgetSettings,
