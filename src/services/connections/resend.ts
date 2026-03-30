@@ -90,13 +90,20 @@ async function verifyDomain(token: string, params: any): Promise<any> {
 
 export const resendService: ConnectionService = {
   async testConnection(token: string): Promise<AccountInfo> {
-    const data = await resendFetch('/domains', token);
-    const domains = data.data || [];
-    const verified = domains.filter((d: any) => d.status === 'verified').length;
-    return {
-      name: 'Resend Account',
-      extra: { verifiedDomainCount: verified, totalDomains: domains.length },
-    };
+    try {
+      const data = await resendFetch('/domains', token);
+      const domains = data.data || [];
+      const verified = domains.filter((d: any) => d.status === 'verified').length;
+      return {
+        name: 'Resend Account',
+        extra: { verifiedDomainCount: verified, totalDomains: domains.length },
+      };
+    } catch (e: any) {
+      if (e.message?.includes('restricted')) {
+        return { name: 'Resend Account', extra: { note: 'Sending access only' } };
+      }
+      throw e;
+    }
   },
 
   async execute(action: string, params: Record<string, any>, token: string): Promise<any> {
