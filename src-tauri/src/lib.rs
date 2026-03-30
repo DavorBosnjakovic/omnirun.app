@@ -237,6 +237,7 @@ fn execute_command(command: String, cwd: String) -> Result<CommandResult, String
             .arg("/C")
             .arg(&trimmed)
             .current_dir(&cwd_path)
+
             .output()
     } else {
         std::process::Command::new("/bin/sh")
@@ -592,6 +593,43 @@ async fn supabase_management_api(
     Ok(ProxyResponse { status, body: response_body })
 }
 
+// ── Resend API Proxy ───────────────────────────────────────────
+// Resend API (api.resend.com) doesn't allow browser/webview requests
+// due to missing CORS headers. Proxied through Rust via reqwest.
+
+#[tauri::command]
+async fn resend_api(
+    path: String,
+    token: String,
+    method: String,
+    body: Option<String>,
+) -> Result<ProxyResponse, String> {
+    let client = reqwest::Client::new();
+    let url = format!("https://api.resend.com{}", path);
+
+    let mut request = match method.as_str() {
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "PATCH" => client.patch(&url),
+        "DELETE" => client.delete(&url),
+        _ => client.get(&url),
+    };
+
+    request = request
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json");
+
+    if let Some(b) = body {
+        request = request.body(b);
+    }
+
+    let response = request.send().await.map_err(|e| e.to_string())?;
+    let status = response.status().as_u16();
+    let response_body = response.text().await.map_err(|e| e.to_string())?;
+
+    Ok(ProxyResponse { status, body: response_body })
+}
+
 // ── Scheduled Tasks IPC Commands ──────────────────────────────
 
 #[tauri::command]
@@ -661,6 +699,8 @@ pub fn run() {
             get_dev_server_output,
             // Supabase Management API proxy
             supabase_management_api,
+            // Resend API proxy
+            resend_api,
             // Scheduled tasks
             create_task,
             update_task,

@@ -43,6 +43,52 @@ const ENDPOINTS: Record<string, string> = {
   deepseek: "https://api.deepseek.com/v1/chat/completions",
 };
 
+// ——— Smart Model Routing ————————————————————————————————————————
+// Reads the last user message and conversation size to pick the
+// cheapest model that can handle the task well.
+// Only called when provider is Anthropic and smartRouting is ON.
+
+const ANTHROPIC_MODELS = {
+  haiku:  "claude-haiku-4-5-20251001",
+  sonnet: "claude-sonnet-4-5-20250929",
+  opus:   "claude-opus-4-6",
+} as const;
+
+function selectSmartModel(messages: Message[]): string {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const text = (lastUser?.content || "").toLowerCase();
+
+  // Opus: complex architecture, multi-system debugging, hard problems
+  const opusSignals = [
+    "architect", "refactor entire", "redesign", "rearchitect",
+    "complex", "race condition", "performance issue", "memory leak",
+    "security", "why is this broken", "why is this failing",
+    "best possible", "production", "scalab", "concurren",
+    "debug", "not working", "broken", "failing", "optimize",
+  ];
+
+  // Haiku: quick questions, small one-liner edits, simple lookups
+  const haikuSignals = [
+    "what is", "what does", "what's", "explain", "how do i",
+    "rename", "fix typo", "change the color", "update the text",
+    "add a comment", "format this", "simple", "quick", "just ",
+    "what file", "which file", "where is",
+  ];
+
+  if (opusSignals.some((s) => text.includes(s))) return ANTHROPIC_MODELS.opus;
+  if (haikuSignals.some((s) => text.includes(s))) return ANTHROPIC_MODELS.haiku;
+
+  // Images attached → Sonnet has better vision than Haiku
+  if (messages.some((m) => m.images && m.images.length > 0)) return ANTHROPIC_MODELS.sonnet;
+
+  // Large conversation context → Sonnet handles it better
+  const totalLength = messages.reduce((n, m) => n + m.content.length, 0);
+  if (totalLength > 8000) return ANTHROPIC_MODELS.sonnet;
+
+  // Default: Sonnet for normal work
+  return ANTHROPIC_MODELS.sonnet;
+}
+
 export function buildSystemPrompt(context?: ProjectContext): string {
   // Detect if this is a new/empty project (no About section filled yet)
   const hasAbout = context?.contextString?.includes("## About");
@@ -502,9 +548,14 @@ export async function sendMessage(
   }
 
   if (provider.id === "anthropic") {
-    // Anthropic: structured content blocks with prompt caching
+    // ✅ Smart routing: pick the right model based on the task, if enabled
+    const { smartRouting } = useSettingsStore.getState();
+    const routedProvider = smartRouting
+      ? { ...provider, model: selectSmartModel(trimmedMessages) }
+      : provider;
+
     const systemBlocks = buildSystemPromptBlocks(projectContext);
-    return await sendAnthropicMessage(cleanMessages, provider, systemBlocks, onStream, onReader);
+    return await sendAnthropicMessage(cleanMessages, routedProvider, systemBlocks, onStream, onReader);
   }
 
   // All other providers: plain string system prompt
@@ -515,98 +566,6 @@ export async function sendMessage(
   } else {
     return await sendOpenAICompatibleMessage(cleanMessages, provider, endpoint, systemPrompt, onStream, onReader);
   }
-}
-
-async function sendOpenAICompatibleMessage(
-  messages: Message[],
-  provider: Provider,
-  endpoint: string,
-  systemPrompt: string,
-  onStream?: (chunk: string) => void,
-  onReader?: (reader: ReadableStreamDefaultReader) => void
-): Promise<{ text: string; usage: UsageData }> {
-  const allMessages = formatOpenAIMessages(messages, systemPrompt);
-
-  const body: any = {
-    model: provider.model,
-    messages: allMessages,
-    stream: !!onStream,
-  };
-
-  // Ask for usage data in streaming mode (OpenAI & Groq support this)
-  if (onStream) {
-    body.stream_options = { include_usage: true };
-  }
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${provider.apiKey}`,
-      "User-Agent": "Mozilla/5.0",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`API Error: ${response.status} - ${error}`);
-  }
-
-  const usage: UsageData = { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 };
-
-  if (onStream && response.body) {
-    const reader = response.body.getReader();
-    if (onReader) onReader(reader);
-    const decoder = new TextDecoder();
-    let fullContent = "";
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n").filter((line) => line.startsWith("data: "));
-
-        for (const line of lines) {
-          const data = line.slice(6);
-          if (data === "[DONE]") continue;
-
-          try {
-            const parsed = JSON.parse(data);
-            const content = parsed.choices?.[0]?.delta?.content || "";
-            if (content) {
-              fullContent += content;
-              onStream(content);
-            }
-            // Capture usage from the final chunk (OpenAI/Groq send it here)
-            if (parsed.usage) {
-              usage.inputTokens = parsed.usage.prompt_tokens || 0;
-              usage.outputTokens = parsed.usage.completion_tokens || 0;
-            }
-          } catch {
-            // Skip invalid JSON
-          }
-        }
-      }
-    } catch (e: any) {
-      // Reader was cancelled (user hit stop) — return what we have
-      return { text: fullContent, usage };
-    }
-
-    return { text: fullContent, usage };
-  }
-
-  const data = await response.json();
-
-  // Capture usage from non-streaming response
-  if (data.usage) {
-    usage.inputTokens = data.usage.prompt_tokens || 0;
-    usage.outputTokens = data.usage.completion_tokens || 0;
-  }
-
-  return { text: data.choices?.[0]?.message?.content || "", usage };
 }
 
 async function sendAnthropicMessage(
@@ -707,6 +666,99 @@ async function sendAnthropicMessage(
   }
 
   return { text: data.content?.[0]?.text || "", usage };
+}
+
+async function sendOpenAICompatibleMessage(
+  messages: Message[],
+  provider: Provider,
+  endpoint: string,
+  systemPrompt: string,
+  onStream?: (chunk: string) => void,
+  onReader?: (reader: ReadableStreamDefaultReader) => void
+): Promise<{ text: string; usage: UsageData }> {
+  const allMessages = formatOpenAIMessages(messages, systemPrompt);
+
+  const body: any = {
+    model: provider.model,
+    messages: allMessages,
+    stream: !!onStream,
+  };
+
+  // Ask for usage data in streaming mode (OpenAI & Groq support this)
+  if (onStream) {
+    body.stream_options = { include_usage: true };
+  }
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${provider.apiKey}`,
+      "User-Agent": "Mozilla/5.0",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`API Error: ${response.status} - ${error}`);
+  }
+
+  const usage: UsageData = { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 };
+
+  if (onStream && response.body) {
+    const reader = response.body.getReader();
+    if (onReader) onReader(reader);
+    const decoder = new TextDecoder();
+    let fullContent = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n").filter((line) => line.startsWith("data: "));
+
+        for (const line of lines) {
+          const data = line.slice(6);
+          if (data === "[DONE]") continue;
+
+          try {
+            const parsed = JSON.parse(data);
+            const content = parsed.choices?.[0]?.delta?.content || "";
+            if (content) {
+              fullContent += content;
+              onStream(content);
+            }
+
+            // Capture usage from the final chunk (OpenAI/Groq send it here)
+            if (parsed.usage) {
+              usage.inputTokens = parsed.usage.prompt_tokens || 0;
+              usage.outputTokens = parsed.usage.completion_tokens || 0;
+            }
+          } catch {
+            // Skip invalid JSON
+          }
+        }
+      }
+    } catch (e: any) {
+      // Reader was cancelled (user hit stop) — return what we have
+      return { text: fullContent, usage };
+    }
+
+    return { text: fullContent, usage };
+  }
+
+  const data = await response.json();
+
+  // Capture usage from non-streaming response
+  if (data.usage) {
+    usage.inputTokens = data.usage.prompt_tokens || 0;
+    usage.outputTokens = data.usage.completion_tokens || 0;
+  }
+
+  return { text: data.choices?.[0]?.message?.content || "", usage };
 }
 
 async function sendGoogleMessage(

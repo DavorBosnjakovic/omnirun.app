@@ -280,13 +280,15 @@ function ApiKeySettings() {
     setFetchedModels((prev) => ({ ...prev, [providerId]: models }));
     setFetchingModels((prev) => ({ ...prev, [providerId]: false }));
 
-    // If current selected model isn't in the fetched list, pick the first or the default
+    // ✅ FIX: if the current model isn't in the fetched list, prefer the
+    // provider's defaultModel rather than blindly taking models[0], which
+    // could be Opus due to alphabetical sorting
     if (models.length > 0 && config) {
       const currentValid = models.some((m) => m.id === config.selectedModel);
       if (!currentValid) {
         const defaultMatch = models.find((m) => m.id === provider.defaultModel);
         handleUpdateProvider(providerId, {
-          selectedModel: defaultMatch ? defaultMatch.id : models[0].id,
+          selectedModel: defaultMatch?.id ?? provider.defaultModel,
         });
       }
     }
@@ -343,15 +345,16 @@ function ApiKeySettings() {
     setFetchedModels((prev) => ({ ...prev, [providerId]: models }));
 
     if (models.length > 0) {
-      handleUpdateProvider(providerId, { status: "success" });
-      // Auto-select a valid model
+      // ✅ FIX: same defaultModel preference applied here too
       const currentValid = models.some((m) => m.id === config?.selectedModel);
       if (!currentValid) {
         const defaultMatch = models.find((m) => m.id === provider.defaultModel);
         handleUpdateProvider(providerId, {
           status: "success",
-          selectedModel: defaultMatch ? defaultMatch.id : models[0].id,
+          selectedModel: defaultMatch?.id ?? provider.defaultModel,
         });
+      } else {
+        handleUpdateProvider(providerId, { status: "success" });
       }
     } else {
       // Anthropic returns hardcoded models, so it always succeeds — do a real ping

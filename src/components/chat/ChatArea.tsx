@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Square, User, Bot, Trash2, Wrench, Pencil, Coins, X, Image, MessageSquarePlus, Globe, AlertCircle, ChevronDown } from "lucide-react";
+import { Send, Square, User, Bot, Trash2, Wrench, Pencil, Coins, X, Image, MessageSquarePlus, Globe, AlertCircle, ChevronDown, FileText, Paperclip } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useChatStore } from "../../stores/chatStore";
 import { useProjectStore } from "../../stores/projectStore";
@@ -74,6 +74,20 @@ function ToolActionLine({ content, theme: t, themeKey, mode }: {
 // Allowed image types
 const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
+// Allowed text/document file extensions Claude can read
+const ALLOWED_TEXT_EXTENSIONS = new Set([
+  "txt", "md", "markdown", "html", "htm", "csv", "json", "xml",
+  "pdf", "js", "jsx", "ts", "tsx", "css", "scss", "sass", "py", "rb",
+  "java", "c", "cpp", "h", "go", "rs", "php", "sh", "bash", "yaml", "yml",
+  "toml", "ini", "env", "sql", "graphql", "vue", "svelte", "astro",
+]);
+
+const isAllowedTextFile = (file: File | string): boolean => {
+  const name = typeof file === "string" ? file : file.name;
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  return ALLOWED_TEXT_EXTENSIONS.has(ext);
+};
+
 function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }: {
   onSettingsClick?: (tab: string) => void;
   pendingMessage?: string | null;
@@ -81,6 +95,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 }) {
   const [input, setInput] = useState("");
   const [pendingImages, setPendingImages] = useState<MessageImage[]>([]);
+  const [pendingTextFiles, setPendingTextFiles] = useState<{ id: string; name: string; content: string }[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [showContinue, setShowContinue] = useState(false);
   const [isAutoFixing, setIsAutoFixing] = useState(false);
@@ -92,8 +107,10 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
   const readerRef = useRef<ReadableStreamDefaultReader | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
-  const { theme, timeFormat, mode } = useSettingsStore();
+  // ✅ FIX: destructure smartRouting so the header can reflect it
+  const { theme, timeFormat, mode, smartRouting } = useSettingsStore();
   const { messages, isLoading, addMessage, setLoading, clearMessages } = useChatStore();
   const { currentProject, projectPath, fileTree, selectedFile, setFileTree, manifest, setManifest, buildError, autoFixCount, setBuildError, incrementAutoFix, resetAutoFix } = useProjectStore();
   const { saveConversation, currentChatId, setCurrentChatId } = useChatHistoryStore();
@@ -351,23 +368,113 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
     const files = Array.from(e.dataTransfer?.files || []);
     const imageFiles = files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type));
-    const textFiles = files.filter((f) => f.type === "text/plain" || f.name.endsWith(".txt"));
+    const textFiles = files.filter((f) => !ALLOWED_IMAGE_TYPES.includes(f.type) && isAllowedTextFile(f));
 
     if (imageFiles.length > 0) {
       await addImages(imageFiles);
     }
 
     if (textFiles.length > 0) {
-      const textContents = await Promise.all(
-        textFiles.map((f) => f.text().then((content) => `**${f.name}:**\n\`\`\`\n${content}\n\`\`\``))
+      const newFiles = await Promise.all(
+        textFiles.map(async (f) => ({
+          id: `txt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name: f.name,
+          content: await f.text(),
+        }))
       );
-      setInput((prev) => (prev ? prev + "\n\n" : "") + textContents.join("\n\n"));
+      setPendingTextFiles((prev) => [...prev, ...newFiles]);
     }
 
     if (imageFiles.length > 0 || textFiles.length > 0) {
       inputRef.current?.focus();
     }
   }, [addImages]);
+
+  // ─── Tauri native file drop listener ────────────────────────────────────
+  // Browser drag events (onDragEnter/onDrop) are intercepted by Tauri at the
+  // OS level and never reach React. We must use Tauri's own file drop API.
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    const setup = async () => {
+      try {
+        const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+        const appWindow = getCurrentWebviewWindow();
+
+        unlisten = await appWindow.onDragDropEvent(async (event) => {
+          const type = event.payload.type;
+
+          if (type === "over") {
+            dragCounterRef.current = 1;
+            setIsDragging(true);
+          } else if (type === "leave" || type === "cancel") {
+            dragCounterRef.current = 0;
+            setIsDragging(false);
+          } else if (type === "drop") {
+            dragCounterRef.current = 0;
+            setIsDragging(false);
+
+            const paths: string[] = (event.payload as any).paths || [];
+            if (paths.length === 0) return;
+
+            // ── Text/document files ──────────────────────────────────────────
+            const textPaths = paths.filter((p) => isAllowedTextFile(p));
+            if (textPaths.length > 0) {
+              const { readTextFile } = await import("@tauri-apps/plugin-fs");
+              const newFiles = await Promise.all(
+                textPaths.map(async (p) => {
+                  const name = p.split(/[/\\]/).pop() || p;
+                  const content = await readTextFile(p);
+                  return { id: `txt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, name, content };
+                })
+              );
+              setPendingTextFiles((prev) => [...prev, ...newFiles]);
+            }
+
+            // ── Image files ─────────────────────────────────────────
+            const imgExtMap: Record<string, string> = {
+              png: "image/png",
+              jpg: "image/jpeg",
+              jpeg: "image/jpeg",
+              gif: "image/gif",
+              webp: "image/webp",
+            };
+            const imgPaths = paths.filter((p) => {
+              const ext = p.split(".").pop()?.toLowerCase() || "";
+              return ext in imgExtMap;
+            });
+            if (imgPaths.length > 0) {
+              const { readFile } = await import("@tauri-apps/plugin-fs");
+              const imgs: MessageImage[] = [];
+              for (const p of imgPaths) {
+                const ext = p.split(".").pop()?.toLowerCase() || "";
+                const mimeType = imgExtMap[ext] || "image/png";
+                const bytes = await readFile(p);
+                const base64 = btoa(
+                  Array.from(bytes).map((b) => String.fromCharCode(b)).join("")
+                );
+                imgs.push({
+                  id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                  base64,
+                  mimeType,
+                  name: p.split(/[/\\]/).pop() || p,
+                });
+              }
+              if (imgs.length > 0) setPendingImages((prev) => [...prev, ...imgs]);
+            }
+
+            inputRef.current?.focus();
+          }
+        });
+      } catch {
+        // Not in Tauri — browser drag events handle it instead
+      }
+    };
+
+    setup();
+    return () => unlisten?.();
+  }, []);
 
   // ─── Global paste listener (so Ctrl+V works even without input focus) ──
 
@@ -420,8 +527,14 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
     };
 
     const name = providerNames[activeProviderId] || activeProviderId;
+
+    // ✅ FIX: when smart routing is active, show that label instead of the
+    // static stored model — the actual model varies per-request at runtime
+    if (activeProviderId === "anthropic" && smartRouting) {
+      return `${name} • Smart Routing ⚡`;
+    }
+
     const model = config.selectedModel?.split("-").slice(0, 2).join(" ") || "";
-    
     return `${name} • ${model}`;
   };
 
@@ -514,7 +627,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
   const handleSend = async (overrideMessage?: string) => {
     const messageText = overrideMessage || input.trim();
-    if ((!messageText && pendingImages.length === 0) || isLoading) return;
+    if ((!messageText && pendingImages.length === 0 && pendingTextFiles.length === 0) || isLoading) return;
 
     // Reset auto-fix counter when user sends a manual message (not auto-fix)
     if (!overrideMessage) {
@@ -523,10 +636,14 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
     setShowContinue(false);
 
-    const userMessage = messageText;
+    const textFileAppend = pendingTextFiles.length > 0
+      ? "\n\n" + pendingTextFiles.map((f) => `**${f.name}:**\n\`\`\`\n${f.content}\n\`\`\``).join("\n\n")
+      : "";
+    const userMessage = (messageText || "") + textFileAppend;
     const userImages = pendingImages.length > 0 ? [...pendingImages] : undefined;
     setInput("");
     setPendingImages([]);
+    setPendingTextFiles([]);
     
     addMessage({
       id: Date.now().toString(),
@@ -906,31 +1023,37 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
     // Remove this message and everything after it
     const messageIndex = messages.findIndex((m) => m.id === messageId);
-    useChatStore.setState((state) => ({
-      messages: state.messages.slice(0, messageIndex),
-    }));
+    if (messageIndex !== -1) {
+      useChatStore.setState((state) => ({
+        messages: state.messages.slice(0, messageIndex),
+      }));
+    }
 
-    // Focus input
-    setTimeout(() => inputRef.current?.focus(), 50);
+    inputRef.current?.focus();
   };
 
-  const handleSaveCodeBlock = async (code: string, filename: string) => {
-    if (!projectPath) return;
-    
+  const handleSaveCodeBlock = async (filename: string, content: string) => {
+    if (!projectPath) {
+      addMessage({
+        id: Date.now().toString(),
+        role: "assistant",
+        content: "❌ No project open. Open a project first to save files.",
+        timestamp: new Date(),
+      });
+      return;
+    }
+
     try {
-      const fullPath = `${projectPath}\\${filename.replace(/\//g, "\\")}`;
-      await writeFile(fullPath, code);
-      
+      await writeFile(projectPath, filename, content);
+
+      // Update manifest
+      const relativePath = getRelativePath(projectPath, `${projectPath}/${filename}`);
+      const updatedManifest = await updateManifestEntry(projectPath, relativePath, content, manifest || undefined);
+      if (updatedManifest) setManifest(updatedManifest);
+
       // Refresh file tree
       const files = await readDirectory(projectPath, 3);
       setFileTree(files);
-
-      // Update manifest with the new/modified file
-      if (manifest) {
-        const relativePath = getRelativePath(projectPath, fullPath);
-        const updatedManifest = updateManifestEntry(manifest, relativePath, code);
-        setManifest(updatedManifest);
-      }
 
       addMessage({
         id: Date.now().toString(),
@@ -1049,6 +1172,30 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
     );
   };
 
+  // ─── Attach button file handler ───────────────────────────────────
+  const handleAttachFiles = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const imageFiles = files.filter((f) => ALLOWED_IMAGE_TYPES.includes(f.type));
+    const textFiles = files.filter((f) => !ALLOWED_IMAGE_TYPES.includes(f.type) && isAllowedTextFile(f));
+
+    if (imageFiles.length > 0) await addImages(imageFiles);
+
+    if (textFiles.length > 0) {
+      const newFiles = await Promise.all(
+        textFiles.map(async (f) => ({
+          id: `txt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name: f.name,
+          content: await f.text(),
+        }))
+      );
+      setPendingTextFiles((prev) => [...prev, ...newFiles]);
+    }
+
+    // Reset so the same file can be picked again
+    e.target.value = "";
+    inputRef.current?.focus();
+  }, [addImages]);
+
   return (
     <div
       className={`flex flex-col h-full ${t.colors.bg} relative`}
@@ -1063,7 +1210,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-blue-500/10 border-2 border-dashed border-blue-500 rounded-lg pointer-events-none">
           <div className="flex flex-col items-center gap-2">
             <Image size={40} className="text-blue-500" />
-            <span className={`text-sm font-medium ${t.colors.text}`}>Drop image here</span>
+            <span className={`text-sm font-medium ${t.colors.text}`}>Drop image or file here</span>
           </div>
         </div>
       )}
@@ -1316,7 +1463,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
       {/* Input area */}
       <div className="p-4">
         {/* Pending image chips */}
-        {pendingImages.length > 0 && (
+        {(pendingImages.length > 0 || pendingTextFiles.length > 0) && (
           <div className="flex flex-wrap gap-2 mb-2">
             {pendingImages.map((img) => (
               <div
@@ -1340,10 +1487,51 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
                 </button>
               </div>
             ))}
+            {pendingTextFiles.map((file) => (
+              <div
+                key={file.id}
+                className={`relative group/chip inline-flex items-center gap-1.5 px-2 py-1 ${t.borderRadius} ${t.colors.bgTertiary} border ${t.colors.border}`}
+              >
+                <div className={`w-8 h-8 flex items-center justify-center rounded ${t.colors.bgSecondary}`}>
+                  <FileText size={16} className={t.colors.textMuted} />
+                </div>
+                <span className={`text-xs ${t.colors.textMuted} max-w-[100px] truncate`}>
+                  {file.name}
+                </span>
+                <button
+                  onClick={() => setPendingTextFiles((prev) => prev.filter((f) => f.id !== file.id))}
+                  className={`ml-0.5 p-0.5 ${t.borderRadius} hover:bg-red-500/20 text-red-400 hover:text-red-500 transition-colors`}
+                  title="Remove file"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
         <div className="flex gap-2">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            multiple
+            accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.markdown,.html,.htm,.csv,.json,.xml,.pdf,.js,.jsx,.ts,.tsx,.css,.scss,.sass,.py,.rb,.java,.c,.cpp,.h,.go,.rs,.php,.sh,.bash,.yaml,.yml,.toml,.ini,.env,.sql,.graphql,.vue,.svelte,.astro"
+            onChange={handleAttachFiles}
+          />
+
+          {/* Attach button */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading}
+            className={`self-end p-2 ${t.colors.textMuted} hover:${t.colors.text} ${t.borderRadius} transition-colors disabled:opacity-50`}
+            title="Attach file"
+          >
+            <Paperclip size={18} />
+          </button>
+
           <textarea
             ref={inputRef}
             value={input}
@@ -1381,7 +1569,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           ) : (
             <button
               onClick={() => handleSend()}
-              disabled={!input.trim() && pendingImages.length === 0}
+              disabled={!input.trim() && pendingImages.length === 0 && pendingTextFiles.length === 0}
               className={`${t.colors.accent} ${t.colors.accentHover} ${theme === "highContrast" ? "text-black" : "text-white"} px-4 py-2 ${t.borderRadius} flex items-center gap-2 disabled:opacity-50 self-end`}
             >
               <Send size={18} />

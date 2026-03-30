@@ -4,26 +4,36 @@
 // Auth: API key via "Authorization: Bearer re_XXXXXX" header
 // Base URL: https://api.resend.com
 // Docs: https://resend.com/docs/api-reference
+// Note: Proxied through Rust (resend_api command) to bypass CORS.
 
+import { invoke } from '@tauri-apps/api/core';
 import type { ConnectionService, AccountInfo } from './types';
 
-const BASE_URL = 'https://api.resend.com';
+interface ProxyResponse {
+  status: number;
+  body: string;
+}
 
 async function resendFetch(path: string, apiKey: string, options: RequestInit = {}): Promise<any> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
+  const method = (options.method || 'GET').toUpperCase();
+  const body = options.body ? String(options.body) : undefined;
+
+  const res = await invoke<ProxyResponse>('resend_api', {
+    path,
+    token: apiKey,
+    method,
+    body,
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
+
+  if (res.status === 204) return { success: true };
+
+  const data = JSON.parse(res.body);
+
+  if (res.status < 200 || res.status >= 300) {
     throw new Error(data.message || `Resend API error ${res.status}`);
   }
-  if (res.status === 204) return { success: true };
-  return res.json();
+
+  return data;
 }
 
 // --------------- Actions ---------------
