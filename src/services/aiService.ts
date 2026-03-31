@@ -2,8 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { fetch } from "@tauri-apps/plugin-http";
 import { ProjectManifest } from "./manifestService";
 import { buildToolsPrompt } from "./toolService";
-import { getConnectionsSummary } from "./connectionTool";
+import { getConnectionsSummary, buildConnectionToolPrompt } from "./connectionTool";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useConnectionsStore } from "../stores/connectionsStore";
+import { useProjectStore } from "../stores/projectStore";
 import type { MessageImage } from "../stores/chatStore";
 
 interface Message {
@@ -43,10 +45,15 @@ const ENDPOINTS: Record<string, string> = {
   deepseek: "https://api.deepseek.com/v1/chat/completions",
 };
 
+
 // ——— Smart Model Routing ————————————————————————————————————————
-// Reads the last user message and conversation size to pick the
-// cheapest model that can handle the task well.
-// Only called when provider is Anthropic and smartRouting is ON.
+// Local rules pick the right model — no extra API call needed.
+// Analyzes conversation history to detect phase, failures, and patterns.
+// Escalation chain: Haiku → Sonnet → Opus (bumps on real failures).
+//
+// Haiku: exploring, asking questions, reading files, new projects
+// Sonnet: writing code, building features, active development
+// Opus: model is struggling (repeated failures or circular edits)
 
 const ANTHROPIC_MODELS = {
   haiku:  "claude-haiku-4-5-20251001",
@@ -54,46 +61,142 @@ const ANTHROPIC_MODELS = {
   opus:   "claude-opus-4-6",
 } as const;
 
-function selectSmartModel(messages: Message[]): string {
+type ModelTier = "haiku" | "sonnet" | "opus";
+
+const MAX_TOKENS_PER_TIER: Record<ModelTier, number> = {
+  haiku: 2048,
+  sonnet: 4096,
+  opus: 8192,
+};
+
+// --- Conversation analysis helpers ---
+
+function getLastAssistantMessage(messages: Message[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") return messages[i].content;
+  }
+  return null;
+}
+
+function detectLastAssistantAction(messages: Message[]): "asked_question" | "used_tools" | "just_talked" {
+  const last = getLastAssistantMessage(messages);
+  if (!last) return "just_talked";
+  if (last.includes("<tool_call>")) return "used_tools";
+  const lastParagraph = last.trim().split("\n").pop() || "";
+  if (lastParagraph.includes("?")) return "asked_question";
+  return "just_talked";
+}
+
+function hasFilesBeenWritten(messages: Message[]): boolean {
+  return messages.some(
+    (m) => m.role === "assistant" && (m.content.includes('"write_file"') || m.content.includes('"edit_file"'))
+  );
+}
+
+function lastToolsWereReadOnly(messages: Message[]): boolean {
+  const last = getLastAssistantMessage(messages);
+  if (!last || !last.includes("<tool_call>")) return false;
+  return !/"name"\s*:\s*"(?:write_file|edit_file|delete_file|run_command|create_directory)"/.test(last);
+}
+
+function lastMessageHasImages(messages: Message[]): boolean {
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
-  const text = (lastUser?.content || "").toLowerCase();
+  return !!(lastUser?.images && lastUser.images.length > 0);
+}
 
-  // Opus: complex architecture, multi-system debugging, hard problems
-  const opusSignals = [
-    "architect", "refactor entire", "redesign", "rearchitect",
-    "complex", "race condition", "performance issue", "memory leak",
-    "security", "why is this broken", "why is this failing",
-    "best possible", "production", "scalab", "concurren",
-    "debug", "not working", "broken", "failing", "optimize",
-  ];
+// Errors the model can self-correct without needing a stronger model
+const RECOVERABLE_PATTERNS = [
+  "not found", "no such file", "missing", "blocked", "rate limited",
+  "does not exist", "directory not found", "missing 'path'",
+  "missing 'content'", "missing 'command'", "missing 'query'",
+];
 
-  // Haiku: quick questions, small one-liner edits, simple lookups
-  const haikuSignals = [
-    "what is", "what does", "what's", "explain", "how do i",
-    "rename", "fix typo", "change the color", "update the text",
-    "add a comment", "format this", "simple", "quick", "just ",
-    "what file", "which file", "where is",
-  ];
+function isRecoverableError(line: string): boolean {
+  const lower = line.toLowerCase();
+  return RECOVERABLE_PATTERNS.some((p) => lower.includes(p));
+}
 
-  if (opusSignals.some((s) => text.includes(s))) return ANTHROPIC_MODELS.opus;
-  if (haikuSignals.some((s) => text.includes(s))) return ANTHROPIC_MODELS.haiku;
+// Walk backwards through tool results to count consecutive real failures.
+// Recoverable errors (wrong path, missing param) are skipped — not counted, don't break chain.
+// Successful tool results break the chain.
+function countConsecutiveRealFailures(messages: Message[]): number {
+  let failures = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== "user" || !msg.content.includes("<tool_result>")) continue;
+    if (!msg.content.includes("❌")) break; // success — chain broken
+    const errorLines = msg.content.split("\n").filter((l) => l.includes("❌"));
+    if (errorLines.every((l) => isRecoverableError(l))) continue; // recoverable — skip
+    failures++;
+  }
+  return failures;
+}
 
-  // Images attached → Sonnet has better vision than Haiku
-  if (messages.some((m) => m.images && m.images.length > 0)) return ANTHROPIC_MODELS.sonnet;
+// Detect circular editing: same file written/edited 3+ times means model is struggling
+function getMaxFileEditCount(messages: Message[]): number {
+  const counts: Record<string, number> = {};
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    const matches = msg.content.matchAll(/"name"\s*:\s*"(?:write_file|edit_file)"[\s\S]*?"path"\s*:\s*"([^"]+)"/g);
+    for (const m of matches) {
+      counts[m[1]] = (counts[m[1]] || 0) + 1;
+    }
+  }
+  const values = Object.values(counts);
+  return values.length > 0 ? Math.max(...values) : 0;
+}
 
-  // Large conversation context → Sonnet handles it better
-  const totalLength = messages.reduce((n, m) => n + m.content.length, 0);
-  if (totalLength > 8000) return ANTHROPIC_MODELS.sonnet;
+function routeModel(messages: Message[], projectContext?: ProjectContext): { model: string; maxTokens: number; tier: ModelTier } {
+  // --- Escalation: real failures bump the tier ---
+  const failures = countConsecutiveRealFailures(messages);
+  if (failures >= 2) {
+    return { model: ANTHROPIC_MODELS.opus, maxTokens: MAX_TOKENS_PER_TIER.opus, tier: "opus" };
+  }
+  if (failures >= 1) {
+    return { model: ANTHROPIC_MODELS.sonnet, maxTokens: MAX_TOKENS_PER_TIER.sonnet, tier: "sonnet" };
+  }
 
-  // Default: Sonnet for normal work
-  return ANTHROPIC_MODELS.sonnet;
+  // --- Circular editing (same file 3+ times) → model is struggling ---
+  if (getMaxFileEditCount(messages) >= 3) {
+    return { model: ANTHROPIC_MODELS.opus, maxTokens: MAX_TOKENS_PER_TIER.opus, tier: "opus" };
+  }
+
+  // --- Image attached → Sonnet for vision ---
+  if (lastMessageHasImages(messages)) {
+    return { model: ANTHROPIC_MODELS.sonnet, maxTokens: MAX_TOKENS_PER_TIER.sonnet, tier: "sonnet" };
+  }
+
+  // --- New project (no About section) → AI asks questions first → Haiku ---
+  const hasAbout = projectContext?.contextString?.includes("## About");
+  if (!hasAbout) {
+    return { model: ANTHROPIC_MODELS.haiku, maxTokens: MAX_TOKENS_PER_TIER.haiku, tier: "haiku" };
+  }
+
+  // --- No files written yet → still exploring/planning → Haiku ---
+  if (!hasFilesBeenWritten(messages)) {
+    return { model: ANTHROPIC_MODELS.haiku, maxTokens: MAX_TOKENS_PER_TIER.haiku, tier: "haiku" };
+  }
+
+  // --- AI asked a question → user is answering → Haiku ---
+  const lastAction = detectLastAssistantAction(messages);
+  if (lastAction === "asked_question") {
+    return { model: ANTHROPIC_MODELS.haiku, maxTokens: MAX_TOKENS_PER_TIER.haiku, tier: "haiku" };
+  }
+
+  // --- AI only used read-only tools last turn → still exploring → Haiku ---
+  if (lastAction === "used_tools" && lastToolsWereReadOnly(messages)) {
+    return { model: ANTHROPIC_MODELS.haiku, maxTokens: MAX_TOKENS_PER_TIER.haiku, tier: "haiku" };
+  }
+
+  // --- Default: active building → Sonnet ---
+  return { model: ANTHROPIC_MODELS.sonnet, maxTokens: MAX_TOKENS_PER_TIER.sonnet, tier: "sonnet" };
 }
 
 export function buildSystemPrompt(context?: ProjectContext): string {
   // Detect if this is a new/empty project (no About section filled yet)
   const hasAbout = context?.contextString?.includes("## About");
 
-  let prompt = `You are Mydevify, an AI development assistant built into a desktop app. You help users build websites and applications by generating code.
+  let prompt = `You are Omnirun, an AI development assistant built into a desktop app. You help users build websites and applications by generating code.
 `;
 
   // ── Project Kickoff Instructions (only when About is empty) ──
@@ -169,7 +272,13 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
 `;
 
   // Get connection context early so we can use it for both tools prompt and services section
-  const connectionContext = getConnectionsSummary();
+  const projectId = useProjectStore.getState().currentProject?.id;
+  const connectionContext = getConnectionsSummary(projectId);
+  const connectedProviders = projectId
+    ? Object.entries(useConnectionsStore.getState().projectConnections[projectId] || {})
+        .filter(([, c]) => c?.status === 'connected')
+        .map(([p]) => p)
+    : [];
 
   if (context) {
     // Lean context: project info + AI notes (~100-150 tokens)
@@ -180,10 +289,10 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
       prompt += `\n## Current Project\n- **Path:** ${context.path}\n`;
     }
 
-    const hasConnections = !!connectionContext;
+    const hasConnections = connectedProviders.length > 0;
     const { webSearchEnabled, searchApiKey } = useSettingsStore.getState();
     const includeWebSearch = webSearchEnabled && !!searchApiKey.trim();
-    prompt += buildToolsPrompt(hasConnections, includeWebSearch);
+    prompt += buildToolsPrompt(hasConnections, includeWebSearch, connectedProviders);
 
     // Template context — let AI know the starting point
     if (context.templateId) {
@@ -206,7 +315,7 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
  */
 function buildSystemPromptBlocks(context?: ProjectContext): Array<{ type: string; text: string; cache_control?: { type: string } }> {
   // ── Static instructions (identical across all projects/sessions) ──
-  const staticInstructions = `You are Mydevify, an AI development assistant built into a desktop app. You help users build websites and applications by generating code.
+  const staticInstructions = `You are Omnirun, an AI development assistant built into a desktop app. You help users build websites and applications by generating code.
 
 When generating code:
 - Generate complete, working files
@@ -243,11 +352,17 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
 - When the user wants to automate something on a schedule (backups, deployments, cleanups, checks, etc.), use the create_scheduled_task tool. Do NOT write scheduling code — use the built-in task scheduler instead. Common cron patterns: "0 2 * * *" (daily 2am), "0 17 * * 5" (Fridays 5pm), "0 0 * * 0" (weekly Sunday midnight), "0 */6 * * *" (every 6 hours).`;
 
   // ── Tools prompt (static per session — tool definitions don't change) ──
-  const connectionContext = getConnectionsSummary();
-  const hasConnections = !!connectionContext;
+  const projectId = useProjectStore.getState().currentProject?.id;
+  const connectionContext = getConnectionsSummary(projectId);
+  const connectedProviders = projectId
+    ? Object.entries(useConnectionsStore.getState().projectConnections[projectId] || {})
+        .filter(([, c]) => c?.status === 'connected')
+        .map(([p]) => p)
+    : [];
+  const hasConnections = connectedProviders.length > 0;
   const { webSearchEnabled, searchApiKey } = useSettingsStore.getState();
   const includeWebSearch = webSearchEnabled && !!searchApiKey.trim();
-  const toolsPrompt = context ? buildToolsPrompt(hasConnections, includeWebSearch) : "";
+  const toolsPrompt = context ? buildToolsPrompt(hasConnections, includeWebSearch, connectedProviders) : "";
 
   // Combine static parts into one block and mark for caching
   const staticText = toolsPrompt
@@ -530,7 +645,7 @@ export async function sendMessage(
   projectContext?: ProjectContext,
   signal?: AbortSignal,
   onReader?: (reader: ReadableStreamDefaultReader) => void
-): Promise<{ text: string; usage: UsageData }> {
+): Promise<{ text: string; usage: UsageData; model: string }> {
   let endpoint = provider.endpoint || ENDPOINTS[provider.id];
 
   // Trim consumed tool results, then limit to last 10 pairs
@@ -548,23 +663,31 @@ export async function sendMessage(
   }
 
   if (provider.id === "anthropic") {
-    // ✅ Smart routing: pick the right model based on the task, if enabled
     const { smartRouting } = useSettingsStore.getState();
-    const routedProvider = smartRouting
-      ? { ...provider, model: selectSmartModel(trimmedMessages) }
-      : provider;
+    let model = provider.model;
+    let maxTokens = 4096;
 
+    if (smartRouting) {
+      const route = routeModel(trimmedMessages, projectContext);
+      model = route.model;
+      maxTokens = route.maxTokens;
+    }
+
+    const routedProvider = { ...provider, model };
     const systemBlocks = buildSystemPromptBlocks(projectContext);
-    return await sendAnthropicMessage(cleanMessages, routedProvider, systemBlocks, onStream, onReader);
+    const result = await sendAnthropicMessage(cleanMessages, routedProvider, systemBlocks, maxTokens, onStream, onReader);
+    return { ...result, model };
   }
 
   // All other providers: plain string system prompt
   const systemPrompt = buildSystemPrompt(projectContext);
 
   if (provider.id === "google") {
-    return await sendGoogleMessage(cleanMessages, provider, systemPrompt);
+    const result = await sendGoogleMessage(cleanMessages, provider, systemPrompt);
+    return { ...result, model: provider.model };
   } else {
-    return await sendOpenAICompatibleMessage(cleanMessages, provider, endpoint, systemPrompt, onStream, onReader);
+    const result = await sendOpenAICompatibleMessage(cleanMessages, provider, endpoint, systemPrompt, onStream, onReader);
+    return { ...result, model: provider.model };
   }
 }
 
@@ -572,6 +695,7 @@ async function sendAnthropicMessage(
   messages: Message[],
   provider: Provider,
   systemBlocks: Array<{ type: string; text: string; cache_control?: { type: string } }>,
+  maxTokens: number,
   onStream?: (chunk: string) => void,
   onReader?: (reader: ReadableStreamDefaultReader) => void
 ): Promise<{ text: string; usage: UsageData }> {
@@ -589,7 +713,7 @@ async function sendAnthropicMessage(
     },
     body: JSON.stringify({
       model: provider.model,
-      max_tokens: 4096,
+      max_tokens: maxTokens,
       system: systemBlocks,
       messages: formattedMessages,
       stream: !!onStream,

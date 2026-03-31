@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Square, User, Bot, Trash2, Wrench, Pencil, Coins, X, Image, MessageSquarePlus, Globe, AlertCircle, ChevronDown, FileText, Paperclip } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useChatStore } from "../../stores/chatStore";
 import { useProjectStore } from "../../stores/projectStore";
@@ -11,7 +12,8 @@ import { sendMessage } from "../../services/aiService";
 import { writeFile, readDirectory } from "../../services/fileService";
 import { updateManifestEntry, getRelativePath } from "../../services/manifestService";
 import { parseToolCalls, executeToolCalls, formatToolResults, generateToolSummary, generateResultSummary } from "../../services/toolService";
-import { initContext, saveContext, addRecentChange, compressSession, contextToPromptString, type ProjectContext as ContextData } from "../../services/contextService";
+import { initContext, loadContext, saveContext, addRecentChange, compressSession, contextToPromptString, type ProjectContext as ContextData, type ProviderConfig } from "../../services/contextService";
+import { useConnectionsStore } from "../../stores/connectionsStore";
 import { getErrors, clearErrors, onErrorsChange } from "../../services/errorCapture";
 import { useDiffStore } from "../../stores/diffStore";
 import DiffViewer from "../diff/DiffViewer";
@@ -41,7 +43,28 @@ function ToolActionLine({ content, theme: t, themeKey, mode }: {
   // Split summary into individual action lines for nice display
   const summaryLines = summary.split("\n").filter(l => l.trim());
 
-  const showExpandButton = mode === "technical" && details;
+  // Derive a single clean human-readable label from all summary lines
+  const getSimpleLabel = (lines: string[]): string => {
+    const blob = lines.join(" ").toLowerCase();
+    if (blob.includes("🔍") || blob.includes("search")) return "Searching the web...";
+    if (blob.includes("reading") || (blob.includes("read") && !blob.includes("written"))) return "Reading file...";
+    if (blob.includes("written") || blob.includes("writing") || blob.includes("created") || blob.includes("editing")) return "Editing file...";
+    if (blob.includes("deleted") || blob.includes("deleting")) return "Deleting file...";
+    if (blob.includes("saved") || blob.includes("saving") || blob.includes("context")) return "Saving context...";
+    if (blob.includes("listed") || blob.includes("directory") || blob.includes("listing")) return "Reading directory...";
+    if (blob.includes("running") || blob.includes("command") || blob.includes("execute")) return "Running command...";
+    if (blob.includes("✅")) return "Done";
+    if (blob.includes("❌")) return "Failed";
+    return "Working...";
+  };
+
+  // Simple mode: one clean line, no clutter
+  if (mode === "simple") {
+    return <div className="leading-snug">{getSimpleLabel(summaryLines)}</div>;
+  }
+
+  // Technical mode: full details with expand toggle
+  const showExpandButton = details != null;
 
   return (
     <div className="space-y-0.5">
@@ -99,8 +122,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
   const [isDragging, setIsDragging] = useState(false);
   const [showContinue, setShowContinue] = useState(false);
   const [isAutoFixing, setIsAutoFixing] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanProgress, setScanProgress] = useState("");
+  const [isRouting, setIsRouting] = useState(false);
   const [consoleErrors, setConsoleErrors] = useState<string[]>(() => getErrors());
   const [projectContextData, setProjectContextData] = useState<ContextData | null>(null);
   const stoppedRef = useRef(false);
@@ -127,6 +149,13 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
     return onErrorsChange((errors) => setConsoleErrors(errors));
   }, []);
 
+  // Load project connections from DB when project changes
+  useEffect(() => {
+    if (currentProject?.id) {
+      useConnectionsStore.getState().loadProjectConnectionsFromDB(currentProject.id);
+    }
+  }, [currentProject?.id]);
+
   // Scroll to bottom when a diff approval appears
   const pendingDiff = useDiffStore((s) => s.pendingDiff);
   useEffect(() => {
@@ -135,52 +164,22 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
     }
   }, [pendingDiff]);
 
-  // Initialize project context when project path changes
+  // Load existing project context from disk when project changes.
+  // If no context.md exists yet, leave null — full scan runs on first message send
+  // when the provider/API key is guaranteed to be available.
   useEffect(() => {
     if (!projectPath) {
       setProjectContextData(null);
-      setIsScanning(false);
-      setScanProgress("");
       return;
     }
 
-    const init = async () => {
-      setIsScanning(true);
-      setScanProgress("Reading your project...");
-      try {
-        const { context: ctx, isFirstScan } = await initContext(
-          projectPath,
-          (progress) => setScanProgress(progress)
-        );
-        setProjectContextData(ctx);
-
-        // Show summary message on first scan
-        if (isFirstScan && useChatStore.getState().messages.length === 0) {
-          const parts: string[] = [];
-          if (ctx.techStack.length > 0) parts.push(`**Tech:** ${ctx.techStack.join(", ")}`);
-          if (ctx.appRoot) parts.push(`**App root:** \`${ctx.appRoot}/\``);
-          if (ctx.summarizedFiles.length > 0) parts.push(`**Knowledge files:** ${ctx.summarizedFiles.length} summarized`);
-          if (ctx.structure) {
-            const count = ctx.structure.split("\n").filter(l => l.trim()).length;
-            parts.push(`**Structure:** ${count} items mapped`);
-          }
-
-          addMessage({
-            id: `scan_${Date.now()}`,
-            role: "assistant",
-            content: `📂 **Project scanned: ${ctx.projectName}**\n\n${parts.join("\n")}\n\nProject context saved to \`.mydevify/context.md\`. I'm ready to help.`,
-            timestamp: new Date(),
-          });
-        }
-      } catch (e) {
-        console.error("Failed to init context:", e);
-      } finally {
-        setIsScanning(false);
-        setScanProgress("");
-      }
+    const load = async () => {
+      await invoke("set_project_path", { path: projectPath });
+      const existing = await loadContext(projectPath);
+      setProjectContextData(existing);
     };
 
-    init();
+    load().catch((e) => console.error("Failed to load context:", e));
   }, [projectPath]);
 
   // ── Auto-send pending message (from Tasks page suggestions) ──
@@ -664,12 +663,24 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
       }
 
       // Build project context (lean — no file tree, AI explores with tools)
+      // If no context exists yet (first open), scan now — provider is guaranteed available here.
+      let currentContext = projectContextData;
+      if (!currentContext && projectPath) {
+        try {
+          const { context: ctx } = await initContext(projectPath, undefined, provider);
+          currentContext = ctx;
+          setProjectContextData(ctx);
+        } catch (e) {
+          console.error("Failed to scan project:", e);
+        }
+      }
+
       let projectContext = undefined;
       if (projectPath) {
         projectContext = {
           path: projectPath,
           manifest: manifest,
-          contextString: projectContextData ? contextToPromptString(projectContextData) : undefined,
+          contextString: currentContext ? contextToPromptString(currentContext) : undefined,
         };
       }
 
@@ -709,7 +720,11 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
         // Stream the AI response
         let fullResponse = "";
 
+        setIsRouting(true);
         const result = await sendMessage(apiMessages, provider, (chunk) => {
+          setIsRouting(false);
+          if (stoppedRef.current) return;
+          fullResponse += chunk;
           if (stoppedRef.current) return;
           fullResponse += chunk;
           const displayContent = getStreamingDisplay(fullResponse);
@@ -720,6 +735,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           }));
         }, projectContext, undefined, (reader) => { readerRef.current = reader; });
 
+        setIsRouting(false);
         fullResponse = result.text;
 
         // Use getStreamingDisplay here too — it handles both complete and unclosed
@@ -736,7 +752,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
         // Track usage for this API call
         if (result.usage.inputTokens > 0 || result.usage.outputTokens > 0) {
           trackAPICall({
-            model: provider.model,
+            model: result.model || provider.model,
             provider: provider.id,
             inputTokens: result.usage.inputTokens,
             outputTokens: result.usage.outputTokens,
@@ -755,7 +771,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           // Track usage for fallback call
           if (fallbackResult.usage.inputTokens > 0 || fallbackResult.usage.outputTokens > 0) {
             trackAPICall({
-              model: provider.model,
+              model: fallbackResult.model || provider.model,
               provider: provider.id,
               inputTokens: fallbackResult.usage.inputTokens,
               outputTokens: fallbackResult.usage.outputTokens,
@@ -824,7 +840,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           projectPath,
           currentManifest,
           requestApproval,
-          projectContextData
+          currentContext
         );
 
         currentManifest = updatedManifest;
@@ -836,6 +852,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
         // Update context if write_context tool was used
         if (updatedContext) {
+          currentContext = updatedContext;
           setProjectContextData(updatedContext);
           // Save to disk
           saveContext(projectPath, updatedContext).catch(() => {});
@@ -851,8 +868,8 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           }
 
           // Update context with recent changes
-          if (projectContextData) {
-            let ctx = updatedContext || projectContextData;
+          if (currentContext) {
+            let ctx = updatedContext || currentContext;
             for (const f of filesChanged) {
               const action = parsed.toolCalls.find(tc => {
                 const p = tc.arguments.path || tc.arguments.paths?.[0];
@@ -861,6 +878,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
               const verb = action?.name === "delete_file" ? "Deleted" : action?.name === "edit_file" ? "Edited" : "Updated";
               ctx = addRecentChange(ctx, `${verb} ${f}`);
             }
+            currentContext = ctx;
             setProjectContextData(ctx);
             saveContext(projectPath, ctx).catch(() => {});
           }
@@ -897,10 +915,12 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           .join("\n\n");
 
         // Use 🔍 prefix if any search results, 🔧 otherwise
+        // The prefix MUST be preserved so isToolMessage() keeps detecting this
+        // as a tool bubble — without it the content renders as raw markdown.
         const hasSearchResult = results.some((r) => r.tool === "web_search");
         const contentWithDetails = hasSearchResult
-          ? resultSummaries
-          : `${resultSummaries}\n---\n${fullDetails}`;
+          ? `🔍 ${resultSummaries}`
+          : `🔧 ${resultSummaries}\n---\n${fullDetails}`;
 
         useChatStore.setState((state) => ({
           messages: state.messages.map((m) =>
@@ -926,7 +946,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           projectContext = {
             path: projectPath,
             manifest: currentManifest,
-            contextString: projectContextData ? contextToPromptString(projectContextData) : undefined,
+            contextString: currentContext ? contextToPromptString(currentContext) : undefined,
           };
         }
 
@@ -960,6 +980,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
     } finally {
       stoppedRef.current = false;
       readerRef.current = null;
+      setIsRouting(false);
       setLoading(false);
 
       // Auto-save conversation to chat history
@@ -1223,7 +1244,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
             className={`text-sm ${t.colors.textMuted} hover:${t.colors.text} cursor-pointer transition-colors`}
             title="Change AI provider"
           >
-            {getActiveProviderDisplay()} ⚙
+            {getActiveProviderDisplay()} {isRouting ? <span className="text-amber-400 animate-pulse">Routing...</span> : '⚙'}
           </button>
           {projectPath && (
             <span className={`text-xs px-2 py-0.5 ${t.colors.bgTertiary} ${t.borderRadius} ${t.colors.textMuted}`}>
@@ -1298,12 +1319,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
       <div className="flex-1 overflow-y-auto p-4 select-text">
         {messages.length === 0 ? (
           <div className={`${t.colors.textMuted} text-center mt-8 ${t.fontFamily}`}>
-            {isScanning ? (
-              <div className="flex flex-col items-center gap-3">
-                <div className="animate-spin w-6 h-6 border-2 border-current border-t-transparent rounded-full" />
-                <span>{scanProgress || "Reading your project..."}</span>
-              </div>
-            ) : projectPath 
+            {projectPath 
               ? `Project loaded: ${projectPath.split(/[/\\]/).pop()}. Ask me to create or edit files!`
               : "Start a conversation, or open a project first..."
             }

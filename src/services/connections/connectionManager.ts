@@ -90,7 +90,12 @@ export async function retestConnection(provider: ConnectionProvider): Promise<bo
     const accountInfo = await service.testConnection(conn.token);
     store.setConnected(provider, conn.token, accountInfo);
     return true;
-  } catch {
+  } catch (error: any) {
+    // Don't wipe a send-only key — "restricted" means the key is valid
+    // but lacks permission for this endpoint. Keep it connected.
+    if (error?.message?.includes('restricted')) {
+      return true;
+    }
     store.setError(provider, 'Token expired or invalid');
     return false;
   }
@@ -194,7 +199,12 @@ export async function retestProjectConnection(
     const accountInfo = await service.testConnection(conn.token);
     store.setProjectConnected(projectId, provider, conn.token, accountInfo);
     return true;
-  } catch {
+  } catch (error: any) {
+    // Don't wipe a send-only key — "restricted" means the key is valid
+    // but lacks permission for this endpoint. Keep it connected.
+    if (error?.message?.includes('restricted')) {
+      return true;
+    }
     store.setProjectError(projectId, provider, 'Token expired or invalid');
     return false;
   }

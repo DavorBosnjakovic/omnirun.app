@@ -1130,6 +1130,7 @@ interface DerivedSessionRow {
 async function getSessionHistory(options?: {
   fromDate?: number;
   toDate?: number;
+  filter?: UsageFilter;
 }): Promise<Array<{
   id: string;
   startTime: number;
@@ -1158,6 +1159,14 @@ async function getSessionHistory(options?: {
     const toIso = new Date(options.toDate).toISOString().replace('T', ' ').replace('Z', '');
     whereClause += (whereClause ? ' AND ' : ' WHERE ') + 'timestamp <= ?';
     params.push(toIso);
+  }
+  if (options?.filter?.source) {
+    whereClause += (whereClause ? ' AND ' : ' WHERE ') + 'source = ?';
+    params.push(options.filter.source);
+  }
+  if (options?.filter?.projectName) {
+    whereClause += (whereClause ? ' AND ' : ' WHERE ') + 'project_name = ?';
+    params.push(options.filter.projectName);
   }
 
   const rows = await d.select<DerivedSessionRow[]>(

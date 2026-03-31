@@ -100,7 +100,7 @@ interface UsageState {
   // Load from SQLite on startup
   loadFromDB: () => Promise<void>;
   // Session history actions
-  loadSessionHistory: (options?: { fromDate?: number; toDate?: number }) => Promise<void>;
+  loadSessionHistory: (options?: { fromDate?: number; toDate?: number; filter?: { source?: 'project' | 'assistant'; projectName?: string } }) => Promise<void>;
   loadSessionDetail: (sessionId: string) => Promise<void>;
   clearSelectedSession: () => void;
 }
@@ -183,13 +183,13 @@ interface CostBreakdown {
 /**
  * Calculate cost for an API call.
  *
- * Anthropic returns all three token types as separate fields:
- *   inputTokens         = regular (non-cached) input tokens
- *   cacheReadTokens     = tokens read from cache (charged at cacheRead rate)
- *   cacheCreationTokens = tokens written to cache (charged at cacheCreation rate)
+ * Anthropic token fields:
+ *   inputTokens         = total input tokens (INCLUDES cache_read tokens)
+ *   cacheReadTokens     = tokens read from cache (subset of inputTokens, charged at cacheRead rate)
+ *   cacheCreationTokens = tokens written to cache (NOT included in inputTokens, charged at cacheCreation rate)
  *
  * Correct formula:
- *   regularInput = inputTokens × base_rate
+ *   regularInput = (inputTokens - cacheReadTokens) × base_rate
  *   cacheRead    = cacheReadTokens × cacheRead_rate
  *   cacheCreate  = cacheCreationTokens × cacheCreation_rate
  *   output       = outputTokens × output_rate
@@ -204,8 +204,8 @@ function calculateCost(
 ): CostBreakdown {
   const pricing = getPricing(model, provider);
 
-  // inputTokens = regular (non-cached) input only — Anthropic returns all three separately.
-  const regularInputCost = (inputTokens / 1_000_000) * pricing.input;
+  // Anthropic's input_tokens INCLUDES cache_read tokens, so subtract them to get regular-only.
+  const regularInputCost = ((inputTokens - cacheReadTokens) / 1_000_000) * pricing.input;
 
   // Cache read tokens: charged at the discounted cache_read rate
   const cacheReadCost = pricing.cacheRead
@@ -272,8 +272,8 @@ export const useUsageStore = create<UsageState>((set, get) => ({
   trackAPICall: ({ model, provider, inputTokens, outputTokens, cacheCreationTokens = 0, cacheReadTokens = 0, taskLabel, source = 'project', projectName = null }) => {
     const costBreakdown = calculateCost(model, provider, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens);
 
-    // Total input = regular input + cache creation + cache read (all separate from Anthropic)
-    const fullInputTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
+    // Total input = regular input (which already includes cache reads) + cache creation (separate)
+    const fullInputTokens = inputTokens + cacheCreationTokens;
 
     const entry: UsageEntry = {
       id: `entry_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
