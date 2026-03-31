@@ -6,34 +6,31 @@ function AboutSettings() {
   const { theme } = useSettingsStore();
   const t = themes[theme];
 
-  const logoSrc = theme === "light"
-    ? "/logo/elipse_transparent_light.png"
-    : "/logo/elipse_transparent_dark.png";
+  const fullLogoSrc = theme === "light"
+    ? "/logo/logo_transparent_light.png"
+    : "/logo/logo_transparent_dark.png";
 
   return (
     <div className={`${t.colors.text}`}>
       <h1 className="text-2xl font-bold mb-6">About omnirun</h1>
 
-      <div className={`${t.colors.bgSecondary} ${t.borderRadius} p-4 mb-6`}>
-        <div className="flex items-center gap-4 mb-4">
+      <div className={`${t.colors.bgSecondary} ${t.borderRadius} p-6 mb-6`}>
+        <div className="flex flex-col items-center py-8">
           <img
-            src={logoSrc}
+            src={fullLogoSrc}
             alt="omnirun logo"
-            className="w-16 h-16 object-contain"
+            className="h-40 object-contain mb-4"
           />
-          <div>
-            <h2 className="text-xl font-semibold">omnirun</h2>
-            <p className={`${t.colors.textMuted}`}>Run Everything. Describe It. Done.</p>
-          </div>
+          <p className={`${t.colors.textMuted}`}>Run Everything. Describe It. Done.</p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className={`flex items-center justify-between mt-4 pt-4 border-t ${t.colors.border}`}>
           <div>
-            <p className={`text-sm ${t.colors.textMuted}`}>Version</p>
-            <p className="font-medium">1.0.0</p>
+            <p className={`text-xs ${t.colors.textMuted}`}>Version</p>
+            <p className="text-sm font-medium">1.0.0</p>
           </div>
-          <div>
-            <p className={`text-sm ${t.colors.textMuted}`}>Status</p>
-            <p className="font-medium text-green-500">Up to date</p>
+          <div className="text-right">
+            <p className={`text-xs ${t.colors.textMuted}`}>Status</p>
+            <p className="text-sm font-medium text-green-500">Up to date</p>
           </div>
         </div>
       </div>
