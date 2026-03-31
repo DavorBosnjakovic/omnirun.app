@@ -1,6 +1,6 @@
 import { readFile, writeFile, readDirectory, createDirectory, deletePath, FileEntry } from "./fileService";
 import { updateManifestEntry, removeManifestEntry, getRelativePath, ProjectManifest } from "./manifestService";
-import { executeConnectionTool, connectionToolPrompt } from "./connectionTool";
+import { executeConnectionTool, connectionToolPrompt, buildConnectionToolPrompt } from "./connectionTool";
 import { webSearch, formatResultsForAI } from "./webSearchService";
 import { updateContextFromAI, VALID_SECTIONS, type ContextSection, type ProjectContext as ContextData } from "./contextService";
 import { createTask } from "../stores/taskStore";
@@ -159,6 +159,23 @@ function isRateLimited(toolName: string): string | null {
   recent.push(now);
   toolCallTimestamps.set(toolName, recent);
   return null;
+}
+
+// ── Timeout Helper ─────────────────────────────────────────────
+// Prevents Tauri invoke() calls from hanging indefinitely and
+// accumulating ghost callbacks that freeze the app.
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Timeout: "${label}" did not respond within ${ms / 1000}s`)),
+      ms
+    );
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
 }
 
 // ── FIX: XML Entity Unescaping ─────────────────────────────────
@@ -1503,10 +1520,14 @@ export async function executeTool(
           };
         }
 
-        const result = await invoke<{ stdout: string; stderr: string; exit_code: number }>("execute_command", {
-          command,
-          cwd,
-        });
+        const result = await withTimeout(
+          invoke<{ stdout: string; stderr: string; exit_code: number }>("execute_command", {
+            command,
+            cwd,
+          }),
+          30_000,
+          `run_command: ${command.slice(0, 60)}`
+        );
 
         const output: string[] = [];
         if (result.stdout.trim()) {
@@ -1902,7 +1923,7 @@ export function formatToolResults(results: ToolResult[]): string {
 
 // ── System Prompt ──────────────────────────────────────────────
 
-export function buildToolsPrompt(includeConnections: boolean = true, includeWebSearch: boolean = false): string {
+export function buildToolsPrompt(includeConnections: boolean = true, includeWebSearch: boolean = false, connectedProviders: string[] = []): string {
   let prompt = `\n## Available Tools
 
 You have tools to work with project files. You MUST use these tools to create and edit files.
@@ -1958,7 +1979,9 @@ FORMAT — use this EXACT format (do NOT put inside code blocks):
 
   // Only include detailed connection docs if any service is connected
   if (includeConnections) {
-    prompt += connectionToolPrompt;
+    prompt += connectedProviders.length > 0
+      ? buildConnectionToolPrompt(connectedProviders)
+      : connectionToolPrompt;
   }
 
   return prompt;

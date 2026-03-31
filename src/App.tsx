@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import MainLayout from "./components/layout/MainLayout";
 import OnboardingWrapper from "./components/onboarding/OnboardingWrapper";
 import LoginPage from "./components/auth/LoginPage";
-import { retestAllConnections } from "./services/connections";
 import { dbService } from "./services/dbService";
 import { useProjectStore } from "./stores/projectStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -29,8 +28,13 @@ function App() {
           useProjectStore.getState().loadFromDB(),
           useSettingsStore.getState().loadFromDB(),
           useUsageStore.getState().loadFromDB(),
-          useConnectionsStore.getState().loadFromDB(),
         ]);
+
+        // Load connections for the current project (project-scoped only)
+        const currentProjectId = useProjectStore.getState().currentProject?.id;
+        if (currentProjectId) {
+          await useConnectionsStore.getState().loadProjectConnectionsFromDB(currentProjectId);
+        }
 
         // 3. Restore auth session from stored tokens.
         //    Must run AFTER DB is fully initialized because the auth
@@ -39,9 +43,6 @@ function App() {
 
         // 4. Mark fully ready — ONE render, at the very end.
         setAppReady(true);
-
-        // 5. Re-test saved connections in the background (non-blocking)
-        retestAllConnections();
       } catch (error) {
         console.error("Failed to initialize app:", error);
         setDbError(true);

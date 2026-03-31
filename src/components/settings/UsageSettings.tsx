@@ -521,19 +521,23 @@ function UsageSettings() {
   // Falls back to a DB query if the store is empty (first run / HMR).
   const storeProjects = useProjectStore((s) => s.projects);
   useEffect(() => {
-    if (storeProjects.length > 0) {
-      setProjectNames(storeProjects.map((p) => p.name));
-    } else {
-      dbService.getProjects()
-        .then((projects) => setProjectNames(projects.map((p) => p.name)))
-        .catch(() => {});
-    }
+    // Merge active project names with any project names that have usage data
+    // (so removed projects with historical usage still appear in the dropdown).
+    const storeNames = storeProjects.map((p) => p.name);
+    dbService.getProjectNamesFromUsage()
+      .then((usageNames) => {
+        const merged = Array.from(new Set([...storeNames, ...usageNames])).sort();
+        setProjectNames(merged);
+      })
+      .catch(() => {
+        if (storeNames.length > 0) setProjectNames(storeNames);
+      });
   }, [storeProjects]);
 
-  // When assistant filter is active and session tab is selected, switch to today.
+  // When any source filter is active and session tab is selected, switch to today.
   // Session is always in-memory and has no source breakdown.
   useEffect(() => {
-    if (filterSource === "assistant" && timeframe === "session") {
+    if (filterSource !== "all" && timeframe === "session") {
       setTimeframe("today");
     }
   }, [filterSource]);
@@ -566,34 +570,50 @@ function UsageSettings() {
     setFilterProjectName(proj);
   };
 
+  // Build the DB filter object from the active source dropdown selection.
+  // Reused by every useEffect that calls loadSessionHistory.
+  const buildDbFilter = useCallback(() => {
+    if (filterSource === "all") return undefined;
+    if (filterSource === "assistant") return { source: "assistant" as const };
+    return { source: "project" as const, projectName: filterProjectName ?? undefined };
+  }, [filterSource, filterProjectName]);
+
   // History panel (date-filter driven)
   useEffect(() => {
-    const options: { fromDate?: number; toDate?: number } = {};
+    const options: { fromDate?: number; toDate?: number; filter?: ReturnType<typeof buildDbFilter> } = {};
     if (dateFilter) {
       const d = new Date(dateFilter);
       options.fromDate = d.getTime();
       options.toDate = d.getTime() + 86400000;
     }
+    options.filter = buildDbFilter();
     loadSessionHistory(options);
-  }, [dateFilter, loadSessionHistory]);
+  }, [dateFilter, loadSessionHistory, buildDbFilter]);
 
   // Range data for stats + chart
   useEffect(() => {
-    if (timeframe === "session" || timeframe === "month" || timeframe === "alltime") {
+    if (timeframe === "session" || timeframe === "alltime") {
       setRangeHistory([]);
       return;
     }
-    loadSessionHistory(getDateRange(timeframe));
-  }, [timeframe, loadSessionHistory]);
+    // Load filtered session history for today, week, month, year chart buckets
+    const range = timeframe === "month"
+      ? { fromDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime(), toDate: Date.now() }
+      : getDateRange(timeframe);
+    loadSessionHistory({ ...range, filter: buildDbFilter() });
+  }, [timeframe, loadSessionHistory, buildDbFilter]);
 
   useEffect(() => {
-    if (timeframe !== "today" && timeframe !== "week" && timeframe !== "year") return;
+    if (timeframe !== "today" && timeframe !== "week" && timeframe !== "month" && timeframe !== "year") return;
     setRangeHistory(sessionHistory);
   }, [sessionHistory, timeframe]);
 
   // ── Does the live session fall inside the current timeframe? ──────────────
   // The session is always "now", so it overlaps every range that includes today.
+  // When a source filter is active, we can't filter in-memory session entries
+  // (they have no source tag), so we skip merging them into the chart.
   const sessionInRange = useMemo(() => {
+    if (filterSource !== "all") return false;
     if (timeframe === "session") return false; // session tab handles it directly
     if (timeframe === "alltime") return true;
     if (!session.entries.length) return false;
@@ -602,7 +622,7 @@ function UsageSettings() {
     const from = range.fromDate ?? 0;
     const to = range.toDate ?? Infinity;
     return sessionStart >= from && sessionStart <= to;
-  }, [timeframe, session.entries]);
+  }, [timeframe, session.entries, filterSource]);
 
   // ── Session cache totals (from entries) ────────────────────────────────────
   const sessionCacheReadTokens = useMemo(
@@ -950,8 +970,8 @@ function UsageSettings() {
   };
 
   const isDark = theme !== "light";
-  // Hide Session tab for assistant filter — session is in-memory with no source breakdown.
-  const timeframes: Timeframe[] = filterSource === "assistant"
+  // Hide Session tab when any source filter is active — session is in-memory with no source breakdown.
+  const timeframes: Timeframe[] = filterSource !== "all"
     ? ["today", "week", "month", "year", "alltime"]
     : ["session", "today", "week", "month", "year", "alltime"];
 

@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
  * Context Service — Two-Pass AI-Summarized Project Knowledge
  * 
  * DISK STRUCTURE:
- *   .mydevify/
+ *   .omnirun/
  *     context.md          ← Master overview (AI reads this once per conversation)
  *     summaries/
  *       01-project.md     ← Detailed summary of txt-pk/01-project.txt
@@ -13,8 +13,8 @@ import { invoke } from "@tauri-apps/api/core";
  *       ...
  * 
  * TWO-PASS SUMMARIZATION (first open only):
- *   Pass 1: AI reads each knowledge file → writes detailed summary → .mydevify/summaries/
- *   Pass 2: AI reads ALL summaries → writes master overview → .mydevify/context.md
+ *   Pass 1: AI reads each knowledge file → writes detailed summary → .omnirun/summaries/
+ *   Pass 2: AI reads ALL summaries → writes master overview → .omnirun/context.md
  * 
  * TOKEN BUDGET:
  *   First open (one-time):    ~15-20K tokens (AI summarization)
@@ -77,10 +77,10 @@ export const VALID_SECTIONS = [
 ] as const;
 export type ContextSection = typeof VALID_SECTIONS[number];
 
-const CONTEXT_DIR = ".mydevify";
-const SUMMARIES_DIR = ".mydevify/summaries";
-const CONTEXT_FILE = ".mydevify/context.md";
-const META_FILE = ".mydevify/meta.json";
+const CONTEXT_DIR = ".omnirun";
+const SUMMARIES_DIR = ".omnirun/summaries";
+const CONTEXT_FILE = ".omnirun/context.md";
+const META_FILE = ".omnirun/meta.json";
 const MAX_RECENT_CHANGES = 10;
 const MAX_READ_PER_FILE = 12_000;  // 12KB per file sent to AI
 
@@ -197,7 +197,7 @@ const APP_ROOT_FILES = [
 
 const SKIP_DIRS = [
   "node_modules", ".git", "dist", "build", ".next", ".nuxt",
-  ".svelte-kit", ".astro", ".output", ".cache", ".mydevify",
+  ".svelte-kit", ".astro", ".output", ".cache", ".omnirun",
   "__pycache__", ".turbo", "target", "coverage", ".venv",
 ];
 
@@ -298,7 +298,7 @@ async function scanProject(projectPath: string): Promise<ScanResult> {
 
 // ── AI Provider / Call Helpers ────────────────────────────────
 
-interface ProviderConfig {
+export interface ProviderConfig {
   id: string;
   apiKey: string;
   model: string;
@@ -315,6 +315,20 @@ function getActiveProvider(): ProviderConfig | null {
     return { id: activeId, apiKey: config.apiKey, model: config.selectedModel };
   } catch {
     return null;
+  }
+}
+
+/** Thrown on 401/403 — signals callers to abort immediately, never retry. */
+class FatalAPIError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FatalAPIError";
+  }
+}
+
+function throwIfFatal(status: number, provider: string): void {
+  if (status === 401 || status === 403) {
+    throw new FatalAPIError(`${provider} API ${status} Error: invalid or expired API key — aborting`);
   }
 }
 
@@ -335,6 +349,7 @@ async function callAI(provider: ProviderConfig, prompt: string): Promise<string>
         messages: [{ role: "user", content: prompt }],
       }),
     });
+    throwIfFatal(resp.status, "Anthropic");
     if (!resp.ok) throw new Error(`Anthropic API ${resp.status}`);
     const data: any = await resp.json();
     return data?.content?.[0]?.text || "";
@@ -351,6 +366,7 @@ async function callAI(provider: ProviderConfig, prompt: string): Promise<string>
         generationConfig: { maxOutputTokens: 4096 },
       }),
     });
+    throwIfFatal(resp.status, "Google");
     if (!resp.ok) throw new Error(`Google API ${resp.status}`);
     const data: any = await resp.json();
     return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
@@ -377,6 +393,7 @@ async function callAI(provider: ProviderConfig, prompt: string): Promise<string>
       messages: [{ role: "user", content: prompt }],
     }),
   });
+  throwIfFatal(resp.status, provider.id);
   if (!resp.ok) throw new Error(`${provider.id} API ${resp.status}`);
   const data: any = await resp.json();
   return data?.choices?.[0]?.message?.content || "";
@@ -436,7 +453,7 @@ File to summarize:
 
 /**
  * Pass 1: Summarize each knowledge file individually.
- * Writes each summary to .mydevify/summaries/filename.md
+ * Writes each summary to .omnirun/summaries/filename.md
  * Returns list of what was summarized.
  */
 async function pass1_summarizeFiles(
@@ -467,7 +484,6 @@ async function pass1_summarizeFiles(
         `=== ${file.relativePath} ===\n${fileContent}`;
 
       const summary = await callAI(provider, prompt);
-
       // Extract title from first line of original (or summary)
       let title = file.name.replace(/\.[^.]+$/, "").replace(/^\d+-/, "").replace(/[-_]/g, " ");
       const firstHeading = content.match(/^#+\s+(.+)/m);
@@ -489,6 +505,10 @@ async function pass1_summarizeFiles(
 
       console.log(`[context] Summarized ${i + 1}/${files.length}: ${file.relativePath}`);
     } catch (err) {
+      // Fatal auth errors (401/403) must propagate — retrying every file would just
+      // flood the API and cause an infinite loop via the file watcher.
+      if (err instanceof FatalAPIError) throw err;
+
       console.error(`[context] Failed to summarize ${file.relativePath}:`, err);
       // Still track it — with a fallback
       results.push({
@@ -526,7 +546,7 @@ Here is the project metadata, followed by all file summaries:
 
 /**
  * Pass 2: Read all summary files and generate the master overview.
- * Writes to .mydevify/context.md
+ * Writes to .omnirun/context.md
  */
 async function pass2_generateMaster(
   projectPath: string,
@@ -821,7 +841,8 @@ function replaceSection(content: string, heading: string, newContent: string): s
  */
 export async function initContext(
   projectPath: string,
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  externalProvider?: ProviderConfig | null
 ): Promise<{ context: ProjectContext; isFirstScan: boolean }> {
   await invoke("set_project_path", { path: projectPath });
 
@@ -830,13 +851,31 @@ export async function initContext(
     return { context: existing, isFirstScan: false };
   }
 
-  const context = await fullScan(projectPath, onProgress);
-  return { context, isFirstScan: true };
+  try {
+    const context = await fullScan(projectPath, onProgress, externalProvider);
+    return { context, isFirstScan: true };
+  } catch (err: any) {
+    // If the AI scan fails (401, rate limit, network, etc.) fall back to a
+    // basic context so the rest of the app still works normally.
+    console.warn("[context] Full scan failed:", err.message || err);
+    const projectName = projectPath.split(/[/\\]/).pop() || "unknown";
+    const fallback: ProjectContext = {
+      projectName, projectPath,
+      techStack: [], structure: "", appRoot: "",
+      summarizedFiles: [],
+      about: [], styles: [], conventions: [], keyDeps: [],
+      routes: [], schema: [],
+      built: [], progress: [],
+      preferences: [], decisions: [], recentChanges: [],
+    };
+    return { context: fallback, isFirstScan: true };
+  }
 }
 
 async function fullScan(
   projectPath: string,
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  externalProvider?: ProviderConfig | null
 ): Promise<ProjectContext> {
   const projectName = projectPath.split(/[/\\]/).pop() || "unknown";
 
@@ -848,11 +887,12 @@ async function fullScan(
       ? (scan.appRoots.find(r => r.relativePath !== "")?.relativePath || "")
       : "";
 
-    // Ensure .mydevify directory exists
+    // Ensure .omnirun directory exists
     try { await createDirectory(`${projectPath}\\${CONTEXT_DIR}`); } catch { /* exists */ }
     try { await createDirectory(`${projectPath}\\${SUMMARIES_DIR}`); } catch { /* exists */ }
 
-    const provider = getActiveProvider();
+    // Use externally-provided provider first, fall back to localStorage
+    const provider = externalProvider || getActiveProvider();
     let summarizedFiles: { originalPath: string; summaryPath: string; title: string }[];
 
     if (scan.knowledgeFiles.length > 0 && provider) {
@@ -929,9 +969,13 @@ async function fullScan(
       built: [], progress: [],
       preferences: [], decisions: [], recentChanges: [],
     };
-    try {
-      await writeFallbackContext(projectPath, projectName, [], [], "", "", [], [], [], []);
-    } catch { /* ok */ }
+    // Do NOT write to disk on a fatal API error — writing triggers the file
+    // watcher which would call initContext again, creating an infinite loop.
+    if (!(err instanceof FatalAPIError)) {
+      try {
+        await writeFallbackContext(projectPath, projectName, [], [], "", "", [], [], [], []);
+      } catch { /* ok */ }
+    }
     return fallback;
   }
 }
@@ -1005,7 +1049,17 @@ export async function refreshContext(projectPath: string): Promise<ProjectContex
     let newSummaries: { originalPath: string; summaryPath: string; title: string }[] = [];
     if (newFiles.length > 0 && provider) {
       console.log(`[context] ${newFiles.length} new knowledge files, summarizing...`);
-      newSummaries = await pass1_summarizeFiles(projectPath, newFiles, provider);
+      try {
+        newSummaries = await pass1_summarizeFiles(projectPath, newFiles, provider);
+      } catch (err) {
+        if (err instanceof FatalAPIError) {
+          // Bad API key — abort silently, return existing context without writing
+          // anything to disk (writing would re-trigger the file watcher endlessly).
+          console.warn("[context] Refresh aborted: fatal API error —", (err as Error).message);
+          return existing;
+        }
+        throw err;
+      }
     } else if (newFiles.length > 0) {
       newSummaries = await basicFallbackSummaries(projectPath, newFiles);
     }
@@ -1014,12 +1068,20 @@ export async function refreshContext(projectPath: string): Promise<ProjectContex
 
     // Regenerate master overview
     if (provider) {
-      await pass2_generateMaster(
-        projectPath, projectName, scan.allTech, scan.allKeyDeps,
-        scan.structureLines.join("\n"), primaryAppRoot,
-        allSummaries, provider,
-        existing.preferences, existing.decisions, existing.recentChanges
-      );
+      try {
+        await pass2_generateMaster(
+          projectPath, projectName, scan.allTech, scan.allKeyDeps,
+          scan.structureLines.join("\n"), primaryAppRoot,
+          allSummaries, provider,
+          existing.preferences, existing.decisions, existing.recentChanges
+        );
+      } catch (err) {
+        if (err instanceof FatalAPIError) {
+          console.warn("[context] Master overview skipped: fatal API error —", (err as Error).message);
+          return existing;
+        }
+        throw err;
+      }
     } else {
       await writeFallbackContext(
         projectPath, projectName, scan.allTech, scan.allKeyDeps,

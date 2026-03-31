@@ -69,11 +69,13 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   const [nativeRunning, setNativeRunning] = useState(false);
 
   const { theme } = useSettingsStore();
-  const { selectedFile, projectPath, fileTree, setFileTree, manifest, setManifest, setBuildError, autoFixCount, resetAutoFix, externalFileChange, setExternalFileChange } = useProjectStore();
+  const { selectedFile, setSelectedFile, projectPath, fileTree, setFileTree, manifest, setManifest, setBuildError, autoFixCount, resetAutoFix, externalFileChange, setExternalFileChange } = useProjectStore();
   const { isLoading: aiIsLoading } = useChatStore();
   const prevAiLoadingRef = useRef(false);
   const [errorPollTrigger, setErrorPollTrigger] = useState(0);
   const previewVersionRef = useRef(0);
+  const [installElapsed, setInstallElapsed] = useState(0);
+  const installTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const t = themes[theme];
 
   // Resolved path: may differ from projectPath if the app lives in a subdirectory
@@ -461,12 +463,40 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
     setPreviewStatus("installing");
     setStatusMessage(`Running ${detection.installCommand}...`);
     setInstallOutput("");
+    setInstallElapsed(0);
+
+    // Start elapsed time counter so user knows it's working
+    if (installTimerRef.current) clearInterval(installTimerRef.current);
+    installTimerRef.current = setInterval(() => {
+      setInstallElapsed((s) => s + 1);
+    }, 1000);
+
+    const stopTimer = () => {
+      if (installTimerRef.current) {
+        clearInterval(installTimerRef.current);
+        installTimerRef.current = null;
+      }
+    };
 
     try {
-      const result = await invoke<{ stdout: string; stderr: string; exit_code: number }>("execute_command", {
+      // 10-minute timeout — npm install should never take longer than this
+      const TIMEOUT_MS = 10 * 60 * 1000;
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(
+            `Install timed out after 10 minutes.\n\nTry running "${detection.installCommand}" manually in the terminal below.`
+          )),
+          TIMEOUT_MS
+        )
+      );
+
+      const installPromise = invoke<{ stdout: string; stderr: string; exit_code: number }>("execute_command", {
         command: detection.installCommand,
         cwd: installPath,
       });
+
+      const result = await Promise.race([installPromise, timeoutPromise]);
+      stopTimer();
 
       if (result.exit_code !== 0) {
         // Install failed
@@ -496,8 +526,9 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
         await startDevServer(updatedDetection);
       }
     } catch (err: any) {
+      stopTimer();
       setPreviewStatus("error");
-      setStatusMessage(err.toString());
+      setStatusMessage(err.message || err.toString());
     }
   };
 
@@ -659,6 +690,16 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
     setIsEditing(false);
   };
 
+  const handleCloseFile = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedFile(null);
+    setPreviewMode("live");
+    setIsEditing(false);
+    setFileContent(null);
+    setImageSrc(null);
+    setError(null);
+  };
+
   // ── Edit handlers ──────────────────────────────────────────
 
   const handleStartEdit = () => {
@@ -788,18 +829,33 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
 
           {/* File View tab */}
           {selectedFile && !selectedFile.is_dir && (
-            <button
-              onClick={() => setPreviewMode("file")}
-              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium ${t.borderRadius} transition-colors truncate max-w-[160px] ${
+            <div
+              className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium ${t.borderRadius} transition-colors max-w-[180px] ${
                 previewMode === "file"
                   ? `${t.colors.accent} ${theme === "highContrast" ? "text-black" : "text-white"}`
                   : `${t.colors.textMuted} hover:${t.colors.text}`
               }`}
               title={selectedFile.name}
             >
-              <FileCode size={13} className="flex-shrink-0" />
-              <span className="truncate">{selectedFile.name}</span>
-            </button>
+              <button
+                onClick={() => setPreviewMode("file")}
+                className="flex items-center gap-1.5 min-w-0"
+              >
+                <FileCode size={13} className="flex-shrink-0" />
+                <span className="truncate">{selectedFile.name}</span>
+              </button>
+              <button
+                onClick={handleCloseFile}
+                className={`flex-shrink-0 ml-0.5 p-0.5 rounded transition-colors ${
+                  previewMode === "file"
+                    ? `${theme === "highContrast" ? "hover:bg-black/20" : "hover:bg-white/20"}`
+                    : `hover:${t.colors.bgTertiary}`
+                }`}
+                title="Close file"
+              >
+                <X size={12} />
+              </button>
+            </div>
           )}
         </div>
 
@@ -1061,12 +1117,23 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
 
             {/* Framework: installing dependencies */}
             {previewStatus === "installing" && (
-              <div className={`flex flex-col items-center justify-center h-full gap-3 p-6 ${t.colors.textMuted}`}>
+              <div className={`flex flex-col items-center justify-center h-full gap-4 p-6 ${t.colors.textMuted}`}>
                 <RefreshCw size={24} className="animate-spin" />
-                <div className="text-center">
+                <div className="text-center max-w-xs">
                   <p className={`text-sm font-medium ${t.colors.text}`}>Installing dependencies...</p>
                   <p className="text-xs mt-1">{statusMessage}</p>
-                  <p className="text-xs mt-2 opacity-60">This may take a minute</p>
+                  {/* Elapsed time — reassures user it's actively running */}
+                  <p className={`text-xs mt-2 font-mono ${t.colors.textMuted}`}>
+                    {Math.floor(installElapsed / 60) > 0
+                      ? `${Math.floor(installElapsed / 60)}m ${installElapsed % 60}s elapsed`
+                      : `${installElapsed}s elapsed`}
+                  </p>
+                  <p className="text-xs mt-2 opacity-60">
+                    First install can take 3–5 minutes — packages are downloading.
+                  </p>
+                  <p className="text-xs mt-1 opacity-50">
+                    You can watch progress in the terminal below.
+                  </p>
                 </div>
               </div>
             )}

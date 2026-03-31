@@ -18,21 +18,29 @@ function headers(token: string): Record<string, string> {
 }
 
 async function vFetch(path: string, token: string, options: RequestInit = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers: { ...headers(token), ...options.headers },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const err: any = new Error(body.error?.message || `Vercel API error: ${res.status}`);
-    err.status = res.status;
-    throw err;
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      ...options,
+      headers: { ...headers(token), ...options.headers },
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const err: any = new Error(body.error?.message || `Vercel API error: ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+
+    // Some Vercel endpoints return 204 No Content
+    if (res.status === 204) return null;
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
   }
-
-  // Some Vercel endpoints return 204 No Content
-  if (res.status === 204) return null;
-  return res.json();
 }
 
 // --------------- Actions ---------------
