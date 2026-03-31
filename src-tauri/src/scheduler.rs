@@ -15,6 +15,22 @@ use tokio::time::{interval, Duration};
 
 // ── Data Model ────────────────────────────────────────────────
 
+/// Whether the task belongs to a project or to the Assistant (personal/global)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskScope {
+    /// Task runs in the context of a specific project (has project_id)
+    Project,
+    /// Task runs in the global Assistant context (email, calendar, personal automations)
+    Assistant,
+}
+
+impl Default for TaskScope {
+    fn default() -> Self {
+        TaskScope::Project
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduledTask {
     pub id: String,
@@ -24,8 +40,11 @@ pub struct ScheduledTask {
     pub schedule: String,
     /// Internal cron expression: "0 8 * * 1"
     pub cron_expression: String,
-    /// Which project this task belongs to (None = general)
+    /// Which project this task belongs to (None = general/assistant)
     pub project_id: Option<String>,
+    /// Whether this is a project task or assistant task
+    #[serde(default)]
+    pub scope: TaskScope,
     pub enabled: bool,
     pub steps: Vec<TaskStep>,
     pub on_failure: FailureAction,
@@ -255,6 +274,14 @@ pub fn create_task(mut task: ScheduledTask) -> Result<ScheduledTask, String> {
 
     // Calculate next run
     task.next_run = next_run_time(&task.cron_expression);
+
+    // Infer scope from project_id if not explicitly set
+    // (backwards compat: old tasks without scope field default to Project)
+    if task.scope == TaskScope::Project && task.project_id.is_none() {
+        // If no project_id and scope wasn't explicitly set to assistant,
+        // keep as project (general). The frontend is responsible for
+        // setting scope = "assistant" when creating assistant tasks.
+    }
 
     // Generate step IDs if empty
     for step in &mut task.steps {

@@ -4,6 +4,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 // ── Types (mirrors Rust data model) ───────────────────────────
 
+export type TaskScope = "project" | "assistant";
+
 export type Executor = "local" | "web" | "ai";
 
 export type FailureAction =
@@ -58,6 +60,8 @@ export interface ScheduledTask {
   schedule: string;
   cron_expression: string;
   project_id?: string;
+  /** Whether this task belongs to a project or the assistant */
+  scope: TaskScope;
   enabled: boolean;
   steps: TaskStep[];
   on_failure: FailureAction;
@@ -151,7 +155,12 @@ export async function fetchTasks(): Promise<void> {
   store.setError(null);
   try {
     const tasks = await invoke<ScheduledTask[]>("get_tasks");
-    store.setTasks(tasks);
+    // Normalize scope for tasks loaded from older versions (before scope field existed)
+    const normalized = tasks.map((t) => ({
+      ...t,
+      scope: t.scope || (t.project_id ? "project" : "project") as TaskScope,
+    }));
+    store.setTasks(normalized);
   } catch (err) {
     store.setError(String(err));
   } finally {
@@ -169,6 +178,7 @@ export async function createTask(taskData: Partial<ScheduledTask>): Promise<Sche
       schedule: taskData.schedule || "",
       cron_expression: taskData.cron_expression || "",
       project_id: taskData.project_id ?? undefined,
+      scope: taskData.scope || "project",
       enabled: taskData.enabled ?? true,
       steps: taskData.steps || [],
       on_failure: taskData.on_failure || { type: "stop" },
@@ -277,12 +287,42 @@ export async function startTaskListener(): Promise<UnlistenFn> {
 
 // ── Helpers ───────────────────────────────────────────────────
 
+/**
+ * Group tasks by scope then by project.
+ * Returns { assistant: ScheduledTask[], projects: Record<string, ScheduledTask[]> }
+ */
+export function getTasksGroupedByScope(tasks: ScheduledTask[]): {
+  assistant: ScheduledTask[];
+  projects: Record<string, ScheduledTask[]>;
+} {
+  const assistant: ScheduledTask[] = [];
+  const projects: Record<string, ScheduledTask[]> = {};
+
+  for (const task of tasks) {
+    if (task.scope === "assistant") {
+      assistant.push(task);
+    } else {
+      const key = task.project_id || "_general";
+      if (!projects[key]) projects[key] = [];
+      projects[key].push(task);
+    }
+  }
+
+  return { assistant, projects };
+}
+
+/** Legacy grouping — kept for backwards compat but prefer getTasksGroupedByScope */
 export function getTasksGrouped(tasks: ScheduledTask[]): Record<string, ScheduledTask[]> {
   const groups: Record<string, ScheduledTask[]> = {};
   for (const task of tasks) {
-    const key = task.project_id || "_general";
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(task);
+    if (task.scope === "assistant") {
+      if (!groups["_assistant"]) groups["_assistant"] = [];
+      groups["_assistant"].push(task);
+    } else {
+      const key = task.project_id || "_general";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(task);
+    }
   }
   return groups;
 }
