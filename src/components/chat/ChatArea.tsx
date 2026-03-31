@@ -33,37 +33,76 @@ function ToolActionLine({ content, theme: t, themeKey, mode }: {
 }) {
   const [expanded, setExpanded] = useState(false);
 
-  // Parse the tool message content into lines
-  // Format: "summary\n---\ndetails" (separator added during creation)
   const separatorIdx = content.indexOf("\n---\n");
   const hasSeparator = separatorIdx !== -1;
   const summary = hasSeparator ? content.slice(0, separatorIdx) : content;
   const details = hasSeparator ? content.slice(separatorIdx + 5) : null;
-
-  // Split summary into individual action lines for nice display
   const summaryLines = summary.split("\n").filter(l => l.trim());
 
-  // Derive a single clean human-readable label from all summary lines
-  const getSimpleLabel = (lines: string[]): string => {
-    const blob = lines.join(" ").toLowerCase();
-    if (blob.includes("🔍") || blob.includes("search")) return "Searching the web...";
-    if (blob.includes("reading") || (blob.includes("read") && !blob.includes("written"))) return "Reading file...";
-    if (blob.includes("written") || blob.includes("writing") || blob.includes("created") || blob.includes("editing")) return "Editing file...";
-    if (blob.includes("deleted") || blob.includes("deleting")) return "Deleting file...";
-    if (blob.includes("saved") || blob.includes("saving") || blob.includes("context")) return "Saving context...";
-    if (blob.includes("listed") || blob.includes("directory") || blob.includes("listing")) return "Reading directory...";
-    if (blob.includes("running") || blob.includes("command") || blob.includes("execute")) return "Running command...";
-    if (blob.includes("✅")) return "Done";
-    if (blob.includes("❌")) return "Failed";
-    return "Working...";
-  };
-
-  // Simple mode: one clean line, no clutter
+  // ── Simple mode: compact action lines with optional expand ──
   if (mode === "simple") {
-    return <div className="leading-snug">{getSimpleLabel(summaryLines)}</div>;
+    const actions = summaryLines.map((line) => {
+      const clean = line.replace(/^[\s🔧✏️✅❌⏭️🔍⚠️📁📂🗑️⏳]+/u, "").trim();
+
+      const writeMatch = clean.match(/^Writ(?:ing|ten)\s+(.+?)(?:\s+\((.+)\))?$/i);
+      if (writeMatch) {
+        const done = /^written/i.test(clean);
+        return { label: `${done ? "Wrote" : "Writing"} ${writeMatch[1]}`, detail: writeMatch[2] || null };
+      }
+      const editMatch = clean.match(/^Edit(?:ing|ed)\s+(.+?)$/i);
+      if (editMatch) return { label: `Editing ${editMatch[1]}`, detail: null };
+      const readMatch = clean.match(/^Read(?:ing)?\s+(.+?)$/i);
+      if (readMatch) return { label: `Reading ${readMatch[1]}`, detail: null };
+      const deleteMatch = clean.match(/^Delet(?:ing|ed)\s+(.+?)$/i);
+      if (deleteMatch) return { label: `Deleting ${deleteMatch[1]}`, detail: null };
+      const listMatch = clean.match(/^List(?:ing|ed)?\s+(.+?)$/i);
+      if (listMatch) return { label: `Scanning ${listMatch[1]}`, detail: null };
+      const runMatch = clean.match(/^Running:\s*(.+)$/i);
+      if (runMatch) return { label: "Running command", detail: runMatch[1] };
+      const searchMatch = clean.match(/^Search(?:ing)?:\s*(.+)$/i);
+      if (searchMatch) return { label: "Searching the web", detail: searchMatch[1] };
+      const taskMatch = clean.match(/^Creating scheduled task:\s*(.+)$/i);
+      if (taskMatch) return { label: "Creating task", detail: taskMatch[1] };
+      if (clean.toLowerCase().includes("context")) return { label: "Saving context", detail: null };
+      if (clean.toLowerCase().includes("found")) return { label: clean, detail: null };
+      if (!clean || clean === "Done") return { label: "Done", detail: null };
+      return { label: clean.length > 50 ? clean.slice(0, 47) + "…" : clean, detail: null };
+    });
+
+    const deduped = actions.filter((a, i) => i === 0 || a.label !== actions[i - 1].label);
+    const hasDetails = deduped.some((a) => a.detail);
+
+    return (
+      <div className="space-y-0.5">
+        {deduped.map((action, i) => (
+          <div key={i} className="leading-snug text-sm">{action.label}</div>
+        ))}
+        {hasDetails && (
+          <>
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className={`inline-flex items-center gap-1 mt-0.5 text-xs ${t.colors.textMuted} hover:${t.colors.text} transition-colors cursor-pointer`}
+            >
+              <ChevronDown
+                size={10}
+                className={`transition-transform duration-150 ${expanded ? "" : "-rotate-90"}`}
+              />
+              {expanded ? "Less" : "Details"}
+            </button>
+            {expanded && (
+              <div className={`mt-1 text-xs ${t.colors.textMuted} opacity-70 space-y-0.5`}>
+                {deduped.filter((a) => a.detail).map((a, i) => (
+                  <div key={i}>{a.label}: {a.detail}</div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
   }
 
-  // Technical mode: full details with expand toggle
+  // ── Technical mode: full details with expand toggle ──
   const showExpandButton = details != null;
 
   return (
@@ -131,8 +170,13 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
+  // Typewriter effect refs — buffer incoming content, reveal gradually
+  const typewriterTargetRef = useRef("");
+  const typewriterRevealedRef = useRef(0);
+  const typewriterRafRef = useRef<number | null>(null);
+  const typewriterMsgIdRef = useRef<string | null>(null);
   // ✅ FIX: destructure smartRouting so the header can reflect it
-  const { theme, timeFormat, mode, smartRouting } = useSettingsStore();
+  const { theme, timeFormat, mode, smartRouting, fontSize } = useSettingsStore();
   const { messages, isLoading, addMessage, setLoading, clearMessages } = useChatStore();
   const { currentProject, projectPath, fileTree, selectedFile, setFileTree, manifest, setManifest, buildError, autoFixCount, setBuildError, incrementAutoFix, resetAutoFix } = useProjectStore();
   const { saveConversation, currentChatId, setCurrentChatId } = useChatHistoryStore();
@@ -147,6 +191,15 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
   // Subscribe to console errors from errorCapture service
   useEffect(() => {
     return onErrorsChange((errors) => setConsoleErrors(errors));
+  }, []);
+
+  // Cleanup typewriter animation on unmount
+  useEffect(() => {
+    return () => {
+      if (typewriterRafRef.current !== null) {
+        cancelAnimationFrame(typewriterRafRef.current);
+      }
+    };
   }, []);
 
   // Load project connections from DB when project changes
@@ -539,6 +592,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
   const handleStop = () => {
     stoppedRef.current = true;
+    flushTypewriter(); // Show all buffered content immediately
     if (readerRef.current) {
       readerRef.current.cancel().catch(() => {});
       readerRef.current = null;
@@ -609,10 +663,15 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
       return textBefore ? `${textBefore}\n\n${actionLabel}` : actionLabel;
     }
 
-    // Strip completed tool_call and tool_result blocks
+    // Strip completed tool_call and tool_result blocks (well-formed + malformed)
     const clean = content
       .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
       .replace(/<tool_result>[\s\S]*?<\/tool_result>/g, "")
+      .replace(/<[^>]*tool_?call[^>]*>[\s\S]*?<\/[^>]*tool_?call[^>]*>/g, "")
+      .replace(/<[^>]*tool_?result[^>]*>[\s\S]*?<\/[^>]*tool_?result[^>]*>/g, "")
+      .replace(/\{"name"?\s*:\s*"(?:write_file|read_file|edit_file|list_directory|create_directory|delete_file|read_multiple_files|run_command|web_search|write_context|create_scheduled_task|connection)"[\s\S]*?\}\s*/g, "")
+      .replace(/<\/tool_call>/g, "")
+      .replace(/<\/tool_result>/g, "")
       .trim();
 
     // Count backtick fences
@@ -622,6 +681,68 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
     // Odd number = unclosed code block. Show text before it + placeholder
     const originalBeforeFence = content.slice(0, content.lastIndexOf("```"));
     return originalBeforeFence + "```\n⏳ Writing code...\n```";
+  };
+
+  // ── Typewriter effect ─────────────────────────────────────────
+  // Buffers streamed content and reveals it gradually for a smooth
+  // reading experience. API still streams at full speed internally.
+  const CHARS_PER_FRAME = 3; // ~180 chars/sec at 60fps
+
+  const startTypewriter = (msgId: string) => {
+    typewriterMsgIdRef.current = msgId;
+    typewriterTargetRef.current = "";
+    typewriterRevealedRef.current = 0;
+
+    const tick = () => {
+      const target = typewriterTargetRef.current;
+      const revealed = typewriterRevealedRef.current;
+
+      if (revealed < target.length) {
+        // Reveal next batch of characters
+        const newRevealed = Math.min(revealed + CHARS_PER_FRAME, target.length);
+        typewriterRevealedRef.current = newRevealed;
+
+        const visibleContent = target.slice(0, newRevealed);
+        const id = typewriterMsgIdRef.current;
+        if (id) {
+          useChatStore.setState((state) => ({
+            messages: state.messages.map((m) =>
+              m.id === id ? { ...m, content: visibleContent } : m
+            ),
+          }));
+        }
+      }
+
+      typewriterRafRef.current = requestAnimationFrame(tick);
+    };
+
+    typewriterRafRef.current = requestAnimationFrame(tick);
+  };
+
+  const updateTypewriterTarget = (content: string) => {
+    typewriterTargetRef.current = content;
+  };
+
+  const flushTypewriter = () => {
+    // Stop the animation loop
+    if (typewriterRafRef.current !== null) {
+      cancelAnimationFrame(typewriterRafRef.current);
+      typewriterRafRef.current = null;
+    }
+
+    // Show all remaining content immediately
+    const id = typewriterMsgIdRef.current;
+    const target = typewriterTargetRef.current;
+    if (id && target) {
+      typewriterRevealedRef.current = target.length;
+      useChatStore.setState((state) => ({
+        messages: state.messages.map((m) =>
+          m.id === id ? { ...m, content: target } : m
+        ),
+      }));
+    }
+
+    typewriterMsgIdRef.current = null;
   };
 
   const handleSend = async (overrideMessage?: string) => {
@@ -720,31 +841,26 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
         // Stream the AI response
         let fullResponse = "";
 
+        // Start typewriter for this message
+        startTypewriter(assistantId);
+
         setIsRouting(true);
         const result = await sendMessage(apiMessages, provider, (chunk) => {
           setIsRouting(false);
           if (stoppedRef.current) return;
           fullResponse += chunk;
-          if (stoppedRef.current) return;
-          fullResponse += chunk;
           const displayContent = getStreamingDisplay(fullResponse);
-          useChatStore.setState((state) => ({
-            messages: state.messages.map((m) =>
-              m.id === assistantId ? { ...m, content: displayContent } : m
-            ),
-          }));
+          // Feed the typewriter instead of directly updating the message
+          updateTypewriterTarget(displayContent);
         }, projectContext, undefined, (reader) => { readerRef.current = reader; });
 
         setIsRouting(false);
         fullResponse = result.text;
 
-        // Use getStreamingDisplay here too — it handles both complete and unclosed
-        // tool blocks, so we never flash raw XML regardless of where streaming stopped
-        useChatStore.setState((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === assistantId ? { ...m, content: getStreamingDisplay(fullResponse) } : m
-          ),
-        }));
+        // Flush typewriter — show all remaining content immediately
+        // so tool detection and subsequent logic see the final text
+        updateTypewriterTarget(getStreamingDisplay(fullResponse));
+        flushTypewriter();
 
         // Check if stopped during streaming
         if (stoppedRef.current) break;
@@ -803,9 +919,17 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
         // Clean up the message — strip raw <tool_call> tags from display
         // During streaming, getStreamingDisplay hides them, but line 459 puts
         // the raw fullResponse back. This removes the tags permanently.
-        const cleanedContent = (
+        const rawCleaned = (
           parsed.textBefore + (parsed.textAfter ? "\n" + parsed.textAfter : "")
-        ).trim() || "⏳ Working on files...";
+        ).trim();
+        const cleanedContent = rawCleaned
+          .replace(/<[^>]*tool_?call[^>]*>[\s\S]*/g, "")
+          .replace(/<[^>]*tool_?result[^>]*>[\s\S]*/g, "")
+          .replace(/\{"name"?\s*:\s*"(?:write_file|read_file|edit_file|list_directory|create_directory|delete_file|read_multiple_files|run_command|web_search|write_context|create_scheduled_task|connection)"[\s\S]*?\}\s*/g, "")
+          .replace(/<\/tool_call>/g, "")
+          .replace(/<\/tool_result>/g, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim() || "⏳ Working on files...";
         useChatStore.setState((state) => ({
           messages: state.messages.map((m) =>
             m.id === assistantId ? { ...m, content: cleanedContent } : m
@@ -1094,12 +1218,29 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
   // Parse message for code blocks and tool call blocks
   const renderMessage = (content: string) => {
-    // Strip tool_call and tool_result blocks from display — show clean text only
-    const cleanContent = content
+    // Strip tool_call and tool_result blocks — well-formed, malformed, and orphaned
+    let cleanContent = content
       .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
       .replace(/<tool_result>[\s\S]*?<\/tool_result>/g, "")
+      .replace(/<[^>]*tool_?call[^>]*>[\s\S]*?<\/[^>]*tool_?call[^>]*>/g, "")
+      .replace(/<[^>]*tool_?result[^>]*>[\s\S]*?<\/[^>]*tool_?result[^>]*>/g, "")
+      .replace(/<[^>]*tool_?call[^>]*>[\s\S]*/g, "")
+      .replace(/<[^>]*tool_?result[^>]*>[\s\S]*/g, "")
+      .replace(/\{"name"?\s*:\s*"(?:write_file|read_file|edit_file|list_directory|create_directory|delete_file|read_multiple_files|run_command|web_search|write_context|create_scheduled_task|connection)"[\s\S]*?\}\s*/g, "")
+      .replace(/<\/tool_call>/g, "")
+      .replace(/<\/tool_result>/g, "")
+      .replace(/\n{3,}/g, "\n\n")
       .trim();
+
     if (!cleanContent) return <span className={`${t.colors.textMuted} italic`}>Working with files...</span>;
+
+    // Simple mode: strip code blocks for clean reading
+    if (mode === "simple") {
+      cleanContent = cleanContent.replace(/```[\s\S]*?```/g, "").trim();
+      cleanContent = cleanContent.replace(/`[^`]{40,}`/g, "").trim();
+      cleanContent = cleanContent.replace(/\n{3,}/g, "\n\n").trim();
+      if (!cleanContent) return <span className={`${t.colors.textMuted} italic`}>Changes applied.</span>;
+    }
 
     return (
       <MarkdownRenderer
@@ -1357,7 +1498,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
                     {/* Render images if attached */}
                     {message.images && message.images.length > 0 && renderMessageImages(message.images)}
                     
-                    <div className={`${t.fontFamily}`}>
+                    <div className={`${t.fontFamily}`} style={{ fontSize: fontSize === "small" ? "13px" : fontSize === "large" ? "17px" : "15px" }}>
                       {message.content 
                         ? (isSearch ? renderSearchMessage(message.content)
                           : isTool ? <ToolActionLine content={message.content} theme={t} themeKey={theme} mode={mode} />

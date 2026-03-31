@@ -174,10 +174,10 @@ function GeneralSettings() {
         />
       </div>
 
-      {/* Font size */}
+      {/* Chat font size */}
       <div className="mb-6">
         <label className={`block text-sm font-medium mb-2 ${t.colors.textMuted}`}>
-          Font Size
+          Chat Font Size
         </label>
         <SettingsDropdown
           value={fontSize}
@@ -185,6 +185,9 @@ function GeneralSettings() {
           onChange={(v) => setFontSize(v as "small" | "medium" | "large")}
           theme={t}
         />
+        <p className={`text-sm mt-1 ${t.colors.textMuted}`}>
+          Controls the text size of chat messages
+        </p>
       </div>
 
       {/* Auto-save */}
