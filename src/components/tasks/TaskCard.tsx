@@ -11,6 +11,7 @@ import {
   MinusCircle,
   SkipForward,
   Circle,
+  Sparkles,
 } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { themes } from "../../config/themes";
@@ -47,6 +48,8 @@ function TaskCard({ task, isRunning, onToggle, onDelete, onRunNow }: TaskCardPro
     ? runningStepResults
     : task.last_run?.step_results || [];
 
+  const isAssistant = task.scope === "assistant";
+
   return (
     <div
       className={`${t.colors.bgSecondary} ${t.colors.border} border ${t.borderRadius} transition-colors ${
@@ -75,6 +78,16 @@ function TaskCard({ task, isRunning, onToggle, onDelete, onRunNow }: TaskCardPro
         <span className={`text-sm font-medium ${t.colors.text} flex-1 truncate`}>
           {task.name}
         </span>
+
+        {/* Scope badge */}
+        {isAssistant && (
+          <span
+            className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 ${t.borderRadius} bg-purple-500/15 text-purple-300 flex-shrink-0`}
+          >
+            <Sparkles size={9} />
+            Assistant
+          </span>
+        )}
 
         {/* Schedule */}
         <span className={`text-xs ${t.colors.textMuted} hidden sm:block`}>
@@ -185,8 +198,8 @@ function TaskCard({ task, isRunning, onToggle, onDelete, onRunNow }: TaskCardPro
             </div>
           )}
 
-          {/* Failure handling */}
-          <div className="flex items-center gap-4 mb-4">
+          {/* Failure handling + scope info */}
+          <div className="flex items-center gap-4 mb-4 flex-wrap">
             <span className={`text-xs ${t.colors.textMuted}`}>
               On failure:{" "}
               {task.on_failure.type === "stop"
@@ -194,6 +207,9 @@ function TaskCard({ task, isRunning, onToggle, onDelete, onRunNow }: TaskCardPro
                 : task.on_failure.type === "skip_and_continue"
                 ? "Skip & continue"
                 : `Retry ${task.on_failure.max_attempts}x`}
+            </span>
+            <span className={`text-xs ${t.colors.textMuted}`}>
+              Scope: {isAssistant ? "Assistant" : "Project"}
             </span>
             {task.next_run && task.enabled && (
               <span className={`text-xs ${t.colors.textMuted}`}>

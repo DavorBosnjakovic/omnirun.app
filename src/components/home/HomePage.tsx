@@ -1,7 +1,7 @@
-import { useMemo, useEffect, useState } from 'react';
+import { useMemo, useEffect, useState, useRef } from 'react';
 import {
   Folder, ArrowRight, CheckCircle, XCircle, AlertTriangle,
-  Users, Lock,
+  Users, Lock, ChevronDown, Search, X,
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useProjectStore } from '../../stores/projectStore';
@@ -441,15 +441,12 @@ export default function HomePage({ onNavigate, onSettingsClick }: HomePageProps)
             <div className="flex flex-col flex-1">
               {/* Project selector */}
               {projects.length > 1 && (
-                <select
-                  value={connProject}
-                  onChange={(e) => setConnProject(e.target.value)}
-                  className={`text-xs px-2 py-1 mb-3 rounded ${t.colors.bgTertiary} ${t.colors.border} border ${t.colors.text} focus:outline-none`}
-                >
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <ConnectionProjectDropdown
+                  projects={projects}
+                  selectedId={connProject}
+                  onSelect={setConnProject}
+                  theme={t}
+                />
               )}
 
               {allConnectionItems.length === 0 ? (
@@ -751,6 +748,136 @@ export default function HomePage({ onNavigate, onSettingsClick }: HomePageProps)
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ConnectionProjectDropdown ────────────────────────────────
+// Custom styled dropdown for the Connections widget, matching
+// the ProjectSelector component style from the Tasks page.
+
+interface ConnectionProjectDropdownProps {
+  projects: Array<{ id: string; name: string; path: string }>;
+  selectedId: string;
+  onSelect: (id: string) => void;
+  theme: any;
+}
+
+function ConnectionProjectDropdown({
+  projects,
+  selectedId,
+  onSelect,
+  theme: t,
+}: ConnectionProjectDropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const selectedProject = projects.find((p) => p.id === selectedId);
+  const displayName = selectedProject?.name || 'Select project';
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return q ? projects.filter((p) => p.name.toLowerCase().includes(q)) : projects;
+  }, [projects, search]);
+
+  const showSearch = projects.length > 5;
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+        setSearch('');
+      }
+    }
+    if (isOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  // Focus search when opening
+  useEffect(() => {
+    if (isOpen && searchRef.current) searchRef.current.focus();
+  }, [isOpen]);
+
+  return (
+    <div ref={dropdownRef} className="relative mb-3">
+      {/* Trigger */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs ${t.colors.bgTertiary} ${t.colors.border} border ${t.borderRadius} ${t.colors.text} hover:bg-white/10 transition-colors`}
+      >
+        <Folder size={11} className={`${t.colors.textMuted} flex-shrink-0`} />
+        <span className="truncate flex-1 text-left">{displayName}</span>
+        <ChevronDown
+          size={10}
+          className={`${t.colors.textMuted} flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {/* Popover */}
+      {isOpen && (
+        <div
+          className={`absolute top-full mt-1 left-0 z-50 w-full ${t.colors.bgSecondary} ${t.colors.border} border ${t.borderRadius} shadow-xl overflow-hidden`}
+        >
+          {/* Search (only if 6+ projects) */}
+          {showSearch && (
+            <div className={`p-2 ${t.colors.border} border-b`}>
+              <div className="relative">
+                <Search
+                  size={11}
+                  className={`absolute left-2 top-1/2 -translate-y-1/2 ${t.colors.textMuted}`}
+                />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search projects..."
+                  className={`w-full pl-6 pr-6 py-1.5 text-xs ${t.colors.bgTertiary || t.colors.bgSecondary} ${t.colors.text} ${t.borderRadius} border ${t.colors.border} focus:outline-none focus:ring-1 focus:ring-blue-500 ${t.fontFamily}`}
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch('')}
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 ${t.colors.textMuted}`}
+                  >
+                    <X size={10} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* List */}
+          <div className="max-h-48 overflow-y-auto py-1">
+            {filtered.map((project) => (
+              <button
+                key={project.id}
+                onClick={() => {
+                  onSelect(project.id);
+                  setIsOpen(false);
+                  setSearch('');
+                }}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors ${
+                  project.id === selectedId
+                    ? 'bg-blue-600/20 text-blue-300'
+                    : `${t.colors.text} hover:bg-white/10`
+                }`}
+              >
+                <span className="flex-shrink-0 text-sm">📂</span>
+                <span className="truncate flex-1">{project.name}</span>
+              </button>
+            ))}
+
+            {filtered.length === 0 && (
+              <p className={`px-3 py-3 text-xs ${t.colors.textMuted} text-center`}>
+                No projects matching "{search}"
+              </p>
+            )}
           </div>
         </div>
       )}

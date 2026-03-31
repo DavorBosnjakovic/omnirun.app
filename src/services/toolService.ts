@@ -279,8 +279,8 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
   },
   {
     name: "create_scheduled_task",
-    description: "Create a scheduled task that runs automatically on a schedule. For simple tasks, just provide a command. For multi-step tasks, provide a steps array with executor ('local' or 'web') and action objects. Action types — local: run_command, backup_files, git_commit, git_push, run_script, delete_files. Web: http_request, send_webhook.",
-    parameters: '{"name": "Nightly Backup", "description": "Back up src folder every night", "schedule": "Every day at 2:00 AM", "cron_expression": "0 2 * * *", "command": "cp -r ./src ./backups/src_backup"}',
+    description: "Create a scheduled task that runs automatically on a schedule. Set scope to 'project' (default) for project tasks or 'assistant' for personal/global tasks (email, calendar, etc). For simple tasks, just provide a command. For multi-step tasks, provide a steps array with executor ('local' or 'web') and action objects. Action types — local: run_command, backup_files, git_commit, git_push, run_script, delete_files. Web: http_request, send_webhook.",
+    parameters: '{"name": "Nightly Backup", "description": "Back up src folder every night", "schedule": "Every day at 2:00 AM", "cron_expression": "0 2 * * *", "scope": "project", "command": "cp -r ./src ./backups/src_backup"}',
   },
 ];
 
@@ -1708,8 +1708,11 @@ export async function executeTool(
           }];
         }
 
-        // Determine project_id
-        const taskProjectId = args.project_id || projectPath || undefined;
+        // Determine scope and project_id
+        const taskScope = args.scope === "assistant" ? "assistant" : "project";
+        const taskProjectId = taskScope === "assistant"
+          ? undefined  // assistant tasks have no project
+          : (args.project_id || projectPath || undefined);
 
         // Inject cwd into run_command/run_script steps that don't have one set
         // Without this, commands run in the system default dir (e.g. C:\Users\Name\)
@@ -1731,6 +1734,7 @@ export async function executeTool(
           schedule,
           cron_expression: cronExpr,
           project_id: taskProjectId,
+          scope: taskScope,
           enabled: true,
           steps,
           on_failure: onFailure,
@@ -1741,7 +1745,7 @@ export async function executeTool(
             result: {
               tool: name,
               success: true,
-              result: `✅ Scheduled task "${created.name}" created successfully!\n• Schedule: ${created.schedule || created.cron_expression}\n• Steps: ${created.steps.length}\n• Next run: ${created.next_run || "Calculating..."}\n\nThe task is now active and will run automatically. View it in Tools → Scheduled Tasks.`,
+              result: `✅ Scheduled task "${created.name}" created successfully!\n• Scope: ${created.scope === "assistant" ? "Assistant (global)" : "Project"}\n• Schedule: ${created.schedule || created.cron_expression}\n• Steps: ${created.steps.length}\n• Next run: ${created.next_run || "Calculating..."}\n\nThe task is now active and will run automatically. View it in Tasks.`,
             },
             updatedManifest,
           };
@@ -1974,7 +1978,7 @@ FORMAT — use this EXACT format (do NOT put inside code blocks):
 8. For the connection tool, always check the system prompt to see which services are connected before using them.
 9. Use run_command to execute scripts, install packages, run tests, or any shell command. The command runs in the project directory.
 10. Use web_search when you need docs, error solutions, or API references you're unsure about. Keep queries short and specific.
-11. Use create_scheduled_task when the user wants something to run automatically on a schedule (backups, deployments, cleanups, reports, etc.). Always provide both a cron_expression AND a plain English schedule. Available step action types: run_command, backup_files, git_commit, git_push, run_script, delete_files (executor: "local"), http_request, send_webhook (executor: "web"). Do NOT create code files for scheduling — use this tool instead.
+11. Use create_scheduled_task when the user wants something to run automatically on a schedule (backups, deployments, cleanups, reports, etc.). Always provide both a cron_expression AND a plain English schedule. Set scope to "project" (default) for project-specific tasks, or "assistant" for personal/global tasks (email checks, calendar digests, reminders). Assistant-scoped tasks don't need a project_id. Available step action types: run_command, backup_files, git_commit, git_push, run_script, delete_files (executor: "local"), http_request, send_webhook (executor: "web"). Do NOT create code files for scheduling — use this tool instead.
 `;
 
   // Only include detailed connection docs if any service is connected

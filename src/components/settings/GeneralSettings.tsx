@@ -1,7 +1,83 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { themes, ThemeKey } from "../../config/themes";
-import { Eye, EyeOff, ExternalLink } from "lucide-react";
+import { Eye, EyeOff, ExternalLink, ChevronDown } from "lucide-react";
+
+// ── Reusable custom dropdown ─────────────────────────────────
+
+interface DropdownOption {
+  value: string;
+  label: string;
+}
+
+interface SettingsDropdownProps {
+  value: string;
+  options: DropdownOption[];
+  onChange: (value: string) => void;
+  theme: any;
+}
+
+function SettingsDropdown({ value, options, onChange, theme: t }: SettingsDropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const selected = options.find((o) => o.value === value);
+  const displayLabel = selected?.label || value;
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
+
+  return (
+    <div ref={ref} className="relative w-full max-w-xs">
+      {/* Trigger */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm ${t.colors.bgSecondary} ${t.colors.border} border ${t.borderRadius} ${t.colors.text} hover:bg-white/10 transition-colors text-left`}
+      >
+        <span className="truncate">{displayLabel}</span>
+        <ChevronDown
+          size={12}
+          className={`${t.colors.textMuted} flex-shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {/* Popover */}
+      {isOpen && (
+        <div
+          className={`absolute top-full mt-1 left-0 z-50 w-full ${t.colors.bgSecondary} ${t.colors.border} border ${t.borderRadius} shadow-xl overflow-hidden`}
+        >
+          <div className="max-h-56 overflow-y-auto py-1">
+            {options.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center px-3 py-2 text-sm text-left transition-colors ${
+                  option.value === value
+                    ? "bg-blue-600/20 text-blue-300"
+                    : `${t.colors.text} hover:bg-white/10`
+                }`}
+              >
+                <span className="truncate">{option.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────
 
 function GeneralSettings() {
   const {
@@ -16,6 +92,40 @@ function GeneralSettings() {
 
   const themeKeys = Object.keys(themes) as ThemeKey[];
 
+  const themeOptions: DropdownOption[] = themeKeys.map((key) => ({
+    value: key,
+    label: themes[key].name,
+  }));
+
+  const modeOptions: DropdownOption[] = [
+    { value: "simple", label: "Simple" },
+    { value: "technical", label: "Technical" },
+  ];
+
+  const timeFormatOptions: DropdownOption[] = [
+    { value: "12h", label: "12-hour (2:30 PM)" },
+    { value: "24h", label: "24-hour (14:30)" },
+  ];
+
+  const fontSizeOptions: DropdownOption[] = [
+    { value: "small", label: "Small" },
+    { value: "medium", label: "Medium (default)" },
+    { value: "large", label: "Large" },
+  ];
+
+  const startupOptions: DropdownOption[] = [
+    { value: "lastProject", label: "Open last project" },
+    { value: "newChat", label: "Start new chat" },
+    { value: "projectList", label: "Show project list" },
+  ];
+
+  const languageOptions: DropdownOption[] = [
+    { value: "en", label: "English" },
+    { value: "es", label: "Español" },
+    { value: "fr", label: "Français" },
+    { value: "de", label: "Deutsch" },
+  ];
+
   return (
     <div className={`${t.colors.text}`}>
       <h1 className="text-2xl font-bold mb-6">General Settings</h1>
@@ -25,17 +135,12 @@ function GeneralSettings() {
         <label className={`block text-sm font-medium mb-2 ${t.colors.textMuted}`}>
           Theme
         </label>
-        <select
+        <SettingsDropdown
           value={theme}
-          onChange={(e) => setTheme(e.target.value as ThemeKey)}
-          className={`w-full max-w-xs ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 focus:outline-none`}
-        >
-          {themeKeys.map((key) => (
-            <option key={key} value={key}>
-              {themes[key].name}
-            </option>
-          ))}
-        </select>
+          options={themeOptions}
+          onChange={(v) => setTheme(v as ThemeKey)}
+          theme={t}
+        />
       </div>
 
       {/* Default mode */}
@@ -43,14 +148,12 @@ function GeneralSettings() {
         <label className={`block text-sm font-medium mb-2 ${t.colors.textMuted}`}>
           Default Mode
         </label>
-        <select
+        <SettingsDropdown
           value={mode}
-          onChange={(e) => setMode(e.target.value as "simple" | "technical")}
-          className={`w-full max-w-xs ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 focus:outline-none`}
-        >
-          <option value="simple">Simple</option>
-          <option value="technical">Technical</option>
-        </select>
+          options={modeOptions}
+          onChange={(v) => setMode(v as "simple" | "technical")}
+          theme={t}
+        />
         <p className={`text-sm mt-1 ${t.colors.textMuted}`}>
           {mode === "simple" 
             ? "Guided experience with visual previews" 
@@ -63,14 +166,12 @@ function GeneralSettings() {
         <label className={`block text-sm font-medium mb-2 ${t.colors.textMuted}`}>
           Time Format
         </label>
-        <select
+        <SettingsDropdown
           value={timeFormat}
-          onChange={(e) => setTimeFormat(e.target.value as "12h" | "24h")}
-          className={`w-full max-w-xs ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 focus:outline-none`}
-        >
-          <option value="12h">12-hour (2:30 PM)</option>
-          <option value="24h">24-hour (14:30)</option>
-        </select>
+          options={timeFormatOptions}
+          onChange={(v) => setTimeFormat(v as "12h" | "24h")}
+          theme={t}
+        />
       </div>
 
       {/* Font size */}
@@ -78,15 +179,12 @@ function GeneralSettings() {
         <label className={`block text-sm font-medium mb-2 ${t.colors.textMuted}`}>
           Font Size
         </label>
-        <select
+        <SettingsDropdown
           value={fontSize}
-          onChange={(e) => setFontSize(e.target.value as "small" | "medium" | "large")}
-          className={`w-full max-w-xs ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 focus:outline-none`}
-        >
-          <option value="small">Small</option>
-          <option value="medium">Medium (default)</option>
-          <option value="large">Large</option>
-        </select>
+          options={fontSizeOptions}
+          onChange={(v) => setFontSize(v as "small" | "medium" | "large")}
+          theme={t}
+        />
       </div>
 
       {/* Auto-save */}
@@ -205,13 +303,12 @@ function GeneralSettings() {
         <label className={`block text-sm font-medium mb-2 ${t.colors.textMuted}`}>
           On Startup
         </label>
-        <select
-          className={`w-full max-w-xs ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 focus:outline-none`}
-        >
-          <option value="lastProject">Open last project</option>
-          <option value="newChat">Start new chat</option>
-          <option value="projectList">Show project list</option>
-        </select>
+        <SettingsDropdown
+          value="lastProject"
+          options={startupOptions}
+          onChange={() => {}}
+          theme={t}
+        />
       </div>
 
       {/* Language */}
@@ -219,14 +316,12 @@ function GeneralSettings() {
         <label className={`block text-sm font-medium mb-2 ${t.colors.textMuted}`}>
           Language
         </label>
-        <select
-          className={`w-full max-w-xs ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 focus:outline-none`}
-        >
-          <option value="en">English</option>
-          <option value="es">Español</option>
-          <option value="fr">Français</option>
-          <option value="de">Deutsch</option>
-        </select>
+        <SettingsDropdown
+          value="en"
+          options={languageOptions}
+          onChange={() => {}}
+          theme={t}
+        />
       </div>
 
       {/* Reset */}
