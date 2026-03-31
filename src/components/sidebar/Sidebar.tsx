@@ -14,6 +14,7 @@ import { dbService } from "../../services/dbService";
 import FileTree from "../sidebar/FileTree";
 import ChatHistory from "../sidebar/ChatHistory";
 import NewProjectModal from "../newproject/NewProjectModal";
+import HelpModal from "../sidebar/HelpModal";
 import type { AppSection } from "../home/HomePage";
 
 interface SidebarProps {
@@ -39,6 +40,7 @@ function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionCh
   const [activeTab, setActiveTab] = useState<"projects" | "files" | "chats">("projects");
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const { theme } = useSettingsStore();
@@ -380,7 +382,7 @@ function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionCh
               {isOpen && <span className="text-sm">Settings</span>}
             </button>
             <button
-              onClick={() => onSettingsClick("about")}
+              onClick={() => setHelpModalOpen(true)}
               className={`w-full flex items-center gap-2.5 ${isOpen ? "px-2" : "justify-center"} py-1.5 ${t.borderRadius} ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
               title="Help"
             >
@@ -408,6 +410,11 @@ function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionCh
         isOpen={newProjectModalOpen}
         onClose={() => setNewProjectModalOpen(false)}
         onProjectReady={handleProjectReady}
+      />
+
+      <HelpModal
+        isOpen={helpModalOpen}
+        onClose={() => setHelpModalOpen(false)}
       />
     </>
   );
