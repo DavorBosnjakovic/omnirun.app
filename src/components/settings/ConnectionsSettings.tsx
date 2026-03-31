@@ -37,9 +37,9 @@ import {
   MVP_PROVIDERS,
   CATEGORIES,
   isServiceAvailable,
-  connectProjectProvider,
   disconnectProjectProvider,
   retestProjectConnection,
+  getService,
 } from '../../services/connections';
 import type { ConnectionProvider, ConnectionCategory, ProviderMeta } from '../../services/connections/types';
 
@@ -102,6 +102,13 @@ function StatusBadge({ status }: { status: string }) {
 
 // --------------- Connection Card ---------------
 
+/** Providers that return a list of external projects the user must pick from */
+const PROVIDERS_WITH_PROJECT_PICKER = new Set<ConnectionProvider>([
+  'supabase',   // extra.projects → [{ ref, name, region, status }]
+  'firebase',   // future: extra.projects → [{ id, name }]
+  'planetscale', // future: extra.projects → [{ id, name }]
+]);
+
 interface ConnectionCardProps {
   provider: ProviderMeta;
   projectId: string;
@@ -109,9 +116,8 @@ interface ConnectionCardProps {
 
 function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
   const { theme } = useSettingsStore();
-  const connection = useConnectionsStore(
-    (s) => s.projectConnections[projectId]?.[provider.id]
-  );
+  const store = useConnectionsStore();
+  const connection = store.projectConnections[projectId]?.[provider.id];
   const status = connection?.status || 'disconnected';
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
@@ -121,6 +127,13 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
   const [showToken, setShowToken] = useState(false);
   const [error, setError] = useState('');
   const available = isServiceAvailable(provider.id);
+
+  // Two-step connection: token validated → pick external project (if applicable)
+  const [pendingToken, setPendingToken] = useState('');
+  const [pendingAccountInfo, setPendingAccountInfo] = useState<any>(null);
+  const [pendingProjects, setPendingProjects] = useState<any[]>([]);
+  const [selectedRef, setSelectedRef] = useState('');
+  const needsProjectPicker = PROVIDERS_WITH_PROJECT_PICKER.has(provider.id);
 
   const Icon = getIcon(provider.icon);
 
@@ -148,25 +161,89 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
     ? 'bg-black border-white text-white'
     : 'bg-gray-900 border-gray-600 text-white';
 
+  /** Step 1: Validate the token. If provider has multiple projects, pause for selection. */
   const handleConnect = async () => {
     if (!tokenInput.trim()) {
       setError(`Please enter your ${provider.tokenName}`);
       return;
     }
     setError('');
+
+    const service = getService(provider.id);
+    if (!service) { setError('Service not available'); return; }
+
+    store.setProjectConnecting(projectId, provider.id);
+
     try {
-      await connectProjectProvider(projectId, provider.id, tokenInput.trim());
+      const accountInfo = await service.testConnection(tokenInput.trim());
+      const projects: any[] = accountInfo?.extra?.projects || [];
+
+      if (needsProjectPicker && projects.length > 1) {
+        // Multiple external projects — show picker before finalizing
+        setPendingToken(tokenInput.trim());
+        setPendingAccountInfo(accountInfo);
+        setPendingProjects(projects);
+        setSelectedRef(projects[0]?.ref || projects[0]?.id || '');
+        // Reset connecting state (we're paused, not done)
+        store.setProjectError(projectId, provider.id, '');
+        // Clear the error badge — we're in "picking" state, not error
+        return;
+      }
+
+      // Single project or no project picker needed — auto-select and finalize
+      if (needsProjectPicker && projects.length === 1) {
+        accountInfo.extra = {
+          ...accountInfo.extra,
+          selectedProjectRef: projects[0].ref || projects[0].id,
+        };
+      }
+
+      store.setProjectConnected(projectId, provider.id, tokenInput.trim(), accountInfo);
       setTokenInput('');
       setShowToken(false);
+      resetPending();
     } catch (err: any) {
+      store.setProjectError(projectId, provider.id, err.message || 'Connection failed');
       setError(err.message || 'Connection failed');
     }
+  };
+
+  /** Step 2: User picked an external project — finalize the connection. */
+  const handleFinalizePick = () => {
+    if (!selectedRef || !pendingAccountInfo || !pendingToken) return;
+
+    const accountInfo = {
+      ...pendingAccountInfo,
+      extra: {
+        ...pendingAccountInfo.extra,
+        selectedProjectRef: selectedRef,
+      },
+    };
+
+    store.setProjectConnected(projectId, provider.id, pendingToken, accountInfo);
+    setTokenInput('');
+    setShowToken(false);
+    resetPending();
+  };
+
+  const handleCancelPick = () => {
+    resetPending();
+    // Clear the connecting/error state back to disconnected
+    store.disconnectProject(projectId, provider.id);
+  };
+
+  const resetPending = () => {
+    setPendingToken('');
+    setPendingAccountInfo(null);
+    setPendingProjects([]);
+    setSelectedRef('');
   };
 
   const handleDisconnect = () => {
     disconnectProjectProvider(projectId, provider.id);
     setTokenInput('');
     setError('');
+    resetPending();
   };
 
   const handleRetest = async () => {
@@ -174,6 +251,18 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
     const ok = await retestProjectConnection(projectId, provider.id);
     if (!ok) setError('Token is no longer valid');
   };
+
+  const isPicking = pendingProjects.length > 1;
+
+  // For connected providers that have a selectedProjectRef, show which one
+  const selectedProjectName = (() => {
+    const extra = connection?.accountInfo?.extra;
+    if (!extra?.selectedProjectRef || !extra?.projects) return null;
+    const proj = extra.projects.find(
+      (p: any) => (p.ref || p.id) === extra.selectedProjectRef
+    );
+    return proj?.name || extra.selectedProjectRef;
+  })();
 
   return (
     <div className={`rounded-lg overflow-hidden ${bgCard}`}>
@@ -207,7 +296,7 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
         </div>
 
         <div className="flex items-center gap-3">
-          <StatusBadge status={status} />
+          <StatusBadge status={isPicking ? 'connecting' : status} />
           {expanded
             ? <ChevronUp size={14} className="opacity-50" />
             : <ChevronDown size={14} className="opacity-50" />
@@ -235,6 +324,11 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
                   {connection.accountInfo.plan && (
                     <p className="opacity-70 mt-1">Plan: {connection.accountInfo.plan}</p>
                   )}
+                  {selectedProjectName && (
+                    <p className="opacity-70 mt-1">
+                      Project: <span className="font-medium">{selectedProjectName}</span>
+                    </p>
+                  )}
                 </div>
               )}
               <div className="flex items-center gap-2 text-xs opacity-50">
@@ -261,7 +355,7 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
           )}
 
           {/* Error State */}
-          {(status === 'error' || status === 'expired') && (
+          {(status === 'error' || status === 'expired') && !isPicking && (
             <div className="mt-3 space-y-3">
               <div className="rounded-md p-2 bg-red-500/10 text-red-400 text-xs">
                 {connection?.error || 'Connection error'}
@@ -275,8 +369,61 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
             </div>
           )}
 
+          {/* Project Picker — shown after token validated, before finalizing */}
+          {isPicking && (
+            <div className="mt-3 space-y-3">
+              <div className={`rounded-md p-3 text-xs ${
+                theme === 'light' ? 'bg-blue-50 text-blue-800' : 'bg-blue-500/10 text-blue-300'
+              }`}>
+                <p className="font-medium mb-0.5">Token verified — {pendingAccountInfo?.name || 'connected'}</p>
+                <p className="opacity-70">
+                  {pendingProjects.length} {provider.name} projects found. Pick one for this Omnirun project:
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium opacity-60 block mb-1.5">
+                  {provider.name} project
+                </label>
+                <select
+                  value={selectedRef}
+                  onChange={(e) => setSelectedRef(e.target.value)}
+                  className={`w-full px-3 py-2 rounded text-xs border outline-none focus:ring-1 focus:ring-blue-500 ${bgInput}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {pendingProjects.map((proj: any) => {
+                    const ref = proj.ref || proj.id;
+                    const label = proj.name || ref;
+                    const detail = proj.region
+                      ? ` (${proj.region}${proj.status && proj.status !== 'ACTIVE_HEALTHY' ? `, ${proj.status}` : ''})`
+                      : '';
+                    return (
+                      <option key={ref} value={ref}>{label}{detail}</option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleFinalizePick(); }}
+                  disabled={!selectedRef}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  <Plug size={12} /> Connect
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleCancelPick(); }}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded text-xs opacity-60 hover:opacity-100 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Disconnected / Connect Form */}
-          {(status === 'disconnected' || status === 'error' || status === 'expired') && (
+          {!isPicking && (status === 'disconnected' || status === 'error' || status === 'expired') && (
             <div className="mt-3 space-y-3">
               <a
                 href={provider.tokenHelpUrl}
@@ -330,7 +477,7 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
           )}
 
           {/* Connecting State */}
-          {isConnecting && !error && (
+          {isConnecting && !error && !isPicking && (
             <div className="mt-3 flex items-center gap-2 text-xs text-yellow-400">
               <Loader2 size={14} className="animate-spin" />
               Testing connection to {provider.name}...

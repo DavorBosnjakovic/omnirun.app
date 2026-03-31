@@ -126,7 +126,7 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const { theme, timeFormat } = useSettingsStore();
+  const { theme, timeFormat, fontSize } = useSettingsStore();
   const t = themes[theme];
 
   const {
@@ -394,7 +394,7 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
                       : `${t.colors.bgSecondary} ${t.colors.text}`
                   }`}
                 >
-                  <div className={t.fontFamily}>
+                  <div className={t.fontFamily} style={{ fontSize: fontSize === 'small' ? '13px' : fontSize === 'large' ? '17px' : '15px' }}>
                     {message.content
                       ? message.role === 'assistant'
                         ? <MarkdownRenderer

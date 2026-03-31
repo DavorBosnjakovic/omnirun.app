@@ -87,12 +87,6 @@ function detectLastAssistantAction(messages: Message[]): "asked_question" | "use
   return "just_talked";
 }
 
-function hasFilesBeenWritten(messages: Message[]): boolean {
-  return messages.some(
-    (m) => m.role === "assistant" && (m.content.includes('"write_file"') || m.content.includes('"edit_file"'))
-  );
-}
-
 function lastToolsWereReadOnly(messages: Message[]): boolean {
   const last = getLastAssistantMessage(messages);
   if (!last || !last.includes("<tool_call>")) return false;
@@ -147,33 +141,34 @@ function getMaxFileEditCount(messages: Message[]): number {
 }
 
 function routeModel(messages: Message[], projectContext?: ProjectContext): { model: string; maxTokens: number; tier: ModelTier } {
-  // --- Escalation: real failures bump the tier ---
-  const failures = countConsecutiveRealFailures(messages);
-  if (failures >= 2) {
-    return { model: ANTHROPIC_MODELS.opus, maxTokens: MAX_TOKENS_PER_TIER.opus, tier: "opus" };
-  }
-  if (failures >= 1) {
-    return { model: ANTHROPIC_MODELS.sonnet, maxTokens: MAX_TOKENS_PER_TIER.sonnet, tier: "sonnet" };
+  // --- Guard: first real user message → skip escalation from stale history ---
+  // When a conversation loads from DB, old failures could be in the array.
+  // Don't let those trigger escalation on the user's fresh request.
+  const realUserMessages = messages.filter((m) => m.role === "user" && !m.content.includes("<tool_result>"));
+  const isFirstRequest = realUserMessages.length <= 1;
+
+  // --- Escalation: any real failure → Opus (skip on first request) ---
+  // If Sonnet or Haiku fumbled, the task is harder than expected. Send in Opus.
+  if (!isFirstRequest) {
+    const failures = countConsecutiveRealFailures(messages);
+    if (failures >= 1) {
+      return { model: ANTHROPIC_MODELS.opus, maxTokens: MAX_TOKENS_PER_TIER.opus, tier: "opus" };
+    }
+
+    // --- Circular editing (same file 3+ times) → model is struggling ---
+    if (getMaxFileEditCount(messages) >= 3) {
+      return { model: ANTHROPIC_MODELS.opus, maxTokens: MAX_TOKENS_PER_TIER.opus, tier: "opus" };
+    }
   }
 
-  // --- Circular editing (same file 3+ times) → model is struggling ---
-  if (getMaxFileEditCount(messages) >= 3) {
-    return { model: ANTHROPIC_MODELS.opus, maxTokens: MAX_TOKENS_PER_TIER.opus, tier: "opus" };
-  }
-
-  // --- Image attached → Sonnet for vision ---
+  // --- Image attached → Opus for vision + code quality ---
   if (lastMessageHasImages(messages)) {
-    return { model: ANTHROPIC_MODELS.sonnet, maxTokens: MAX_TOKENS_PER_TIER.sonnet, tier: "sonnet" };
+    return { model: ANTHROPIC_MODELS.opus, maxTokens: MAX_TOKENS_PER_TIER.opus, tier: "opus" };
   }
 
   // --- New project (no About section) → AI asks questions first → Haiku ---
   const hasAbout = projectContext?.contextString?.includes("## About");
   if (!hasAbout) {
-    return { model: ANTHROPIC_MODELS.haiku, maxTokens: MAX_TOKENS_PER_TIER.haiku, tier: "haiku" };
-  }
-
-  // --- No files written yet → still exploring/planning → Haiku ---
-  if (!hasFilesBeenWritten(messages)) {
     return { model: ANTHROPIC_MODELS.haiku, maxTokens: MAX_TOKENS_PER_TIER.haiku, tier: "haiku" };
   }
 
@@ -188,8 +183,8 @@ function routeModel(messages: Message[], projectContext?: ProjectContext): { mod
     return { model: ANTHROPIC_MODELS.haiku, maxTokens: MAX_TOKENS_PER_TIER.haiku, tier: "haiku" };
   }
 
-  // --- Default: active building → Sonnet ---
-  return { model: ANTHROPIC_MODELS.sonnet, maxTokens: MAX_TOKENS_PER_TIER.sonnet, tier: "sonnet" };
+  // --- Default: any code writing (new build or follow-up edits) → Opus ---
+  return { model: ANTHROPIC_MODELS.opus, maxTokens: MAX_TOKENS_PER_TIER.opus, tier: "opus" };
 }
 
 export function buildSystemPrompt(context?: ProjectContext): string {
@@ -250,6 +245,7 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
 - ALWAYS take action with tools. NEVER say "you should" or "you can" — just DO IT.
 - When using tools, be concise. Do not explain what you're about to do or narrate your actions. Just do it and report results briefly.
 - Only explore (list_directory/read_file) when you actually need to. If you already know the file from this conversation, just edit it directly.
+- SCOPE RULE: Only modify files directly related to what the user asked for. Do NOT touch, "improve," or refactor files the user didn't mention. If a change to another file is truly necessary, explain why BEFORE making it and wait for approval.
 - Do NOT run "npm install", "yarn install", "pnpm install", "npm run dev", "npm start", or any dev server commands. The app detects dependencies automatically and prompts the user to install them. The app also starts dev servers automatically. Just create the files and the app handles the rest.
 - After completing a task, use write_context to save project knowledge that persists across conversations.
 - IMPORTANT: On your FIRST interaction with a new project (when About and Styles sections are empty), you MUST:
@@ -331,6 +327,7 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
 - ALWAYS take action with tools. NEVER say "you should" or "you can" — just DO IT.
 - When using tools, be concise. Do not explain what you're about to do or narrate your actions. Just do it and report results briefly.
 - Only explore (list_directory/read_file) when you actually need to. If you already know the file from this conversation, just edit it directly.
+- SCOPE RULE: Only modify files directly related to what the user asked for. Do NOT touch, "improve," or refactor files the user didn't mention. If a change to another file is truly necessary, explain why BEFORE making it and wait for approval.
 - Do NOT run "npm install", "yarn install", "pnpm install", "npm run dev", "npm start", or any dev server commands. The app detects dependencies automatically and prompts the user to install them. The app also starts dev servers automatically. Just create the files and the app handles the rest.
 - After completing a task, use write_context to save project knowledge that persists across conversations.
 - IMPORTANT: On your FIRST interaction with a new project (when About and Styles sections are empty), you MUST:

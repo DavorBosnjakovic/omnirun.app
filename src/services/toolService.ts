@@ -259,7 +259,7 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
   },
   {
     name: "run_command",
-    description: "Run a shell command in the project directory. Use for: running scripts (python, node), installing packages, running tests, building projects, or any CLI task. Returns stdout, stderr, and exit code. Be cautious with destructive commands — confirm with the user first.",
+    description: "Run a shell command in the project directory. Use for: running scripts (python, node), running tests, building projects, or any CLI task. Do NOT use for npm install, npm run dev, npm start, or similar — the app handles dependency installation and dev servers automatically. Returns stdout, stderr, and exit code. Be cautious with destructive commands — confirm with the user first.",
     parameters: '{"command": "npm test"}',
   },
   {
@@ -1520,12 +1520,17 @@ export async function executeTool(
           };
         }
 
+        // Dynamic timeout: install commands can take minutes, regular commands 30s
+        const isInstall = /\b(npm\s+install|npm\s+i|yarn\s+install|yarn\s+add|pnpm\s+install|pnpm\s+add|pip\s+install|composer\s+install|cargo\s+build|bundle\s+install|npx\s+create-)\b/i.test(command);
+        const isBuild = /\b(npm\s+run\s+build|yarn\s+build|next\s+build|vite\s+build|tsc)\b/i.test(command);
+        const commandTimeout = isInstall ? 300_000 : isBuild ? 120_000 : 30_000; // 5min / 2min / 30s
+
         const result = await withTimeout(
           invoke<{ stdout: string; stderr: string; exit_code: number }>("execute_command", {
             command,
             cwd,
           }),
-          30_000,
+          commandTimeout,
           `run_command: ${command.slice(0, 60)}`
         );
 
@@ -1976,7 +1981,7 @@ FORMAT — use this EXACT format (do NOT put inside code blocks):
 6. write_file auto-creates parent directories — you do NOT need to call create_directory first.
 7. Always provide COMPLETE file content when using write_file. Do not use placeholders.
 8. For the connection tool, always check the system prompt to see which services are connected before using them.
-9. Use run_command to execute scripts, install packages, run tests, or any shell command. The command runs in the project directory.
+9. Use run_command to execute scripts, run tests, build commands, or other shell tasks. The command runs in the project directory. Do NOT run npm install, npm run dev, npm start, or any long-running dev server commands — the app handles dependency installation and dev servers automatically.
 10. Use web_search when you need docs, error solutions, or API references you're unsure about. Keep queries short and specific.
 11. Use create_scheduled_task when the user wants something to run automatically on a schedule (backups, deployments, cleanups, reports, etc.). Always provide both a cron_expression AND a plain English schedule. Set scope to "project" (default) for project-specific tasks, or "assistant" for personal/global tasks (email checks, calendar digests, reminders). Assistant-scoped tasks don't need a project_id. Available step action types: run_command, backup_files, git_commit, git_push, run_script, delete_files (executor: "local"), http_request, send_webhook (executor: "web"). Do NOT create code files for scheduling — use this tool instead.
 `;

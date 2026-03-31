@@ -217,7 +217,7 @@ fn delete_path(path: String) -> Result<(), String> {
 // ── Terminal Commands ──────────────────────────────────────────
 
 #[tauri::command]
-fn execute_command(command: String, cwd: String) -> Result<CommandResult, String> {
+async fn execute_command(command: String, cwd: String) -> Result<CommandResult, String> {
     let cwd_path = PathBuf::from(&cwd);
 
     // Verify cwd exists
@@ -228,23 +228,24 @@ fn execute_command(command: String, cwd: String) -> Result<CommandResult, String
     let trimmed = command.trim().to_string();
 
     // Build the shell command based on OS
-    // On Windows: /D disables AutoRun, /S strips outer quotes so
-    // Rust's argument quoting doesn't break multi-word commands
+    // Uses tokio::process::Command so this runs asynchronously —
+    // the UI stays responsive during long commands like npm install.
     let output = if cfg!(target_os = "windows") {
-        std::process::Command::new("cmd.exe")
+        tokio::process::Command::new("cmd.exe")
             .arg("/D")
             .arg("/S")
             .arg("/C")
             .arg(&trimmed)
             .current_dir(&cwd_path)
-
             .output()
+            .await
     } else {
-        std::process::Command::new("/bin/sh")
+        tokio::process::Command::new("/bin/sh")
             .arg("-c")
             .arg(&trimmed)
             .current_dir(&cwd_path)
             .output()
+            .await
     };
 
     match output {
