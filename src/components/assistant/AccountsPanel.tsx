@@ -2,14 +2,15 @@
 // AccountsPanel.tsx
 // ============================================================
 // Left panel in the Assistant section.
-// Shows connected accounts grouped by type, with connect buttons
-// for available providers. Plan-gated for email account limits.
+// Shows connected accounts grouped by category (Email, Calendar,
+// Messaging, Development, Productivity, Monitoring), with connect
+// buttons for available providers. Plan-gated for account limits.
 //
 // Only shows providers where available: true (per ASSISTANT_PROVIDERS).
 // Coming-soon providers are hidden entirely per spec decision.
 
 import { useState } from 'react';
-import { Mail, Plus, Trash2, Pencil, Check, X, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Mail, Plus, Trash2, Pencil, Check, X, AlertCircle, ChevronDown, ChevronRight, Calendar, MessageSquare, GitBranch, BookOpen, Globe } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { themes } from '../../config/themes';
 import {
@@ -17,51 +18,32 @@ import {
   ASSISTANT_PROVIDERS,
   selectEmailAccounts,
   selectCanAddEmailAccount,
-  selectEmailAccountsRemaining,
   getEmailAccountLimit,
+  selectTotalActiveAccounts,
+  selectCanAddIntegration,
+  getIntegrationLimit,
   type ProviderDefinition,
+  type ProviderCategory,
 } from '../../stores/assistantStore';
 import { getSupabase } from '../../services/supabaseClient';
+import ProviderIcon from './ProviderIcons';
 
 interface AccountsPanelProps {
   plan: string;
   userId: string;
 }
 
-// ─── Provider icon ────────────────────────────────────────────
-// Simple colored initials badge per provider.
-// Replace with real SVG logos when available.
+// ─── Category icons ───────────────────────────────────────────
+// Maps each category label to its Lucide icon component.
 
-function ProviderIcon({ providerId, size = 22 }: { providerId: string; size?: number }) {
-  const configs: Record<string, { bg: string; text: string; label: string }> = {
-    gmail: { bg: 'rgba(234,72,41,0.15)', text: '#EA4829', label: 'G' },
-    outlook: { bg: 'rgba(0,114,239,0.15)', text: '#0072EF', label: 'O' },
-    google_calendar: { bg: 'rgba(52,168,83,0.15)', text: '#34A853', label: 'C' },
-    outlook_calendar: { bg: 'rgba(0,114,239,0.15)', text: '#0072EF', label: 'C' },
-    slack: { bg: 'rgba(74,21,75,0.15)', text: '#4A154B', label: 'S' },
-  };
-  const cfg = configs[providerId] ?? { bg: 'rgba(100,100,100,0.15)', text: '#888', label: '?' };
-
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: 5,
-        background: cfg.bg,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        fontSize: size * 0.5,
-        fontWeight: 600,
-        color: cfg.text,
-      }}
-    >
-      {cfg.label}
-    </div>
-  );
-}
+const CATEGORY_ICONS: Record<ProviderCategory, any> = {
+  Email: Mail,
+  Calendar: Calendar,
+  Messaging: MessageSquare,
+  Development: GitBranch,
+  Productivity: BookOpen,
+  Monitoring: Globe,
+};
 
 // ─── Single connected account row ─────────────────────────────
 
@@ -78,8 +60,11 @@ function AccountRow({
   const t = themes[theme];
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const displayText = account.accountLabel || account.email;
-  const subText = account.accountLabel ? account.email : account.displayName;
+  const isWatcher = account.provider === 'website_watcher';
+  const displayText = account.accountLabel || (isWatcher ? account.displayName : account.email);
+  const subText = account.accountLabel
+    ? account.email
+    : (isWatcher ? account.email : account.displayName);
 
   return (
     <div
@@ -87,7 +72,7 @@ function AccountRow({
     >
       <ProviderIcon providerId={account.provider} size={22} />
       <div className="flex-1 min-w-0">
-        <p className={`text-xs font-medium truncate ${t.colors.text}`} title={displayText}>
+        <p className={`text-xs font-medium truncate ${t.colors.text}`} title={displayText ?? ''}>
           {displayText}
         </p>
         {subText && (
@@ -211,16 +196,32 @@ function AccountsPanel({ plan, userId }: AccountsPanelProps) {
 
   const [connectSectionOpen, setConnectSectionOpen] = useState(true);
 
-  const emailAccounts = selectEmailAccounts(accounts);
+  // Email-specific gating (emails have their own sub-limit)
   const canAddEmail = selectCanAddEmailAccount(accounts, plan);
-  const emailLimit = getEmailAccountLimit(plan);
-  const emailRemaining = selectEmailAccountsRemaining(accounts, plan);
+
+  // Total integration gating
+  const totalAccounts = selectTotalActiveAccounts(accounts);
+  const canAddIntegration = selectCanAddIntegration(accounts, plan);
+  const integrationLimit = getIntegrationLimit(plan);
 
   // Only show providers that are available (built)
   const availableProviders = ASSISTANT_PROVIDERS.filter((p) => p.available);
 
-  // Group available providers by type for future expansion
-  const emailProviders = availableProviders.filter((p) => p.providerType === 'email');
+  // Ordered category list
+  const categories: ProviderCategory[] = ['Email', 'Calendar', 'Messaging', 'Development', 'Productivity', 'Monitoring'];
+
+  // Group connected accounts by category for the "connected" section
+  const accountsByCategory = categories.map((cat) => {
+    const providerIds = ASSISTANT_PROVIDERS.filter((p) => p.category === cat).map((p) => p.id);
+    const catAccounts = accounts.filter((a) => a.isActive && providerIds.includes(a.provider));
+    return { category: cat, accounts: catAccounts };
+  }).filter((g) => g.accounts.length > 0);
+
+  // Group available providers by category for the "connect" section
+  const providersByCategory = categories.map((cat) => ({
+    category: cat,
+    providers: availableProviders.filter((p) => p.category === cat),
+  })).filter((g) => g.providers.length > 0);
 
   const handleRemove = async (id: string) => {
     // Delete from Supabase first
@@ -236,76 +237,77 @@ function AccountsPanel({ plan, userId }: AccountsPanelProps) {
     await removeAccount(id, userId);
   };
 
-  // Filter to providers not yet connected (to show in "Add" section)
-  const connectedProviderIds = new Set(accounts.map((a) => a.provider));
-  const unconnectedEmailProviders = emailProviders.filter(
-    (p) => !accounts.some((a) => a.provider === p.id)
-  );
-
-  // Whether to show the "add more" section
-  // Show if: there are unconnected providers AND user hasn't hit their limit
-  const showAddSection = unconnectedEmailProviders.length > 0 && canAddEmail;
+  // Determine if a specific provider can be connected right now
+  const canConnectProvider = (provider: ProviderDefinition): boolean => {
+    // Check total integration limit first
+    if (!canAddIntegration) return false;
+    // Email providers have their own additional sub-limit
+    if (provider.providerType === 'email' && !canAddEmail) return false;
+    return true;
+  };
 
   // Plan limit badge text
   const limitText =
-    emailLimit === Infinity
+    integrationLimit === Infinity
       ? null
-      : `${emailAccounts.length}/${emailLimit}`;
+      : `${totalAccounts}/${integrationLimit}`;
+
+  const hasAnyAccounts = accounts.filter((a) => a.isActive).length > 0;
 
   return (
     <div className="py-2">
 
-      {/* ── Email accounts section ── */}
-      <div className="mb-1">
-        <div className={`flex items-center justify-between px-3 py-1.5`}>
-          <span className={`text-[10px] font-medium uppercase tracking-wider ${t.colors.textMuted}`}>
-            Email
-          </span>
-          {limitText && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${t.colors.bgTertiary} ${t.colors.textMuted}`}>
-              {limitText}
-            </span>
-          )}
+      {/* ── Connected accounts (grouped by category) ── */}
+      {accountsLoading ? (
+        <div className={`px-3 py-2 text-xs ${t.colors.textMuted}`}>Loading...</div>
+      ) : !hasAnyAccounts ? (
+        <div className={`px-3 py-4 mx-2 rounded-md border border-dashed ${t.colors.border} text-center mb-2`}>
+          <Mail size={16} className={`mx-auto mb-1.5 ${t.colors.textMuted}`} />
+          <p className={`text-[10px] ${t.colors.textMuted} leading-relaxed`}>No accounts connected yet</p>
         </div>
-
-        {accountsLoading ? (
-          <div className={`px-3 py-2 text-xs ${t.colors.textMuted}`}>Loading...</div>
-        ) : emailAccounts.length === 0 ? (
-          <div className={`px-3 py-2 mx-2 rounded-md border border-dashed ${t.colors.border} text-center`}>
-            <Mail size={16} className={`mx-auto mb-1 ${t.colors.textMuted}`} />
-            <p className={`text-[10px] ${t.colors.textMuted}`}>No accounts connected</p>
-          </div>
-        ) : (
-          <div>
-            {emailAccounts.map((account) => (
-              editingAccountId === account.id ? (
-                <LabelEditor
-                  key={account.id}
-                  accountId={account.id}
-                  currentLabel={account.accountLabel}
-                  onDone={() => setEditingAccount(null)}
-                />
-              ) : (
-                <AccountRow
-                  key={account.id}
-                  account={account}
-                  onEdit={(id) => setEditingAccount(id)}
-                  onRemove={handleRemove}
-                />
-              )
-            ))}
-          </div>
-        )}
-      </div>
+      ) : (
+        accountsByCategory.map(({ category, accounts: catAccounts }) => {
+          const Icon = CATEGORY_ICONS[category];
+          return (
+            <div key={category} className="mb-3">
+              <div className="flex items-center gap-1.5 px-3 py-1.5">
+                {Icon && <Icon size={10} className={t.colors.textMuted} />}
+                <span className={`text-[10px] font-medium uppercase tracking-wider ${t.colors.textMuted}`}>
+                  {category}
+                </span>
+              </div>
+              <div>
+                {catAccounts.map((account) => (
+                  editingAccountId === account.id ? (
+                    <LabelEditor
+                      key={account.id}
+                      accountId={account.id}
+                      currentLabel={account.accountLabel}
+                      onDone={() => setEditingAccount(null)}
+                    />
+                  ) : (
+                    <AccountRow
+                      key={account.id}
+                      account={account}
+                      onEdit={(id) => setEditingAccount(id)}
+                      onRemove={handleRemove}
+                    />
+                  )
+                ))}
+              </div>
+            </div>
+          );
+        })
+      )}
 
       {/* ── Plan limit warning ── */}
-      {!canAddEmail && emailLimit !== Infinity && (
+      {!canAddIntegration && integrationLimit !== Infinity && (
         <div className={`mx-3 mb-3 px-2 py-1.5 rounded-md flex items-start gap-1.5`}
           style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.2)' }}
         >
           <AlertCircle size={11} className="text-yellow-500 mt-0.5 flex-shrink-0" />
           <p className="text-[10px] text-yellow-600 dark:text-yellow-400 leading-snug">
-            {emailLimit} account limit on {plan} plan. Upgrade to add more.
+            {integrationLimit} integration limit on {plan} plan. Upgrade to add more.
           </p>
         </div>
       )}
@@ -317,9 +319,16 @@ function AccountsPanel({ plan, userId }: AccountsPanelProps) {
             onClick={() => setConnectSectionOpen(!connectSectionOpen)}
             className={`flex items-center justify-between w-full px-3 py-1.5 text-left`}
           >
-            <span className={`text-[10px] font-medium uppercase tracking-wider ${t.colors.textMuted}`}>
-              Connect
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className={`text-[10px] font-medium uppercase tracking-wider ${t.colors.textMuted}`}>
+                Connect
+              </span>
+              {limitText && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${t.colors.bgTertiary} ${t.colors.textMuted}`}>
+                  {limitText}
+                </span>
+              )}
+            </div>
             {connectSectionOpen
               ? <ChevronDown size={11} className={t.colors.textMuted} />
               : <ChevronRight size={11} className={t.colors.textMuted} />
@@ -328,39 +337,52 @@ function AccountsPanel({ plan, userId }: AccountsPanelProps) {
 
           {connectSectionOpen && (
             <div className="pb-1">
-              {emailProviders.map((provider) => {
-                const isConnected = connectedProviderIds.has(provider.id);
-                // Users can connect multiple accounts of the same provider
-                // as long as they haven't hit the plan limit
-                const canConnect = canAddEmail;
-
+              {providersByCategory.map(({ category, providers }, idx) => {
+                const Icon = CATEGORY_ICONS[category];
                 return (
-                  <button
-                    key={provider.id}
-                    onClick={() => canConnect && openConnectModal(provider.id)}
-                    disabled={!canConnect}
-                    className={`flex items-center gap-2 w-full px-3 py-2 mx-0 text-left transition-opacity ${
-                      canConnect
-                        ? `hover:${t.colors.bgTertiary} cursor-pointer`
-                        : 'opacity-40 cursor-not-allowed'
-                    }`}
-                    title={
-                      !canConnect
-                        ? `Upgrade your plan to connect more accounts`
-                        : `Connect ${provider.label}`
-                    }
-                  >
-                    <ProviderIcon providerId={provider.id} size={20} />
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-xs ${t.colors.text}`}>{provider.label}</p>
-                      <p className={`text-[10px] ${t.colors.textMuted} truncate`}>
-                        {provider.description}
-                      </p>
+                  <div key={category} className={idx > 0 ? 'mt-3' : ''}>
+                    {/* Category sub-header */}
+                    <div className="flex items-center gap-1.5 px-3 py-1">
+                      {Icon && <Icon size={9} className={`${t.colors.textMuted} opacity-60`} />}
+                      <span className={`text-[9px] font-medium uppercase tracking-wider ${t.colors.textMuted} opacity-60`}>
+                        {category}
+                      </span>
                     </div>
-                    {canConnect && (
-                      <Plus size={13} className={t.colors.textMuted} />
-                    )}
-                  </button>
+
+                    {/* Provider buttons */}
+                    {providers.map((provider) => {
+                      const canConnect = canConnectProvider(provider);
+
+                      return (
+                        <button
+                          key={provider.id}
+                          onClick={() => canConnect && openConnectModal(provider.id)}
+                          disabled={!canConnect}
+                          className={`flex items-center gap-2 w-full px-3 py-1.5 mx-0 text-left transition-opacity ${
+                            canConnect
+                              ? `hover:${t.colors.bgTertiary} cursor-pointer`
+                              : 'opacity-40 cursor-not-allowed'
+                          }`}
+                          title={
+                            !canConnect
+                              ? `Upgrade your plan to connect more accounts`
+                              : `Connect ${provider.label}`
+                          }
+                        >
+                          <ProviderIcon providerId={provider.id} size={20} />
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs ${t.colors.text}`}>{provider.label}</p>
+                            <p className={`text-[10px] ${t.colors.textMuted} truncate`}>
+                              {provider.description}
+                            </p>
+                          </div>
+                          {canConnect && (
+                            <Plus size={13} className={t.colors.textMuted} />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 );
               })}
             </div>

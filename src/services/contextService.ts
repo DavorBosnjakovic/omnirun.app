@@ -741,8 +741,40 @@ export async function loadContext(projectPath: string): Promise<ProjectContext |
 export async function saveContext(projectPath: string, context: ProjectContext): Promise<void> {
   // We don't rewrite context.md here — that's AI-generated.
   // We only update the machine-readable sections.
+
+  let content: string | null = null;
+
   try {
-    let content = await readFile(`${projectPath}\\${CONTEXT_FILE}`);
+    content = await readFile(`${projectPath}\\${CONTEXT_FILE}`);
+  } catch {
+    // context.md doesn't exist yet — this is the first save.
+    // Create .omnirun/ directories and a fresh context.md from the in-memory context.
+    try {
+      try { await createDirectory(`${projectPath}\\${CONTEXT_DIR}`); } catch { /* exists */ }
+      try { await createDirectory(`${projectPath}\\${SUMMARIES_DIR}`); } catch { /* exists */ }
+
+      await writeFallbackContext(
+        projectPath,
+        context.projectName,
+        context.techStack,
+        context.keyDeps,
+        context.structure,
+        context.appRoot,
+        context.summarizedFiles,
+        context.preferences,
+        context.decisions,
+        context.recentChanges
+      );
+
+      await writeMeta(projectPath, context.summarizedFiles);
+
+      // Read back the file we just created so we can update sections below
+      content = await readFile(`${projectPath}\\${CONTEXT_FILE}`);
+    } catch (createErr) {
+      console.error("[context] Failed to create context.md:", createErr);
+      return;
+    }
+  }
 
     // Update metadata comments for new fields
     content = upsertComment(content, "keyDeps", context.keyDeps.join(", "));
@@ -799,9 +831,6 @@ export async function saveContext(projectPath: string, context: ProjectContext):
     );
 
     await writeFile(`${projectPath}\\${CONTEXT_FILE}`, content);
-  } catch {
-    // context.md doesn't exist yet — nothing to update
-  }
 }
 
 /** Insert or update a metadata comment in context.md */
@@ -835,14 +864,15 @@ function replaceSection(content: string, heading: string, newContent: string): s
  * Initialize context for a project.
  * 
  * Has context.md? → Load from disk (instant, zero cost).
- * No context.md? → Full scan + two-pass AI summarization.
+ * No context.md? → Lightweight scan only (tech stack, structure, no AI calls).
  * 
- * Returns { context, isFirstScan } for UI feedback.
+ * AI summarization (fullScan) is NEVER called here. Call it explicitly
+ * from a "Scan project" button or similar user-initiated action.
  */
 export async function initContext(
   projectPath: string,
   onProgress?: (message: string) => void,
-  externalProvider?: ProviderConfig | null
+  _externalProvider?: ProviderConfig | null
 ): Promise<{ context: ProjectContext; isFirstScan: boolean }> {
   await invoke("set_project_path", { path: projectPath });
 
@@ -851,13 +881,46 @@ export async function initContext(
     return { context: existing, isFirstScan: false };
   }
 
+  // First open — scan project structure IN MEMORY ONLY.
+  // Do NOT create .omnirun/ or write any files to disk yet.
+  // Disk files get created on the first saveContext() call (when AI has real data to save).
   try {
-    const context = await fullScan(projectPath, onProgress, externalProvider);
+    const projectName = projectPath.split(/[/\\]/).pop() || "unknown";
+
+    onProgress?.("Scanning project structure...");
+    const scan = await scanProject(projectPath);
+
+    const primaryAppRoot = scan.appRoots.length > 0
+      ? (scan.appRoots.find(r => r.relativePath !== "")?.relativePath || "")
+      : "";
+
+    // Track knowledge files in memory only (no summaries written to disk)
+    const summarizedFiles = scan.knowledgeFiles.map(file => {
+      let title = file.name.replace(/\.[^.]+$/, "").replace(/^\d+-/, "").replace(/[-_]/g, " ");
+      return {
+        originalPath: file.relativePath,
+        summaryPath: "",  // No summary on disk yet
+        title,
+      };
+    });
+
+    const context: ProjectContext = {
+      projectName, projectPath,
+      techStack: scan.allTech,
+      structure: scan.structureLines.join("\n"),
+      appRoot: primaryAppRoot,
+      summarizedFiles,
+      about: [], styles: [], conventions: [],
+      keyDeps: scan.allKeyDeps,
+      routes: [], schema: [],
+      built: [], progress: [],
+      decisions: [], preferences: [], recentChanges: [],
+    };
+
     return { context, isFirstScan: true };
+
   } catch (err: any) {
-    // If the AI scan fails (401, rate limit, network, etc.) fall back to a
-    // basic context so the rest of the app still works normally.
-    console.warn("[context] Full scan failed:", err.message || err);
+    console.warn("[context] Lightweight scan failed:", err.message || err);
     const projectName = projectPath.split(/[/\\]/).pop() || "unknown";
     const fallback: ProjectContext = {
       projectName, projectPath,
@@ -872,7 +935,8 @@ export async function initContext(
   }
 }
 
-async function fullScan(
+/** Call explicitly from a "Scan project" button — this is the expensive AI pass. */
+export async function fullScan(
   projectPath: string,
   onProgress?: (message: string) => void,
   externalProvider?: ProviderConfig | null
@@ -1366,8 +1430,7 @@ export function contextToPromptString(context: ProjectContext): string {
   sections.push('- "preferences": user behavior / workflow preferences');
   sections.push('- "built": completed features (compress finished work here)');
   sections.push("");
-  sections.push("IMPORTANT: When any section above is empty and you learn relevant information (from user messages, from reading files, or from your own code decisions), PROACTIVELY save it. Don't wait to be asked.");
-  sections.push("On first interaction with a new project, ASK the user about: what the project is (about), visual style preferences (styles), and coding conventions (conventions) if not already known. Gather this once, save it, never ask again.");
+  sections.push("IMPORTANT: When any section above is empty and you learn relevant information from user messages or from your own code decisions, save it with write_context. Do NOT read knowledge files or summary files to fill empty sections — wait for the user to tell you what the project is.");
 
   return sections.join("\n");
 }

@@ -10,7 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 // Blocklist: directories/files that should never be read or listed
 const BLOCKLIST = [
   "node_modules", "dist", "build", ".git", ".next", "coverage",
-  "__pycache__", ".venv", "target", "vendor", ".mydevify/snapshots",
+  "__pycache__", ".venv", "target", "vendor", ".omnirun/snapshots",
   ".DS_Store",
 ];
 const BLOCKLIST_EXTENSIONS = [".lock", ".log"];

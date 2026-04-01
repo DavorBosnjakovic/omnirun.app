@@ -80,7 +80,7 @@ interface DBAssistantAccount {
 // null, but window persists — so getDb() can recover without re-init).
 
 declare global {
-  interface Window { __mydevifyDb?: Database; }
+  interface Window { __omnirunDb?: Database; }
 }
 
 let db: Database | null = null;
@@ -212,8 +212,8 @@ async function init(): Promise<void> {
   if (db) return; // Already initialized
 
   try {
-    db = await Database.load('sqlite:mydevify.db');
-    window.__mydevifyDb = db; // Persist across Vite HMR module reloads
+    db = await Database.load('sqlite:omnirun.db');
+    window.__omnirunDb = db; // Persist across Vite HMR module reloads
 
     // Create all tables
     const statements = CREATE_TABLES_SQL
@@ -396,8 +396,8 @@ async function init(): Promise<void> {
 
 function getDb(): Database {
   // Recover from Vite HMR module reset (db becomes null but window survives)
-  if (!db && window.__mydevifyDb) {
-    db = window.__mydevifyDb;
+  if (!db && window.__omnirunDb) {
+    db = window.__omnirunDb;
   }
   if (!db) throw new Error('Database not initialized. Call dbService.init() first.');
   return db;
@@ -414,7 +414,7 @@ async function migrateFromLocalStorage(): Promise<void> {
     let migrationHappened = false;
 
     // 1. Migrate projects
-    const projectsRaw = localStorage.getItem('mydevify-projects');
+    const projectsRaw = localStorage.getItem('omnirun-projects');
     if (projectsRaw) {
       try {
         const parsed = JSON.parse(projectsRaw);
@@ -430,7 +430,7 @@ async function migrateFromLocalStorage(): Promise<void> {
     }
 
     // 2. Migrate settings
-    const settingsRaw = localStorage.getItem('mydevify-settings');
+    const settingsRaw = localStorage.getItem('omnirun-settings');
     if (settingsRaw) {
       try {
         const settings = JSON.parse(settingsRaw);
@@ -449,7 +449,7 @@ async function migrateFromLocalStorage(): Promise<void> {
     // 3. Migrate chat history (per-project keys)
     const projectsForChats = await getProjects();
     for (const project of projectsForChats) {
-      const chatKey = `mydevify_chats_${project.id}`;
+      const chatKey = `omnirun_chats_${project.id}`;
       const chatRaw = localStorage.getItem(chatKey);
       if (chatRaw) {
         try {
@@ -478,7 +478,7 @@ async function migrateFromLocalStorage(): Promise<void> {
     }
 
     // 4. Migrate usage data
-    const usageRaw = localStorage.getItem('mydevify_usage');
+    const usageRaw = localStorage.getItem('omnirun_usage');
     if (usageRaw) {
       try {
         const usageData = JSON.parse(usageRaw);
@@ -511,7 +511,7 @@ async function migrateFromLocalStorage(): Promise<void> {
     }
 
     // 4b. Migrate budget settings
-    const budgetRaw = localStorage.getItem('mydevify_usage_budget');
+    const budgetRaw = localStorage.getItem('omnirun_usage_budget');
     if (budgetRaw) {
       try {
         const budget = JSON.parse(budgetRaw);
@@ -528,7 +528,7 @@ async function migrateFromLocalStorage(): Promise<void> {
     }
 
     // 5. Migrate connections
-    const connectionsRaw = localStorage.getItem('mydevify_connections');
+    const connectionsRaw = localStorage.getItem('omnirun_connections');
     if (connectionsRaw) {
       try {
         const connections = JSON.parse(connectionsRaw);
@@ -553,7 +553,7 @@ async function migrateFromLocalStorage(): Promise<void> {
     }
 
     // 6. Migrate last project preference
-    const lastProject = localStorage.getItem('mydevify-last-project');
+    const lastProject = localStorage.getItem('omnirun-last-project');
     if (lastProject) {
       await setSetting('lastProject', JSON.stringify(lastProject));
       migrationHappened = true;
@@ -562,15 +562,15 @@ async function migrateFromLocalStorage(): Promise<void> {
     await setSetting('localStorage_migrated', 'true');
 
     if (migrationHappened) {
-      localStorage.removeItem('mydevify-projects');
-      localStorage.removeItem('mydevify-settings');
-      localStorage.removeItem('mydevify_usage');
-      localStorage.removeItem('mydevify_usage_budget');
-      localStorage.removeItem('mydevify_connections');
-      localStorage.removeItem('mydevify-last-project');
+      localStorage.removeItem('omnirun-projects');
+      localStorage.removeItem('omnirun-settings');
+      localStorage.removeItem('omnirun_usage');
+      localStorage.removeItem('omnirun_usage_budget');
+      localStorage.removeItem('omnirun_connections');
+      localStorage.removeItem('omnirun-last-project');
 
       for (const project of projectsForChats) {
-        localStorage.removeItem(`mydevify_chats_${project.id}`);
+        localStorage.removeItem(`omnirun_chats_${project.id}`);
       }
 
       console.log('[DB] localStorage migration complete — old keys removed');

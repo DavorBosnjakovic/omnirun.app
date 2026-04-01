@@ -1,10 +1,10 @@
-# Mydevify
+# omnirun
 
 ### Your computer finally listens.
 
 **Describe it. Build it. Done.**
 
-Mydevify is a desktop app that lets you build software, automate tasks, and control your entire computer — by simply describing what you want. Type or talk. It just works.
+omnirun is a desktop app that lets you build software, automate tasks, and control your entire computer — by simply describing what you want. Type or talk. It just works.
 
 That app you've been dreaming about? Build it. Those boring repetitive tasks? Automate them. Want to control your computer from across the room? Just say the word.
 
@@ -31,16 +31,16 @@ No coding required. No developers needed. No limits.
 - Data pipelines
 - Whatever you can describe
 
-Works with any language, any framework, any stack. React, Python, Node.js, Go, Rust — Mydevify handles it all.
+Works with any language, any framework, any stack. React, Python, Node.js, Go, Rust — omnirun handles it all.
 
 ---
 
 ## What Can It Do Beyond Building?
 
-Mydevify isn't just a code builder — it's a **full AI assistant for your computer**.
+omnirun isn't just a code builder — it's a **full AI assistant for your computer**.
 
 ### 🗣️ Voice Control
-- Always-on voice with wake word — *"Hey Mydevify, play my chill playlist"*
+- Always-on voice with wake word — *"Hey omnirun, play my chill playlist"*
 - Control your computer hands-free from across the room
 - Custom routines — say *"Good morning"* and it opens your email, reads your calendar, plays music, and gives you the weather
 
@@ -81,7 +81,7 @@ Every change is automatically saved. Go back to any point in your project's hist
 See exactly what every AI interaction costs. Input/output token breakdown. Session, monthly, and all-time views. Set budget alerts. No surprise bills.
 
 ### 🧠 Project Memory
-Leave a project for 6 months. Come back. Mydevify remembers exactly where you left off, what was built, and what was in progress.
+Leave a project for 6 months. Come back. omnirun remembers exactly where you left off, what was built, and what was in progress.
 
 ### 💻 Built-in Terminal
 Full terminal access for power users. Themed to match your app. Command history, ANSI color support, everything you'd expect.
@@ -96,7 +96,7 @@ Use your own AI API keys. You control the costs. Our invisible optimization save
 
 ## Who Is It For?
 
-| You are... | You use Mydevify to... |
+| You are... | You use omnirun to... |
 |---|---|
 | **Entrepreneur** | Build custom tools for your business without hiring developers |
 | **Regular person** | Automate boring tasks, organize files, control your computer by voice |
@@ -134,8 +134,8 @@ Use your own AI API keys. You control the costs. Our invisible optimization save
 ### Install & Run
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/mydevify.git
-cd mydevify
+git clone https://github.com/YOUR_USERNAME/omnirun.git
+cd omnirun
 
 npm install
 
@@ -210,6 +210,6 @@ Proprietary — All rights reserved.
 
 *"If you can describe it, you can do it."*
 
-**[mydevify.com](https://mydevify.com)**
+**[omnirun.com](https://omnirun.com)**
 
 FUCK YEAH!!!

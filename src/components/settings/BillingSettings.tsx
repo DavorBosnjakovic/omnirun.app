@@ -485,7 +485,7 @@ function BillingSettings() {
               }}
               onClick={() => {
                 import("@tauri-apps/plugin-opener")
-                  .then(({ open }) => open("https://mydevify.com/enterprise"))
+                  .then(({ open }) => open("https://omnirun.com/enterprise"))
                   .catch(() => {});
               }}
             >
@@ -530,7 +530,7 @@ function BillingSettings() {
       >
         <p className="text-sm font-medium mb-1">Bring Your Own Keys (BYOK)</p>
         <p className={`text-xs ${t.colors.textMuted} leading-relaxed`}>
-          Your subscription covers the Mydevify app. AI usage is billed
+          Your subscription covers the omnirun app. AI usage is billed
           separately by your provider (Anthropic, OpenAI, etc.) — typically
           $5–20/month for most users. Set up your API keys in{" "}
           <button

@@ -5,16 +5,18 @@
 // Same visual patterns as ChatArea.tsx but:
 // - Uses assistantStore messages (not chatStore)
 // - No project context, no tool calls, no file tree
-// - System prompt focused on personal assistant tasks
-// - Aware of connected email accounts so it can reference them
-// - Shows onboarding empty state when no accounts are connected
-// - Records usage to SQLite with source: 'assistant' for Usage dashboard
+// - System prompt aware of ALL connected integrations
+// - Shows onboarding empty state when no accounts connected
+// - Records usage to SQLite with source: 'assistant'
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Square, Bot, User, Trash2, MessageSquarePlus, Mail } from 'lucide-react';
+import { Send, Square, Bot, User, Trash2, MessageSquarePlus, Zap } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { themes } from '../../config/themes';
-import { useAssistantStore, selectEmailAccounts } from '../../stores/assistantStore';
+import {
+  useAssistantStore,
+  ASSISTANT_PROVIDERS,
+} from '../../stores/assistantStore';
 import { sendMessage } from '../../services/aiService';
 import { dbService } from '../../services/dbService';
 import MarkdownRenderer from '../chat/MarkdownRenderer';
@@ -27,32 +29,129 @@ interface AssistantChatAreaProps {
 // Built fresh on each send so it always reflects current accounts.
 
 function buildSystemPrompt(
-  connectedEmails: { provider: string; email: string; accountLabel: string | null }[]
+  accounts: { provider: string; email: string; accountLabel: string | null; providerType: string }[]
 ): string {
-  const emailList = connectedEmails
-    .map((a) => `- ${a.accountLabel || a.email} (${a.provider}: ${a.email})`)
-    .join('\n');
+  // Group accounts by type
+  const byType = (type: string) => accounts.filter((a) => {
+    const def = ASSISTANT_PROVIDERS.find((p) => p.id === a.provider);
+    return def?.providerType === type;
+  });
+
+  const emailAccounts = byType('email');
+  const calendarAccounts = byType('calendar');
+  const messagingAccounts = byType('messaging');
+  const devAccounts = byType('dev');
+  const knowledgeAccounts = byType('knowledge');
+  const taskAccounts = byType('tasks');
+  const watchers = accounts.filter((a) => a.provider === 'website_watcher');
+
+  const formatList = (items: typeof accounts) =>
+    items.map((a) => `- ${a.accountLabel || a.email} (${a.provider}: ${a.email})`).join('\n');
+
+  let connectionsBlock = '';
+
+  if (accounts.length > 0) {
+    connectionsBlock += '\nThe user has connected the following integrations:\n';
+    if (emailAccounts.length > 0) connectionsBlock += `\nEmail accounts:\n${formatList(emailAccounts)}`;
+    if (calendarAccounts.length > 0) connectionsBlock += `\nCalendars:\n${formatList(calendarAccounts)}`;
+    if (messagingAccounts.length > 0) connectionsBlock += `\nMessaging:\n${formatList(messagingAccounts)}`;
+    if (devAccounts.length > 0) connectionsBlock += `\nDevelopment:\n${formatList(devAccounts)}`;
+    if (knowledgeAccounts.length > 0) connectionsBlock += `\nKnowledge:\n${formatList(knowledgeAccounts)}`;
+    if (taskAccounts.length > 0) connectionsBlock += `\nTask management:\n${formatList(taskAccounts)}`;
+    if (watchers.length > 0) connectionsBlock += `\nWebsite watchers:\n${watchers.map((w) => `- ${w.accountLabel || w.email}`).join('\n')}`;
+  } else {
+    connectionsBlock = '\nThe user has not connected any accounts yet. If they ask about emails, calendar, or other integrations, encourage them to connect an account using the panel on the left.';
+  }
+
+  const capabilities: string[] = [];
+  if (emailAccounts.length > 0) {
+    capabilities.push(
+      'Summarize unread or important emails',
+      'Draft and send email replies in the user\'s voice',
+      'Flag urgent emails and suggest actions',
+    );
+  }
+  if (calendarAccounts.length > 0) {
+    capabilities.push(
+      'Show today\'s schedule and upcoming events',
+      'Warn about scheduling conflicts',
+      'Help schedule or reschedule meetings',
+    );
+  }
+  if (messagingAccounts.length > 0) {
+    capabilities.push(
+      'Surface important Slack/Discord messages the user missed',
+      'Summarize busy channels',
+      'Draft and send replies',
+    );
+  }
+  if (devAccounts.length > 0) {
+    capabilities.push(
+      'Notify about new PRs, issues, and review requests',
+      'Summarize repo activity',
+    );
+  }
+  if (knowledgeAccounts.length > 0) {
+    capabilities.push(
+      'Search and reference the user\'s Notion pages',
+    );
+  }
+  if (taskAccounts.length > 0) {
+    capabilities.push(
+      'Show and manage Todoist tasks',
+      'Create, complete, or reschedule tasks',
+    );
+  }
+  if (watchers.length > 0) {
+    capabilities.push(
+      'Report on changes detected on watched websites',
+    );
+  }
+  if (capabilities.length === 0) {
+    capabilities.push(
+      'Help the user once they connect their accounts',
+      'Answer general questions',
+    );
+  }
 
   return `You are a personal AI assistant integrated into Omnirun, a desktop productivity app.
 
-Your role is to help the user manage their personal communications and schedule — not to write code or build software (that is handled in the Projects section).
-
-${connectedEmails.length > 0 ? `The user has connected the following email accounts:\n${emailList}\n\nYou can help them read, summarize, draft replies, and manage these email accounts via the Gmail API and Microsoft Graph API.` : 'The user has not connected any email accounts yet. If they ask about email, encourage them to connect an account using the panel on the left.'}
+Your role is to help the user manage their personal communications, schedule, and productivity tools — not to write code or build software (that is handled in the Projects section).
+${connectionsBlock}
 
 Your capabilities:
-- Summarize unread or important emails
-- Draft and send email replies in the user's voice
-- Flag urgent emails and suggest actions
-- Help organize and prioritize their inbox
-- Answer questions about their emails
-- Set reminders based on email content
+${capabilities.map((c) => `- ${c}`).join('\n')}
 
 Guidelines:
 - Be concise and direct — the user is busy
 - When drafting emails, match the user's tone from their existing messages
 - Always confirm before sending anything on behalf of the user
-- If you cannot take an action yet (e.g. calendar is not connected), say so clearly and suggest connecting it
-- Never make up email content — only work with what the user tells you or what the API returns`;
+- If you cannot take an action yet (e.g. a service is not connected), say so clearly and suggest connecting it
+- Never make up content — only work with what the user tells you or what the APIs return
+- For morning briefs, prioritize: urgent emails, today's calendar, failed tasks, then everything else`;
+}
+
+// ─── Suggestion prompts based on connected accounts ───────────
+
+function getSuggestions(accounts: any[]): string[] {
+  const hasEmail = accounts.some((a) => ['gmail', 'outlook'].includes(a.provider));
+  const hasCalendar = accounts.some((a) => ['google_calendar', 'outlook_calendar'].includes(a.provider));
+  const hasMessaging = accounts.some((a) => ['slack', 'discord'].includes(a.provider));
+  const hasDev = accounts.some((a) => a.provider === 'github');
+  const hasTasks = accounts.some((a) => a.provider === 'todoist');
+  const hasWatcher = accounts.some((a) => a.provider === 'website_watcher');
+
+  const suggestions: string[] = [];
+
+  if (hasEmail || hasCalendar) suggestions.push('Give me a morning brief');
+  if (hasEmail) suggestions.push('What emails need my attention today?');
+  if (hasCalendar) suggestions.push("What's on my calendar today?");
+  if (hasMessaging) suggestions.push('What did I miss on Slack?');
+  if (hasDev) suggestions.push('Any new PRs or issues?');
+  if (hasTasks) suggestions.push("What's on my to-do list?");
+  if (hasWatcher) suggestions.push('Any changes on my watched pages?');
+
+  return suggestions.slice(0, 4);
 }
 
 // ─── Empty / onboarding state ─────────────────────────────────
@@ -60,34 +159,38 @@ Guidelines:
 function EmptyState({
   hasAccounts,
   onConnect,
+  accounts,
+  onSuggestion,
   theme: t,
 }: {
   hasAccounts: boolean;
   onConnect: () => void;
+  accounts: any[];
+  onSuggestion: (text: string) => void;
   theme: any;
 }) {
   if (hasAccounts) {
+    const suggestions = getSuggestions(accounts);
     return (
       <div className={`${t.colors.textMuted} text-center mt-12 px-6`}>
         <Bot size={32} className="mx-auto mb-3 opacity-40" />
         <p className="text-sm font-medium mb-1">Your personal assistant is ready</p>
         <p className="text-xs leading-relaxed opacity-70">
-          Ask me to check your emails, summarize your inbox, or draft a reply.
+          Ask about your emails, calendar, messages, tasks, or anything else you've connected.
         </p>
-        <div className={`mt-6 text-left mx-auto max-w-xs space-y-2`}>
-          {[
-            'What emails need my attention today?',
-            'Summarize my unread emails',
-            'Draft a reply to the latest email from Marco',
-          ].map((suggestion) => (
-            <button
-              key={suggestion}
-              className={`w-full text-left text-xs px-3 py-2 rounded-lg ${t.colors.bgSecondary} ${t.colors.border} border hover:opacity-80 transition-opacity ${t.colors.textMuted}`}
-            >
-              {suggestion}
-            </button>
-          ))}
-        </div>
+        {suggestions.length > 0 && (
+          <div className="mt-6 text-left mx-auto max-w-xs space-y-2">
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion}
+                onClick={() => onSuggestion(suggestion)}
+                className={`w-full text-left text-xs px-3 py-2 rounded-lg ${t.colors.bgSecondary} ${t.colors.border} border hover:opacity-80 transition-opacity ${t.colors.textMuted}`}
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -98,13 +201,13 @@ function EmptyState({
         className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
         style={{ background: 'rgba(45,184,122,0.12)', border: '1px solid rgba(45,184,122,0.25)' }}
       >
-        <Mail size={24} style={{ color: '#2DB87A' }} />
+        <Zap size={24} style={{ color: '#2DB87A' }} />
       </div>
       <p className={`text-sm font-medium mb-2 ${t.colors.text}`}>
-        Connect your first email account
+        Connect your first account
       </p>
       <p className={`text-xs leading-relaxed mb-5 ${t.colors.textMuted}`}>
-        Connect Gmail or Outlook and your assistant can read, summarize, and reply to emails on your behalf.
+        Connect Gmail, Calendar, Slack, GitHub, or any of your accounts and your assistant will help you manage them all from one place.
       </p>
       <button
         onClick={onConnect}
@@ -139,8 +242,8 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
     openConnectModal,
   } = useAssistantStore();
 
-  const emailAccounts = selectEmailAccounts(accounts);
-  const hasAccounts = emailAccounts.length > 0;
+  const activeAccounts = accounts.filter((a) => a.isActive);
+  const hasAccounts = activeAccounts.length > 0;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -169,7 +272,7 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
     };
     const name = names[activeProviderId] || activeProviderId;
     const model = config.selectedModel?.split('-').slice(0, 2).join(' ') || '';
-    return `${name} • ${model}`;
+    return `${name} \u2022 ${model}`;
   };
 
   const handleStop = () => {
@@ -180,13 +283,6 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
   };
 
   // ── Record assistant usage to SQLite ─────────────────────
-  // Fires after each completed response. Never throws — usage tracking
-  // is non-critical and must not interrupt the chat flow.
-  //
-  // Safely handles whatever shape sendMessage returns for usage data.
-  // Cost defaults to 0 if not pre-calculated by aiService; token counts
-  // are always accurate. Cost calculation is handled by usageStore when
-  // the shared trackUsage path is later integrated here.
   const recordAssistantUsage = async (
     result: any,
     providerConfig: { id: string; model: string }
@@ -240,10 +336,9 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
     try {
       const provider = getActiveProvider();
       if (!provider) {
-        throw new Error('No API key configured. Go to Settings → API Keys to add one.');
+        throw new Error('No API key configured. Go to Settings \u2192 API Keys to add one.');
       }
 
-      // Build API messages from store history
       const history = messages
         .filter((m) => m.content.trim() !== '')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
@@ -259,14 +354,14 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
       let fullResponse = '';
 
       const systemPrompt = buildSystemPrompt(
-        emailAccounts.map((a) => ({
+        activeAccounts.map((a) => ({
           provider: a.provider,
           email: a.email,
           accountLabel: a.accountLabel,
+          providerType: a.providerType ?? 'email',
         }))
       );
 
-      // Pass systemPrompt override via projectContext.contextString
       const assistantContext = {
         path: '',
         manifest: null,
@@ -298,8 +393,6 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
         ),
       }));
 
-      // ── Track usage (source: 'assistant') ────────────────
-      // Only record if the stream completed (not stopped by user).
       if (!stoppedRef.current) {
         await recordAssistantUsage(result, { id: provider.id, model: provider.model ?? '' });
       }
@@ -312,7 +405,7 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
             .concat({
               id: (Date.now() + 2).toString(),
               role: 'assistant',
-              content: `❌ ${error.message}`,
+              content: `\u274C ${error.message}`,
               timestamp: new Date(),
             }),
         }));
@@ -322,7 +415,7 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
       readerRef.current = null;
       setLoading(false);
     }
-  }, [input, isLoading, messages, emailAccounts]);
+  }, [input, isLoading, messages, activeAccounts]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -342,7 +435,7 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
       {/* Header */}
       <div className={`px-4 py-2 ${t.colors.bgSecondary} ${t.colors.border} border-b flex items-center justify-between flex-shrink-0`}>
         <span className={`text-sm ${t.colors.textMuted}`}>
-          {getActiveProviderDisplay()} ⚙
+          {getActiveProviderDisplay()} \u2699
         </span>
         <div className="flex items-center gap-2">
           {messages.length > 0 && (
@@ -372,6 +465,8 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
           <EmptyState
             hasAccounts={hasAccounts}
             onConnect={() => openConnectModal()}
+            accounts={activeAccounts}
+            onSuggestion={handleSuggestion}
             theme={t}
           />
         ) : (
@@ -447,7 +542,7 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
               isLoading
                 ? 'Waiting for response...'
                 : hasAccounts
-                  ? 'Ask about your emails...'
+                  ? 'Ask about your emails, calendar, tasks...'
                   : 'Connect an account to get started...'
             }
             disabled={isLoading}

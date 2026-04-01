@@ -1,6 +1,6 @@
 import type { ITheme } from "@xterm/xterm";
 
-// Each entry maps to a Mydevify theme from config/themes.ts
+// Each entry maps to a omnirun theme from config/themes.ts
 // When adding a new app theme, add a matching entry here.
 // If no match is found, "dark" is used as fallback.
 

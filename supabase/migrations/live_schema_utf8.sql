@@ -751,7 +751,7 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
 ALTER TABLE "public"."profiles" OWNER TO "postgres";
 
 
-COMMENT ON COLUMN "public"."profiles"."signup_source" IS 'Self-reported: how they heard about Mydevify (twitter, reddit, producthunt, youtube, friend, google_search, other). From onboarding dropdown.';
+COMMENT ON COLUMN "public"."profiles"."signup_source" IS 'Self-reported: how they heard about omnirun (twitter, reddit, producthunt, youtube, friend, google_search, other). From onboarding dropdown.';
 
 
 

@@ -94,10 +94,10 @@ Deno.serve(async (req: Request) => {
       },
       metadata: { user_id: user.id },
       success_url: `${
-        Deno.env.get("APP_URL") ?? "mydevify://"
+        Deno.env.get("APP_URL") ?? "omnirun://"
       }subscription/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${
-        Deno.env.get("APP_URL") ?? "mydevify://"
+        Deno.env.get("APP_URL") ?? "omnirun://"
       }subscription/cancel`,
       allow_promotion_codes: true,
     });

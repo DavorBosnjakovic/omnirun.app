@@ -9,6 +9,7 @@ use std::os::windows::process::CommandExt;
 mod server;
 mod scheduler;
 mod task_runner;
+mod oauth;
 
 #[derive(Serialize, Deserialize)]
 pub struct FileEntry {
@@ -581,7 +582,7 @@ async fn supabase_management_api(
     request = request
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
-        .header("User-Agent", "Mydevify/1.0.0");
+        .header("User-Agent", "omnirun/1.0.0");
 
     if let Some(b) = body {
         request = request.body(b);
@@ -708,7 +709,17 @@ pub fn run() {
             delete_task,
             toggle_task,
             get_tasks,
-            run_task_now
+            run_task_now,
+            // OAuth flows (Assistant integrations)
+            oauth::start_gmail_oauth,
+            oauth::start_outlook_oauth,
+            oauth::start_google_calendar_oauth,
+            oauth::start_outlook_calendar_oauth,
+            oauth::start_slack_oauth,
+            oauth::start_discord_oauth,
+            oauth::start_github_oauth,
+            oauth::start_notion_oauth,
+            oauth::start_todoist_oauth
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

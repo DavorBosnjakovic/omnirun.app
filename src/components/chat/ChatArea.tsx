@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Square, User, Bot, Trash2, Wrench, Pencil, Coins, X, Image, MessageSquarePlus, Globe, AlertCircle, ChevronDown, FileText, Paperclip } from "lucide-react";
+import { Send, Square, User, Trash2, Wrench, Pencil, Coins, X, Image, MessageSquarePlus, Globe, AlertCircle, ChevronDown, FileText, Paperclip } from "lucide-react";
+import elipseDark from "../../assets/elipse_transparent_dark.svg";
+import elipseLight from "../../assets/elipse_transparent_light.svg";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useChatStore } from "../../stores/chatStore";
@@ -20,6 +22,35 @@ import DiffViewer from "../diff/DiffViewer";
 import type { MessageImage } from "../../stores/chatStore";
 
 const MAX_TOOL_ITERATIONS = 10;
+
+// ── Animated thinking indicator ───────────────────────────────
+function ThinkingDots({ color }: { color: string }) {
+  return (
+    <span className="inline-flex items-center gap-[3px]">
+      <span className={`text-sm ${color}`}>Thinking</span>
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className={color}
+          style={{
+            display: "inline-block",
+            width: 4,
+            height: 4,
+            borderRadius: "50%",
+            backgroundColor: "currentColor",
+            animation: `thinkingBounce 1.2s ease-in-out ${i * 0.2}s infinite`,
+          }}
+        />
+      ))}
+      <style>{`
+        @keyframes thinkingBounce {
+          0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+          30% { opacity: 1; transform: translateY(-3px); }
+        }
+      `}</style>
+    </span>
+  );
+}
 
 // ── Collapsible tool action display ────────────────────────────
 // Shows a compact summary of what the AI is doing, with optional
@@ -639,32 +670,28 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
   // Collapse incomplete code blocks and tool calls during streaming
   const getStreamingDisplay = (content: string): string => {
-    // If there's an unclosed <tool_call> tag, parse it to show what the AI is doing
-    const openCallTag = content.lastIndexOf("<tool_call>");
-    const closeCallTag = content.lastIndexOf("</tool_call>");
+    // Normalize <function_calls> → <tool_call> so one code path handles both
+    const c = content
+      .replace(/<function_calls>\s*/g, "<tool_call>")
+      .replace(/<\/function_calls>/g, "</tool_call>");
+
+    // Unclosed <tool_call> — show ONLY the action label, never the AI's chatter
+    const openCallTag = c.lastIndexOf("<tool_call>");
+    const closeCallTag = c.lastIndexOf("</tool_call>");
     if (openCallTag !== -1 && (closeCallTag === -1 || closeCallTag < openCallTag)) {
-      const textBefore = content.slice(0, openCallTag).trim();
-      const partialCall = content.slice(openCallTag);
-      const actionLabel = describeToolCall(partialCall);
-      return textBefore ? `${textBefore}\n\n${actionLabel}` : actionLabel;
+      return describeToolCall(c.slice(openCallTag));
     }
 
-    // If there's an unclosed <tool_result> tag, look back at the last tool_call
-    // to show what we're waiting on
-    const openResultTag = content.lastIndexOf("<tool_result>");
-    const closeResultTag = content.lastIndexOf("</tool_result>");
+    // Unclosed <tool_result> — show ONLY the action label
+    const openResultTag = c.lastIndexOf("<tool_result>");
+    const closeResultTag = c.lastIndexOf("</tool_result>");
     if (openResultTag !== -1 && (closeResultTag === -1 || closeResultTag < openResultTag)) {
-      const textBefore = content.slice(0, openResultTag).trim();
-      // Find the most recent completed tool_call to describe what's running
-      const lastCall = content.slice(0, openResultTag).match(/<tool_call>([\s\S]*?)<\/tool_call>/g);
-      const actionLabel = lastCall?.length
-        ? describeToolCall(lastCall[lastCall.length - 1])
-        : "⏳ Working...";
-      return textBefore ? `${textBefore}\n\n${actionLabel}` : actionLabel;
+      const lastCall = c.slice(0, openResultTag).match(/<tool_call>([\s\S]*?)<\/tool_call>/g);
+      return lastCall?.length ? describeToolCall(lastCall[lastCall.length - 1]) : "⏳ Working...";
     }
 
-    // Strip completed tool_call and tool_result blocks (well-formed + malformed)
-    const clean = content
+    // Strip all completed tool blocks (well-formed + malformed + orphaned)
+    const clean = c
       .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
       .replace(/<tool_result>[\s\S]*?<\/tool_result>/g, "")
       .replace(/<[^>]*tool_?call[^>]*>[\s\S]*?<\/[^>]*tool_?call[^>]*>/g, "")
@@ -676,10 +703,10 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
     // Count backtick fences
     const fences = clean.match(/```/g);
-    if (!fences || fences.length % 2 === 0) return clean; // All code blocks are closed
+    if (!fences || fences.length % 2 === 0) return clean;
 
-    // Odd number = unclosed code block. Show text before it + placeholder
-    const originalBeforeFence = content.slice(0, content.lastIndexOf("```"));
+    // Unclosed code block
+    const originalBeforeFence = c.slice(0, c.lastIndexOf("```"));
     return originalBeforeFence + "```\n⏳ Writing code...\n```";
   };
 
@@ -916,24 +943,9 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           break;
         }
 
-        // Clean up the message — strip raw <tool_call> tags from display
-        // During streaming, getStreamingDisplay hides them, but line 459 puts
-        // the raw fullResponse back. This removes the tags permanently.
-        const rawCleaned = (
-          parsed.textBefore + (parsed.textAfter ? "\n" + parsed.textAfter : "")
-        ).trim();
-        const cleanedContent = rawCleaned
-          .replace(/<[^>]*tool_?call[^>]*>[\s\S]*/g, "")
-          .replace(/<[^>]*tool_?result[^>]*>[\s\S]*/g, "")
-          .replace(/\{"name"?\s*:\s*"(?:write_file|read_file|edit_file|list_directory|create_directory|delete_file|read_multiple_files|run_command|web_search|write_context|create_scheduled_task|connection)"[\s\S]*?\}\s*/g, "")
-          .replace(/<\/tool_call>/g, "")
-          .replace(/<\/tool_result>/g, "")
-          .replace(/\n{3,}/g, "\n\n")
-          .trim() || "⏳ Working on files...";
+        // Delete the assistant's narration bubble — the tool status bubble is enough
         useChatStore.setState((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === assistantId ? { ...m, content: cleanedContent } : m
-          ),
+          messages: state.messages.filter((m) => m.id !== assistantId),
         }));
 
         // Can't execute tools without a project path
@@ -1218,8 +1230,10 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
   // Parse message for code blocks and tool call blocks
   const renderMessage = (content: string) => {
-    // Strip tool_call and tool_result blocks — well-formed, malformed, and orphaned
+    // Strip all tool block variants — well-formed, malformed, orphaned, and function_calls style
     let cleanContent = content
+      .replace(/<function_calls>[\s\S]*?<\/function_calls>/g, "")
+      .replace(/<function_calls>/g, "").replace(/<\/function_calls>/g, "")
       .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
       .replace(/<tool_result>[\s\S]*?<\/tool_result>/g, "")
       .replace(/<[^>]*tool_?call[^>]*>[\s\S]*?<\/[^>]*tool_?call[^>]*>/g, "")
@@ -1477,12 +1491,12 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
                   className={`flex gap-3 group ${message.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   {message.role === "assistant" && (
-                    <div className={`w-8 h-8 ${(isTool || isSearch) ? t.colors.bgTertiary : t.colors.accent} ${t.borderRadius} flex items-center justify-center flex-shrink-0`}>
+                    <div className={`w-8 h-8 ${(isTool || isSearch) ? t.colors.bgTertiary : ""} ${t.borderRadius} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
                       {isSearch
                         ? <Globe size={16} className="text-blue-400" />
                         : isTool 
                         ? <Wrench size={16} className={t.colors.textMuted} />
-                        : <Bot size={18} className={theme === "highContrast" ? "text-black" : "text-white"} />
+                        : <img src={theme === "light" || theme === "highContrast" ? elipseLight : elipseDark} alt="omnirun" className="w-8 h-8" />
                       }
                     </div>
                   )}
@@ -1505,7 +1519,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
                           : message.role === "assistant" ? renderMessage(message.content) : message.content)
                         : message.images && message.images.length > 0 
                           ? null
-                          : "Thinking..."}
+                          : <ThinkingDots color={t.colors.textMuted} />}
                     </div>
                     <div className={`text-[10px] mt-1 opacity-50 ${
                       message.role === "user" ? "text-right" : ""
