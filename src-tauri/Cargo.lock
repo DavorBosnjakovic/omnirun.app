@@ -62,6 +62,7 @@ dependencies = [
  "cron",
  "dirs-next",
  "once_cell",
+ "open",
  "regex",
  "reqwest 0.12.28",
  "serde",

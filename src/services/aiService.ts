@@ -166,12 +166,6 @@ function routeModel(messages: Message[], projectContext?: ProjectContext): { mod
     return { model: ANTHROPIC_MODELS.opus, maxTokens: MAX_TOKENS_PER_TIER.opus, tier: "opus" };
   }
 
-  // --- New project (no About section) → AI asks questions first → Haiku ---
-  const hasAbout = projectContext?.contextString?.includes("## About");
-  if (!hasAbout) {
-    return { model: ANTHROPIC_MODELS.haiku, maxTokens: MAX_TOKENS_PER_TIER.haiku, tier: "haiku" };
-  }
-
   // --- AI asked a question → user is answering → Haiku ---
   const lastAction = detectLastAssistantAction(messages);
   if (lastAction === "asked_question") {

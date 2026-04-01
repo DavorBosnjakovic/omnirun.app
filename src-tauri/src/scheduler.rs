@@ -183,10 +183,10 @@ impl TaskStore {
 
 /// Get the path to the tasks JSON file in the app data directory
 fn get_tasks_file_path() -> PathBuf {
-    // Use the user's home directory + .mydevify for now
+    // Use the user's home directory + .omnirun for now
     // (Tauri's app data path will be wired up from the frontend)
     let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    let data_dir = home.join(".mydevify").join("data");
+    let data_dir = home.join(".omnirun").join("data");
     fs::create_dir_all(&data_dir).ok();
     data_dir.join("scheduled_tasks.json")
 }

@@ -8,14 +8,14 @@ function VoiceSettings() {
 
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [alwaysListening, setAlwaysListening] = useState(false);
-  const [wakeWord, setWakeWord] = useState("Hey Mydevify");
+  const [wakeWord, setWakeWord] = useState("Hey omnirun");
   const [hotkey, setHotkey] = useState("Ctrl + Shift + Space");
 
   return (
     <div className={`${t.colors.text}`}>
       <h1 className="text-2xl font-bold mb-2">Voice Settings</h1>
       <p className={`${t.colors.textMuted} mb-6`}>
-        Control how you interact with Mydevify using your voice.
+        Control how you interact with omnirun using your voice.
       </p>
 
       {/* Enable voice */}
@@ -93,7 +93,7 @@ function VoiceSettings() {
                 onChange={(e) => setWakeWord(e.target.value)}
                 className={`w-full max-w-xs ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 focus:outline-none`}
               >
-                <option value="Hey Mydevify">Hey Mydevify</option>
+                <option value="Hey omnirun">Hey omnirun</option>
                 <option value="Hey Dev">Hey Dev</option>
                 <option value="Computer">Computer</option>
               </select>

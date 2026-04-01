@@ -142,7 +142,7 @@ export async function readAllProjectFiles(
 // Folders to ignore — changes in these shouldn't trigger refreshes
 const IGNORED_DIRS = [
   "node_modules", ".git", "dist", "build", ".next", ".nuxt",
-  ".svelte-kit", ".astro", ".output", ".cache", ".mydevify",
+  ".svelte-kit", ".astro", ".output", ".cache", ".omnirun",
   ".backups", "__pycache__", ".turbo",
 ];
 

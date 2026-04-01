@@ -2,7 +2,7 @@
 // Assistant Store
 // ============================================================
 // Manages state for the Assistant section:
-// - Connected personal integration accounts (Gmail, Outlook, etc.)
+// - Connected personal integration accounts (email, calendar, messaging, etc.)
 // - Assistant chat messages (separate from project chat)
 // - Loading / error states
 // - Plan-gating for account limits
@@ -29,6 +29,17 @@ export function getEmailAccountLimit(plan: string): number {
   return EMAIL_ACCOUNT_LIMITS[plan.toLowerCase()] ?? 1;
 }
 
+export const INTEGRATION_LIMITS: Record<string, number> = {
+  starter: 3,
+  pro: 5,
+  business: Infinity,
+  enterprise: Infinity,
+};
+
+export function getIntegrationLimit(plan: string): number {
+  return INTEGRATION_LIMITS[plan.toLowerCase()] ?? 3;
+}
+
 // ─── Message types (same shape as chatStore for consistency) ──
 
 export interface AssistantMessage {
@@ -39,53 +50,126 @@ export interface AssistantMessage {
 }
 
 // ─── Provider definitions ─────────────────────────────────────
-// Add new providers here as they get built. The UI reads this list
-// to know what to show in the accounts panel.
+// The UI reads this list to know what to show in the accounts panel
+// and connect modal. Add new providers here as they get built.
+
+export type ProviderType = 'email' | 'calendar' | 'messaging' | 'dev' | 'knowledge' | 'tasks' | 'monitor';
+export type ProviderCategory = 'Email' | 'Calendar' | 'Messaging' | 'Development' | 'Productivity' | 'Monitoring';
 
 export interface ProviderDefinition {
   id: string;
   label: string;
-  providerType: 'email' | 'calendar' | 'messaging' | 'other';
+  providerType: ProviderType;
+  category: ProviderCategory;
   description: string;
-  available: boolean; // false = not yet built, hidden from UI per spec
+  available: boolean;       // false = not yet built, hidden from UI
+  oauthBased: boolean;      // true = needs OAuth credentials, false = no OAuth (e.g. website watcher)
+  sharesAuthWith?: string;  // e.g. 'gmail' for google_calendar — uses same OAuth app credentials
 }
 
 export const ASSISTANT_PROVIDERS: ProviderDefinition[] = [
+  // ── Email ──
   {
     id: 'gmail',
     label: 'Gmail',
     providerType: 'email',
+    category: 'Email',
     description: 'Read, summarize, and reply to emails',
     available: true,
+    oauthBased: true,
   },
   {
     id: 'outlook',
     label: 'Outlook',
     providerType: 'email',
+    category: 'Email',
     description: 'Read, summarize, and reply to emails',
     available: true,
+    oauthBased: true,
   },
-  // Future providers — set available: true when built
+
+  // ── Calendar ──
   {
     id: 'google_calendar',
     label: 'Google Calendar',
     providerType: 'calendar',
-    description: 'Morning briefings, conflict detection, smart scheduling',
-    available: false,
+    category: 'Calendar',
+    description: 'Events, scheduling, morning briefs',
+    available: true,
+    oauthBased: true,
+    sharesAuthWith: 'gmail',
   },
   {
     id: 'outlook_calendar',
     label: 'Outlook Calendar',
     providerType: 'calendar',
-    description: 'Morning briefings, conflict detection, smart scheduling',
-    available: false,
+    category: 'Calendar',
+    description: 'Events, scheduling, morning briefs',
+    available: true,
+    oauthBased: true,
+    sharesAuthWith: 'outlook',
   },
+
+  // ── Messaging ──
   {
     id: 'slack',
     label: 'Slack',
     providerType: 'messaging',
-    description: 'Surface important messages, draft replies',
-    available: false,
+    category: 'Messaging',
+    description: 'Surface important messages, reply via chat',
+    available: true,
+    oauthBased: true,
+  },
+  {
+    id: 'discord',
+    label: 'Discord',
+    providerType: 'messaging',
+    category: 'Messaging',
+    description: 'Server updates, missed messages',
+    available: true,
+    oauthBased: true,
+  },
+
+  // ── Development ──
+  {
+    id: 'github',
+    label: 'GitHub',
+    providerType: 'dev',
+    category: 'Development',
+    description: 'PRs, issues, repo activity',
+    available: true,
+    oauthBased: true,
+  },
+
+  // ── Productivity ──
+  {
+    id: 'notion',
+    label: 'Notion',
+    providerType: 'knowledge',
+    category: 'Productivity',
+    description: 'Search and reference your notes and docs',
+    available: true,
+    oauthBased: true,
+  },
+  {
+    id: 'todoist',
+    label: 'Todoist',
+    providerType: 'tasks',
+    category: 'Productivity',
+    description: 'Sync tasks, manage your to-do list',
+    available: true,
+    oauthBased: true,
+  },
+
+  // ── Monitoring ──
+  {
+    id: 'website_watcher',
+    label: 'Website Watcher',
+    providerType: 'monitor',
+    category: 'Monitoring',
+    description: 'Track changes on any webpage',
+    available: true,
+    oauthBased: false,
   },
 ];
 
@@ -246,7 +330,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
 // Use these in components instead of raw store access where possible.
 
 export function selectEmailAccounts(accounts: AssistantAccount[]): AssistantAccount[] {
-  return accounts.filter((a) => a.providerType === 'email');
+  return accounts.filter((a) => a.providerType === 'email' && a.isActive);
 }
 
 export function selectCanAddEmailAccount(
@@ -266,4 +350,27 @@ export function selectEmailAccountsRemaining(
   const limit = getEmailAccountLimit(plan);
   if (limit === Infinity) return Infinity;
   return Math.max(0, limit - emailCount);
+}
+
+export function selectAccountsByType(
+  accounts: AssistantAccount[],
+  providerType: ProviderType
+): AssistantAccount[] {
+  const providerIds = ASSISTANT_PROVIDERS
+    .filter((p) => p.providerType === providerType)
+    .map((p) => p.id);
+  return accounts.filter((a) => a.isActive && providerIds.includes(a.provider));
+}
+
+export function selectTotalActiveAccounts(accounts: AssistantAccount[]): number {
+  return accounts.filter((a) => a.isActive).length;
+}
+
+export function selectCanAddIntegration(
+  accounts: AssistantAccount[],
+  plan: string
+): boolean {
+  const total = selectTotalActiveAccounts(accounts);
+  const limit = getIntegrationLimit(plan);
+  return total < limit;
 }

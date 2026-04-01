@@ -80,7 +80,7 @@ function MainLayout() {
       }
 
       const hasNonContextChanges = changedPaths.some(
-        (p) => !p.replace(/\\/g, "/").includes("/.mydevify/")
+        (p) => !p.replace(/\\/g, "/").includes("/.omnirun/")
       );
       if (hasNonContextChanges) {
         refreshContext(watchPath).catch((err) =>

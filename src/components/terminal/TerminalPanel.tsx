@@ -81,7 +81,7 @@ function TerminalPanel() {
     // Handle 'clear' / 'cls' locally
     if (trimmed === "clear" || trimmed === "cls") {
       term.clear();
-      term.write("\x1b[1;36mMydevify Terminal\x1b[0m");
+      term.write("\x1b[1;36momnirun Terminal\x1b[0m");
       writePrompt(term);
       term.scrollToBottom();
       return;
@@ -168,7 +168,7 @@ function TerminalPanel() {
     }, 50);
 
     // Welcome message
-    term.write("\x1b[1;36mMydevify Terminal\x1b[0m\r\n");
+    term.write("\x1b[1;36momnirun Terminal\x1b[0m\r\n");
     term.write(
       "\x1b[90mType commands below. Use 'clear' to reset.\x1b[0m"
     );

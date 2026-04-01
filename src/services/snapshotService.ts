@@ -2,7 +2,7 @@
 // Snapshot Service - Time Machine
 // ============================================================
 // Automatically saves file snapshots before every write/delete.
-// Stores snapshots in .mydevify/snapshots/ inside the project.
+// Stores snapshots in .omnirun/snapshots/ inside the project.
 // Never destructive — restoring doesn't delete future snapshots.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -29,7 +29,7 @@ export interface SnapshotIndex {
 
 // ─── Constants ───────────────────────────────────────────────
 
-const SNAPSHOT_DIR = ".mydevify";
+const SNAPSHOT_DIR = ".omnirun";
 const SNAPSHOTS_SUBDIR = "snapshots";
 const FILES_SUBDIR = "files";
 const INDEX_FILE = "index.json";
