@@ -10,8 +10,9 @@
 // - Records usage to SQLite with source: 'assistant'
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Square, Bot, User, Trash2, MessageSquarePlus, Zap } from 'lucide-react';
+import { Send, Square, Bot, Trash2, MessageSquarePlus, Zap } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useAuthStore } from '../../stores/authStore';
 import { themes } from '../../config/themes';
 import {
   useAssistantStore,
@@ -247,6 +248,24 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
 
   const activeAccounts = accounts.filter((a) => a.isActive);
   const hasAccounts = activeAccounts.length > 0;
+
+  // ── User avatar ────────────────────────────────────────────
+  const { user, profile } = useAuthStore();
+  const [avatarError, setAvatarError] = useState(false);
+  const avatarUrl = profile?.avatar_url || null;
+  const showAvatar = avatarUrl && !avatarError;
+
+  useEffect(() => {
+    setAvatarError(false);
+  }, [profile?.avatar_url]);
+
+  const getInitials = () => {
+    const name = user?.displayName || profile?.display_name || user?.email || '';
+    if (!name) return '?';
+    const parts = name.split(/[\s@]+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return parts[0][0].toUpperCase();
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -497,8 +516,8 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
                 className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 {message.role === 'assistant' && (
-                  <div className={`w-8 h-8 ${t.borderRadius} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
-                    <img src={theme === 'light' || theme === 'highContrast' ? elipseLight : elipseDark} alt="omnirun" className="w-8 h-8" />
+                  <div className={`w-10 h-10 ${t.borderRadius} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
+                    <img src={theme === 'light' || theme === 'highContrast' ? elipseLight : elipseDark} alt="omnirun" className="w-10 h-10" />
                   </div>
                 )}
 
@@ -533,8 +552,12 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
                 </div>
 
                 {message.role === 'user' && (
-                  <div className={`w-8 h-8 ${t.colors.bgTertiary} ${t.borderRadius} flex items-center justify-center flex-shrink-0`}>
-                    <User size={18} className={t.colors.text} />
+                  <div className={`w-8 h-8 ${t.borderRadius} flex items-center justify-center flex-shrink-0 overflow-hidden`} style={{ background: showAvatar ? 'transparent' : 'var(--action, #7C3AED)' }}>
+                    {showAvatar ? (
+                      <img src={avatarUrl!} alt="avatar" className="w-8 h-8 object-cover" onError={() => setAvatarError(true)} />
+                    ) : (
+                      <span className="text-white text-xs font-semibold">{getInitials()}</span>
+                    )}
                   </div>
                 )}
               </div>

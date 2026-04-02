@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Square, User, Trash2, Wrench, Pencil, Coins, X, Image, MessageSquarePlus, Globe, AlertCircle, ChevronDown, FileText, Paperclip } from "lucide-react";
+import { Send, Square, Trash2, Wrench, Pencil, Coins, X, Image, MessageSquarePlus, Globe, AlertCircle, ChevronDown, FileText, Paperclip } from "lucide-react";
 import elipseDark from "../../assets/elipse_transparent_dark.svg";
 import elipseLight from "../../assets/elipse_transparent_light.svg";
 import { invoke } from "@tauri-apps/api/core";
@@ -16,6 +16,7 @@ import { updateManifestEntry, getRelativePath } from "../../services/manifestSer
 import { parseToolCalls, executeToolCalls, formatToolResults, generateToolSummary, generateResultSummary } from "../../services/toolService";
 import { initContext, loadContext, saveContext, addRecentChange, compressSession, contextToPromptString, type ProjectContext as ContextData, type ProviderConfig } from "../../services/contextService";
 import { extractObservations } from "../../services/memoryService";
+import { useAuthStore } from "../../stores/authStore";
 import { useConnectionsStore } from "../../stores/connectionsStore";
 import { getErrors, clearErrors, onErrorsChange } from "../../services/errorCapture";
 import { useDiffStore } from "../../stores/diffStore";
@@ -215,6 +216,24 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
   const { session, trackAPICall } = useUsageStore();
   const { requestApproval, clear: clearDiffs } = useDiffStore();
   const t = themes[theme];
+
+  // ── User avatar ────────────────────────────────────────────
+  const { user, profile } = useAuthStore();
+  const [avatarError, setAvatarError] = useState(false);
+  const avatarUrl = profile?.avatar_url || null;
+  const showAvatar = avatarUrl && !avatarError;
+
+  useEffect(() => {
+    setAvatarError(false);
+  }, [profile?.avatar_url]);
+
+  const getInitials = () => {
+    const name = user?.displayName || profile?.display_name || user?.email || '';
+    if (!name) return '?';
+    const parts = name.split(/[\s@]+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return parts[0][0].toUpperCase();
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1500,12 +1519,12 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
                   className={`flex gap-3 group ${message.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   {message.role === "assistant" && (
-                    <div className={`w-8 h-8 ${(isTool || isSearch) ? t.colors.bgTertiary : ""} ${t.borderRadius} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
+                    <div className={`w-10 h-10 ${(isTool || isSearch) ? t.colors.bgTertiary : ""} ${t.borderRadius} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
                       {isSearch
                         ? <Globe size={16} className="text-blue-400" />
                         : isTool 
                         ? <Wrench size={16} className={t.colors.textMuted} />
-                        : <img src={theme === "light" || theme === "highContrast" ? elipseLight : elipseDark} alt="omnirun" className="w-8 h-8" />
+                        : <img src={theme === "light" || theme === "highContrast" ? elipseLight : elipseDark} alt="omnirun" className="w-10 h-10" />
                       }
                     </div>
                   )}
@@ -1542,8 +1561,12 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
                   </div>
                   {message.role === "user" && (
                     <div className="flex flex-col items-center gap-1 flex-shrink-0">
-                      <div className={`w-8 h-8 ${t.colors.bgTertiary} ${t.borderRadius} flex items-center justify-center`}>
-                        <User size={18} className={t.colors.text} />
+                      <div className={`w-8 h-8 ${t.borderRadius} flex items-center justify-center overflow-hidden`} style={{ background: showAvatar ? 'transparent' : 'var(--action, #7C3AED)' }}>
+                        {showAvatar ? (
+                          <img src={avatarUrl!} alt="avatar" className="w-8 h-8 object-cover" onError={() => setAvatarError(true)} />
+                        ) : (
+                          <span className="text-white text-xs font-semibold">{getInitials()}</span>
+                        )}
                       </div>
                       <button
                         onClick={() => handleEditMessage(message.id)}

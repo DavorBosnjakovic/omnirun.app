@@ -747,8 +747,26 @@ export async function saveContext(projectPath: string, context: ProjectContext):
   try {
     content = await readFile(`${projectPath}\\${CONTEXT_FILE}`);
   } catch {
-    // context.md doesn't exist yet — this is the first save.
-    // Create .omnirun/ directories and a fresh context.md from the in-memory context.
+    // context.md doesn't exist yet — only create it if there's real content to save.
+    // If all sections are empty, skip writing entirely. This prevents creating
+    // empty/placeholder files that confuse the AI when it tries to read them.
+    const hasRealContent =
+      context.about.length > 0 ||
+      context.styles.length > 0 ||
+      context.conventions.length > 0 ||
+      context.routes.length > 0 ||
+      context.schema.length > 0 ||
+      context.decisions.length > 0 ||
+      context.preferences.length > 0 ||
+      context.built.length > 0 ||
+      context.progress.length > 0;
+
+    if (!hasRealContent) {
+      // Nothing meaningful to write yet — skip file creation.
+      // The in-memory context (tech stack, structure) still works via contextToPromptString.
+      return;
+    }
+
     try {
       try { await createDirectory(`${projectPath}\\${CONTEXT_DIR}`); } catch { /* exists */ }
       try { await createDirectory(`${projectPath}\\${SUMMARIES_DIR}`); } catch { /* exists */ }

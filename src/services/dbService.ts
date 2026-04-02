@@ -105,6 +105,7 @@ interface DBMemorySettings {
   learn_projects: number;
   learn_voice: number;
   sync_enabled: number;
+  last_consolidated_at: string | null;
 }
 
 // ─── Database Instance ───────────────────────────────────────
@@ -118,7 +119,7 @@ declare global {
 
 let db: Database | null = null;
 
-const CURRENT_SCHEMA_VERSION = 8;
+const CURRENT_SCHEMA_VERSION = 9;
 
 // ─── Schema Creation ─────────────────────────────────────────
 
@@ -268,7 +269,8 @@ const CREATE_TABLES_SQL = `
     learn_assistant INTEGER NOT NULL DEFAULT 1,
     learn_projects INTEGER NOT NULL DEFAULT 1,
     learn_voice INTEGER NOT NULL DEFAULT 1,
-    sync_enabled INTEGER NOT NULL DEFAULT 0
+    sync_enabled INTEGER NOT NULL DEFAULT 0,
+    last_consolidated_at TEXT
   );
 `;
 
@@ -489,6 +491,22 @@ async function init(): Promise<void> {
           [8]
         );
         console.log('[DB] Migrated schema v7 → v8 (memory system)');
+      }
+
+      // v8 → v9: Add last_consolidated_at to memory_settings for idle consolidation
+      if (currentVersion >= 1 && currentVersion < 9) {
+        try {
+          await db.execute(
+            'ALTER TABLE memory_settings ADD COLUMN last_consolidated_at TEXT'
+          );
+        } catch {
+          // Column already exists — ignore
+        }
+        await db.execute(
+          'INSERT OR REPLACE INTO schema_version (version) VALUES (?)',
+          [9]
+        );
+        console.log('[DB] Migrated schema v8 → v9 (memory idle consolidation)');
       }
     }
 
@@ -1843,6 +1861,25 @@ async function saveMemorySettings(settings: {
   );
 }
 
+async function getLastConsolidatedAt(): Promise<string | null> {
+  const d = getDb();
+  const rows = await d.select<{ last_consolidated_at: string | null }[]>(
+    'SELECT last_consolidated_at FROM memory_settings WHERE id = 1'
+  );
+  return rows.length > 0 ? rows[0].last_consolidated_at : null;
+}
+
+async function setLastConsolidatedAt(): Promise<void> {
+  const d = getDb();
+  // Ensure the row exists first (upsert-safe)
+  await d.execute(
+    `INSERT OR IGNORE INTO memory_settings (id) VALUES (1)`
+  );
+  await d.execute(
+    `UPDATE memory_settings SET last_consolidated_at = datetime('now') WHERE id = 1`
+  );
+}
+
 // ─── Notifications Cache ──────────────────────────────────────
 // Local cache of unread notifications from watching agents.
 // Source of truth is Supabase assistant_notifications table.
@@ -2041,6 +2078,8 @@ export const dbService = {
   clearAllMemoryObservations,
   getMemorySettings,
   saveMemorySettings,
+  getLastConsolidatedAt,
+  setLastConsolidatedAt,
 
   // Last project
   getLastProjectId,
