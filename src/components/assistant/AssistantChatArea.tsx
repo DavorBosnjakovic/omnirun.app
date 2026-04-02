@@ -19,7 +19,10 @@ import {
 } from '../../stores/assistantStore';
 import { sendMessage } from '../../services/aiService';
 import { dbService } from '../../services/dbService';
+import { buildMemoryBlock, extractObservations } from '../../services/memoryService';
 import MarkdownRenderer from '../chat/MarkdownRenderer';
+import elipseDark from '../../assets/elipse_transparent_dark.svg';
+import elipseLight from '../../assets/elipse_transparent_light.svg';
 
 interface AssistantChatAreaProps {
   plan: string;
@@ -362,10 +365,18 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
         }))
       );
 
+      // Append memory context (what the AI knows about this user)
+      let memoryBlock = '';
+      try {
+        memoryBlock = await buildMemoryBlock();
+      } catch {
+        // Non-fatal — proceed without memory
+      }
+
       const assistantContext = {
         path: '',
         manifest: null,
-        contextString: systemPrompt,
+        contextString: systemPrompt + memoryBlock,
       };
 
       const result = await sendMessage(
@@ -414,6 +425,15 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
       stoppedRef.current = false;
       readerRef.current = null;
       setLoading(false);
+
+      // Silent background: extract observations for memory system
+      const currentMsgs = useAssistantStore.getState().messages;
+      if (currentMsgs.length >= 4) {
+        extractObservations(
+          currentMsgs.map((m) => ({ role: m.role, content: m.content })),
+          'assistant'
+        ).catch(() => {}); // fire-and-forget, never block
+      }
     }
   }, [input, isLoading, messages, activeAccounts]);
 
@@ -477,8 +497,8 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
                 className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 {message.role === 'assistant' && (
-                  <div className={`w-8 h-8 ${t.colors.accent} ${t.borderRadius} flex items-center justify-center flex-shrink-0`}>
-                    <Bot size={18} className={theme === 'highContrast' ? 'text-black' : 'text-white'} />
+                  <div className={`w-8 h-8 ${t.borderRadius} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
+                    <img src={theme === 'light' || theme === 'highContrast' ? elipseLight : elipseDark} alt="omnirun" className="w-8 h-8" />
                   </div>
                 )}
 

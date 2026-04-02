@@ -15,6 +15,7 @@ import { writeFile, readDirectory } from "../../services/fileService";
 import { updateManifestEntry, getRelativePath } from "../../services/manifestService";
 import { parseToolCalls, executeToolCalls, formatToolResults, generateToolSummary, generateResultSummary } from "../../services/toolService";
 import { initContext, loadContext, saveContext, addRecentChange, compressSession, contextToPromptString, type ProjectContext as ContextData, type ProviderConfig } from "../../services/contextService";
+import { extractObservations } from "../../services/memoryService";
 import { useConnectionsStore } from "../../stores/connectionsStore";
 import { getErrors, clearErrors, onErrorsChange } from "../../services/errorCapture";
 import { useDiffStore } from "../../stores/diffStore";
@@ -1123,6 +1124,14 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
       if (currentProject?.id) {
         const currentMessages = useChatStore.getState().messages;
         saveConversation(currentProject.id, currentMessages);
+
+        // Silent background: extract observations for memory system
+        if (currentMessages.length >= 4) {
+          extractObservations(
+            currentMessages.map((m) => ({ role: m.role, content: m.content })),
+            'project'
+          ).catch(() => {}); // fire-and-forget, never block
+        }
       }
     }
   };
