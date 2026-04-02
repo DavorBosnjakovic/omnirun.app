@@ -21,6 +21,7 @@ import {
 import { sendMessage } from '../../services/aiService';
 import { dbService } from '../../services/dbService';
 import { buildMemoryBlock, extractObservations } from '../../services/memoryService';
+import { buildRoutinesPromptBlock } from '../../stores/routineStore';
 import MarkdownRenderer from '../chat/MarkdownRenderer';
 import elipseDark from '../../assets/elipse_transparent_dark.svg';
 import elipseLight from '../../assets/elipse_transparent_light.svg';
@@ -410,10 +411,13 @@ function AssistantChatArea({ plan, onToggleAboutMe, activeView }: AssistantChatA
         // Non-fatal — proceed without memory
       }
 
+      // Append routines context (trigger phrases and steps)
+      const routinesBlock = buildRoutinesPromptBlock();
+
       const assistantContext = {
         path: '',
         manifest: null,
-        contextString: systemPrompt + memoryBlock,
+        contextString: systemPrompt + memoryBlock + routinesBlock,
       };
 
       const result = await sendMessage(
