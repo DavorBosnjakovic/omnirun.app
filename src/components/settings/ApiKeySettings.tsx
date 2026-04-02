@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Eye, EyeOff, CheckCircle, XCircle, Loader, Plus, Trash2, Star, X, RefreshCw } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Eye, EyeOff, CheckCircle, XCircle, Loader, Plus, Trash2, Star, X, RefreshCw, ChevronDown } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { themes } from "../../config/themes";
 import { fetch } from "@tauri-apps/plugin-http";
@@ -207,6 +207,77 @@ async function fetchModelsForProvider(
     console.warn(`Failed to fetch models for ${providerId}:`, e);
     return [];
   }
+}
+
+// ── Themed dropdown (matches Usage page style) ───────────────
+
+function CustomSelect({
+  value,
+  options,
+  onChange,
+  t,
+  maxWidth,
+}: {
+  value: string;
+  options: { id: string; name: string }[];
+  onChange: (value: string) => void;
+  t: any;
+  maxWidth?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const selected = options.find((o) => o.id === value);
+  const label = selected?.name || value || "Select...";
+
+  return (
+    <div className="relative" ref={ref} style={{ maxWidth: maxWidth || "20rem" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-sm ${t.borderRadius} border ${t.colors.border} ${t.colors.bgTertiary} ${t.colors.text} hover:opacity-80 transition-opacity`}
+      >
+        <span className="truncate">{label}</span>
+        <ChevronDown
+          size={13}
+          className={`${t.colors.textMuted} transition-transform flex-shrink-0 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div
+          className={`absolute left-0 top-full mt-1 w-full ${t.colors.bg} border ${t.colors.border} ${t.borderRadius} shadow-xl z-20 overflow-hidden py-1 max-h-60 overflow-y-auto`}
+        >
+          {options.map((option) => {
+            const isActive = option.id === value;
+            return (
+              <button
+                key={option.id}
+                onClick={() => { onChange(option.id); setOpen(false); }}
+                className={`w-full flex items-center justify-between px-3 py-1.5 text-sm text-left hover:opacity-70 transition-opacity ${
+                  isActive ? t.colors.text : t.colors.textMuted
+                }`}
+              >
+                <span className="truncate">{option.name}</span>
+                {isActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Component ──────────────────────────────────────────────────
@@ -469,20 +540,19 @@ function ApiKeySettings() {
         <label className={`block text-sm font-medium mb-2 ${t.colors.textMuted}`}>
           Active Provider
         </label>
-        <select
+        <CustomSelect
           value={activeProvider}
-          onChange={(e) => setActiveProvider(e.target.value)}
-          className={`w-full max-w-xs ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 focus:outline-none`}
-        >
-          {configuredProviders.map((cp) => {
+          onChange={(val) => setActiveProvider(val)}
+          options={configuredProviders.map((cp) => {
             const provider = getProvider(cp.providerId);
-            return (
-              <option key={cp.providerId} value={cp.providerId}>
-                {provider.name} {cp.status === "success" ? "✓" : cp.status === "error" ? "✗" : ""}
-              </option>
-            );
+            return {
+              id: cp.providerId,
+              name: `${provider.name} ${cp.status === "success" ? "✓" : cp.status === "error" ? "✗" : ""}`,
+            };
           })}
-        </select>
+          t={t}
+          maxWidth="20rem"
+        />
       </div>
 
       {/* Configured providers */}
@@ -604,20 +674,16 @@ function ApiKeySettings() {
                     </div>
                   </label>
                   {!smartRouting && (
-                    <div className="mt-2 flex gap-2 items-center">
-                      <select
+                    <div className="mt-2">
+                      <CustomSelect
                         value={config.selectedModel}
-                        onChange={(e) =>
-                          handleUpdateProvider(config.providerId, { selectedModel: e.target.value })
+                        onChange={(val) =>
+                          handleUpdateProvider(config.providerId, { selectedModel: val })
                         }
-                        className={`w-full max-w-xs ${t.colors.bgTertiary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 focus:outline-none`}
-                      >
-                        {models.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.name}
-                          </option>
-                        ))}
-                      </select>
+                        options={models}
+                        t={t}
+                        maxWidth="20rem"
+                      />
                     </div>
                   )}
                 </div>
@@ -635,19 +701,15 @@ function ApiKeySettings() {
                         className={`w-full max-w-xs ${t.colors.bgTertiary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 focus:outline-none`}
                       />
                     ) : (
-                      <select
+                      <CustomSelect
                         value={config.selectedModel}
-                        onChange={(e) =>
-                          handleUpdateProvider(config.providerId, { selectedModel: e.target.value })
+                        onChange={(val) =>
+                          handleUpdateProvider(config.providerId, { selectedModel: val })
                         }
-                        className={`w-full max-w-xs ${t.colors.bgTertiary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-3 py-2 focus:outline-none`}
-                      >
-                        {models.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.name}
-                          </option>
-                        ))}
-                      </select>
+                        options={models}
+                        t={t}
+                        maxWidth="20rem"
+                      />
                     )}
                     {/* Refresh models button */}
                     {!provider.isCustom && (

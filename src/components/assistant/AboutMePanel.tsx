@@ -10,7 +10,7 @@
 // via memoryService.
 
 import { useState, useEffect, useRef } from 'react';
-import { Pencil, FileText, Save, RotateCcw, Loader2 } from 'lucide-react';
+import { Pencil, FileText, Save, RotateCcw, Loader2, ArrowLeft } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { themes } from '../../config/themes';
 import { loadUserContext, saveUserContext } from '../../services/memoryService';
@@ -117,10 +117,19 @@ function AboutMePanel({ onClose }: AboutMePanelProps) {
   return (
     <div className={`flex flex-col h-full ${t.colors.bg}`}>
       {/* Header */}
-      <div className={`flex items-center justify-between px-4 py-3 ${t.colors.bgSecondary} ${t.colors.border} border-b flex-shrink-0`}>
-        <span className={`text-sm ${t.colors.textMuted}`}>
-          What your assistant knows about you
-        </span>
+      <div className={`flex items-center justify-between px-4 py-2 ${t.colors.bgSecondary} ${t.colors.border} border-b flex-shrink-0`}>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onClose}
+            className={`p-1 ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
+            title="Back to chat"
+          >
+            <ArrowLeft size={16} />
+          </button>
+          <span className={`text-sm ${t.colors.textMuted}`}>
+            What your assistant knows about you
+          </span>
+        </div>
         <div className="flex items-center gap-2">
           {/* Toggle edit mode */}
           <button
