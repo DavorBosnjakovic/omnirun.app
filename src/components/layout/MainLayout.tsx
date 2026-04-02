@@ -16,6 +16,7 @@ import TimeMachine from "../timemachine/TimeMachine";
 import TerminalPanel from "../terminal/TerminalPanel";
 import TasksPage from "../tasks/TasksPage";
 import DeployPage from "../deploy/DeployPage";
+import HealthChecksPage from "../health/HealthChecksPage";
 import HomePage from "../home/HomePage";
 import AssistantSection from "../assistant/AssistantSection";
 import type { AppSection } from "../home/HomePage";
@@ -278,10 +279,10 @@ function MainLayout() {
                   />
                 )}
                 {toolsPage === "health" && (
-                  <div className={`${t.colors.textMuted} text-center py-20`}>
-                    <p className="text-lg mb-2">Health Checks</p>
-                    <p className="text-sm">Coming soon</p>
-                  </div>
+                  <HealthChecksPage
+                    onSettingsClick={handleSettingsClick}
+                    onSendToChat={(msg) => handleSendToChat(msg)}
+                  />
                 )}
                 {toolsPage === "routines" && (
                   <div className={`${t.colors.textMuted} text-center py-20`}>

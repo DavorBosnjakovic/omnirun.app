@@ -174,6 +174,18 @@ fn read_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn get_file_size(path: String) -> Result<u64, String> {
+    let path_buf = PathBuf::from(&path);
+    
+    if !is_path_allowed(&path_buf) {
+        return Err("Access denied: path outside project scope".to_string());
+    }
+    
+    let metadata = fs::metadata(&path_buf).map_err(|e| e.to_string())?;
+    Ok(metadata.len())
+}
+
+#[tauri::command]
 fn write_file(path: String, content: String) -> Result<(), String> {
     let path_buf = PathBuf::from(&path);
     
@@ -688,6 +700,7 @@ pub fn run() {
             get_project_path,
             read_directory,
             read_file,
+            get_file_size,
             write_file,
             create_directory,
             delete_path,
