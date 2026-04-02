@@ -10,7 +10,7 @@
 // - Records usage to SQLite with source: 'assistant'
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Square, Bot, Trash2, MessageSquarePlus, Zap } from 'lucide-react';
+import { Send, Square, Bot, Trash2, MessageSquarePlus, Zap, Brain } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAuthStore } from '../../stores/authStore';
 import { themes } from '../../config/themes';
@@ -27,6 +27,8 @@ import elipseLight from '../../assets/elipse_transparent_light.svg';
 
 interface AssistantChatAreaProps {
   plan: string;
+  onToggleAboutMe: () => void;
+  activeView: 'chat' | 'aboutme';
 }
 
 // ─── System prompt ────────────────────────────────────────────
@@ -226,7 +228,7 @@ function EmptyState({
 
 // ─── Main component ───────────────────────────────────────────
 
-function AssistantChatArea({ plan }: AssistantChatAreaProps) {
+function AssistantChatArea({ plan, onToggleAboutMe, activeView }: AssistantChatAreaProps) {
   const [input, setInput] = useState('');
   const stoppedRef = useRef(false);
   const readerRef = useRef<ReadableStreamDefaultReader | null>(null);
@@ -279,7 +281,18 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
     const providers = JSON.parse(savedProviders);
     const config = providers.find((p: any) => p.providerId === activeProviderId);
     if (!config || !config.apiKey) return null;
-    return { id: activeProviderId, apiKey: config.apiKey, model: config.selectedModel };
+
+    let model = config.selectedModel;
+
+    // Assistant tasks (emails, calendar, chat) are simple — prefer Haiku to save cost
+    if (activeProviderId === 'anthropic' && model && !/haiku/i.test(model)) {
+      const haikuModel = (config.models ?? []).find((m: string) => /haiku/i.test(m));
+      if (haikuModel) {
+        model = haikuModel;
+      }
+    }
+
+    return { id: activeProviderId, apiKey: config.apiKey, model };
   };
 
   const getActiveProviderDisplay = () => {
@@ -293,7 +306,16 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
       anthropic: 'Claude', groq: 'Groq', openai: 'OpenAI', google: 'Gemini', ollama: 'Ollama',
     };
     const name = names[activeProviderId] || activeProviderId;
-    const model = config.selectedModel?.split('-').slice(0, 2).join(' ') || '';
+
+    let selectedModel = config.selectedModel ?? '';
+
+    // Reflect the Haiku override for Anthropic in assistant
+    if (activeProviderId === 'anthropic' && !/haiku/i.test(selectedModel)) {
+      const haikuModel = (config.models ?? []).find((m: string) => /haiku/i.test(m));
+      if (haikuModel) selectedModel = haikuModel;
+    }
+
+    const model = selectedModel.split('-').slice(0, 2).join(' ') || '';
     return `${name} \u2022 ${model}`;
   };
 
@@ -477,6 +499,13 @@ function AssistantChatArea({ plan }: AssistantChatAreaProps) {
           {getActiveProviderDisplay()} \u2699
         </span>
         <div className="flex items-center gap-2">
+          <button
+            onClick={onToggleAboutMe}
+            className={`p-1.5 ${activeView === 'aboutme' ? t.colors.text : t.colors.textMuted} hover:${t.colors.text} transition-colors`}
+            title={activeView === 'aboutme' ? 'Back to chat' : 'About me — what AI knows about you'}
+          >
+            <Brain size={16} />
+          </button>
           {messages.length > 0 && (
             <>
               <button
