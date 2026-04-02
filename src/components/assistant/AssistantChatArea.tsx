@@ -286,10 +286,7 @@ function AssistantChatArea({ plan, onToggleAboutMe, activeView }: AssistantChatA
 
     // Assistant tasks (emails, calendar, chat) are simple — prefer Haiku to save cost
     if (activeProviderId === 'anthropic' && model && !/haiku/i.test(model)) {
-      const haikuModel = (config.models ?? []).find((m: string) => /haiku/i.test(m));
-      if (haikuModel) {
-        model = haikuModel;
-      }
+      model = 'claude-haiku-4-5-20251001';
     }
 
     return { id: activeProviderId, apiKey: config.apiKey, model };
@@ -311,8 +308,7 @@ function AssistantChatArea({ plan, onToggleAboutMe, activeView }: AssistantChatA
 
     // Reflect the Haiku override for Anthropic in assistant
     if (activeProviderId === 'anthropic' && !/haiku/i.test(selectedModel)) {
-      const haikuModel = (config.models ?? []).find((m: string) => /haiku/i.test(m));
-      if (haikuModel) selectedModel = haikuModel;
+      selectedModel = 'claude-haiku-4-5-20251001';
     }
 
     const model = selectedModel.split('-').slice(0, 2).join(' ') || '';
