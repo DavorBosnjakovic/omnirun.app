@@ -1,7 +1,9 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useAuthStore } from "../../stores/authStore";
+import { getSupabase } from "../../services/supabaseClient";
 import { themes, ThemeKey } from "../../config/themes";
-import { Eye, EyeOff, ExternalLink, ChevronDown } from "lucide-react";
+import { Eye, EyeOff, ExternalLink, ChevronDown, Camera, Trash2, Loader2 } from "lucide-react";
 
 // ── Reusable custom dropdown ─────────────────────────────────
 
@@ -77,6 +79,186 @@ function SettingsDropdown({ value, options, onChange, theme: t }: SettingsDropdo
   );
 }
 
+// ── Avatar Crop Modal ────────────────────────────────────────
+
+interface AvatarCropModalProps {
+  imageUrl: string;
+  theme: any;
+  onConfirm: (croppedBlob: Blob) => void;
+  onCancel: () => void;
+}
+
+function AvatarCropModal({ imageUrl, theme: t, onConfirm, onCancel }: AvatarCropModalProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [imgLoaded, setImgLoaded] = useState(false);
+
+  const CROP_SIZE = 200; // px, the circular preview diameter
+
+  // Load the image
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      imgRef.current = img;
+      setImgLoaded(true);
+      // Reset
+      setZoom(1);
+      setOffset({ x: 0, y: 0 });
+    };
+    img.src = imageUrl;
+  }, [imageUrl]);
+
+  // Draw the preview
+  useEffect(() => {
+    if (!imgLoaded || !imgRef.current || !canvasRef.current) return;
+    const ctx = canvasRef.current.getContext('2d');
+    if (!ctx) return;
+
+    const img = imgRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = CROP_SIZE;
+    canvas.height = CROP_SIZE;
+
+    ctx.clearRect(0, 0, CROP_SIZE, CROP_SIZE);
+
+    // Clip to circle
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(CROP_SIZE / 2, CROP_SIZE / 2, CROP_SIZE / 2, 0, Math.PI * 2);
+    ctx.clip();
+
+    // Calculate the scale: fit the smaller dimension to CROP_SIZE, then apply zoom
+    const scale = Math.max(CROP_SIZE / img.width, CROP_SIZE / img.height) * zoom;
+    const drawW = img.width * scale;
+    const drawH = img.height * scale;
+    const drawX = (CROP_SIZE - drawW) / 2 + offset.x;
+    const drawY = (CROP_SIZE - drawH) / 2 + offset.y;
+
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+    ctx.restore();
+
+    // Draw circular border
+    ctx.beginPath();
+    ctx.arc(CROP_SIZE / 2, CROP_SIZE / 2, CROP_SIZE / 2 - 1, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }, [imgLoaded, zoom, offset]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    setDragging(true);
+    setDragStart({ x: e.clientX - offset.x, y: e.clientY - offset.y });
+  }, [offset]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragging) return;
+    setOffset({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y,
+    });
+  }, [dragging, dragStart]);
+
+  const handleMouseUp = useCallback(() => {
+    setDragging(false);
+  }, []);
+
+  const handleConfirm = () => {
+    if (!canvasRef.current) return;
+    // Export the canvas as a 256x256 PNG blob
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = 256;
+    exportCanvas.height = 256;
+    const ctx = exportCanvas.getContext('2d');
+    if (!ctx || !imgRef.current) return;
+
+    const img = imgRef.current;
+    const scale = Math.max(256 / img.width, 256 / img.height) * zoom;
+    const drawW = img.width * scale;
+    const drawH = img.height * scale;
+    const ratio = 256 / CROP_SIZE;
+    const drawX = ((256 - drawW) / 2) + (offset.x * ratio);
+    const drawY = ((256 - drawH) / 2) + (offset.y * ratio);
+
+    // Clip to circle
+    ctx.beginPath();
+    ctx.arc(128, 128, 128, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+
+    exportCanvas.toBlob((blob) => {
+      if (blob) onConfirm(blob);
+    }, 'image/png');
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60">
+      <div className={`${t.colors.bgSecondary} ${t.colors.border} border ${t.borderRadius} p-6 w-80 shadow-2xl`}>
+        <h3 className={`text-base font-semibold mb-4 ${t.colors.text}`}>Crop Avatar</h3>
+
+        {/* Canvas preview */}
+        <div className="flex justify-center mb-4">
+          <div
+            ref={containerRef}
+            className="relative cursor-grab active:cursor-grabbing"
+            style={{ width: CROP_SIZE, height: CROP_SIZE }}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+          >
+            <canvas
+              ref={canvasRef}
+              width={CROP_SIZE}
+              height={CROP_SIZE}
+              className="rounded-full"
+            />
+          </div>
+        </div>
+
+        {/* Zoom slider */}
+        <div className="mb-5">
+          <label className={`block text-xs mb-1.5 ${t.colors.textMuted}`}>Zoom</label>
+          <input
+            type="range"
+            min={1}
+            max={3}
+            step={0.05}
+            value={zoom}
+            onChange={(e) => setZoom(parseFloat(e.target.value))}
+            className="w-full accent-blue-500"
+          />
+        </div>
+
+        <p className={`text-xs mb-4 ${t.colors.textMuted}`}>
+          Drag to reposition. This is how your avatar will look.
+        </p>
+
+        {/* Actions */}
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={onCancel}
+            className={`px-4 py-2 text-sm ${t.borderRadius} ${t.colors.bgTertiary} ${t.colors.text} hover:bg-white/10 transition-colors`}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            className={`px-4 py-2 text-sm ${t.borderRadius} bg-blue-600 text-white hover:bg-blue-700 transition-colors`}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────
 
 function GeneralSettings() {
@@ -87,8 +269,134 @@ function GeneralSettings() {
     setWebSearchEnabled, setSearchApiKey,
     resetToDefaults,
   } = useSettingsStore();
+  const { user, profile, fetchProfile } = useAuthStore();
   const t = themes[theme];
   const [showKey, setShowKey] = useState(false);
+
+  // Avatar state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [imgLoadError, setImgLoadError] = useState(false);
+
+  const avatarUrl = profile?.avatar_url || null;
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate
+    if (!file.type.startsWith('image/')) {
+      setAvatarError('Please select an image file.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarError('Image must be under 5 MB.');
+      return;
+    }
+
+    setAvatarError(null);
+    const url = URL.createObjectURL(file);
+    setCropImageUrl(url);
+
+    // Reset the input so the same file can be re-selected
+    e.target.value = '';
+  };
+
+  const handleCropConfirm = async (blob: Blob) => {
+    setCropImageUrl(null);
+    if (!user) return;
+
+    setAvatarUploading(true);
+    setAvatarError(null);
+
+    try {
+      const filePath = `${user.id}/avatar.png`;
+
+      // Upload to Supabase Storage (upsert)
+      const { error: uploadError } = await getSupabase()
+        .storage
+        .from('avatars')
+        .upload(filePath, blob, {
+          upsert: true,
+          contentType: 'image/png',
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = getSupabase()
+        .storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      // Add cache-buster so the browser picks up the new image
+      const publicUrl = urlData.publicUrl + '?t=' + Date.now();
+
+      // Update profile row
+      const { error: updateError } = await getSupabase()
+        .from('profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      // Refresh profile in auth store so Topbar picks it up
+      setImgLoadError(false);
+      await fetchProfile();
+    } catch (err: any) {
+      console.error('[GeneralSettings] Avatar upload failed:', err);
+      setAvatarError('Upload failed. Please try again.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const handleCropCancel = () => {
+    if (cropImageUrl) URL.revokeObjectURL(cropImageUrl);
+    setCropImageUrl(null);
+  };
+
+  const handleRemoveAvatar = async () => {
+    if (!user) return;
+    if (!window.confirm('Remove your avatar?')) return;
+
+    setAvatarUploading(true);
+    setAvatarError(null);
+
+    try {
+      // Delete from storage
+      await getSupabase()
+        .storage
+        .from('avatars')
+        .remove([`${user.id}/avatar.png`]);
+
+      // Clear profile URL
+      await getSupabase()
+        .from('profiles')
+        .update({ avatar_url: null })
+        .eq('id', user.id);
+
+      setImgLoadError(false);
+      await fetchProfile();
+    } catch (err: any) {
+      console.error('[GeneralSettings] Avatar removal failed:', err);
+      setAvatarError('Failed to remove avatar.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const getInitials = () => {
+    const name = user?.displayName || profile?.display_name || user?.email || '';
+    if (!name) return '?';
+    const parts = name.split(/[\s@]+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return parts[0][0].toUpperCase();
+  };
+
+  const showAvatar = avatarUrl && !imgLoadError;
 
   const themeKeys = Object.keys(themes) as ThemeKey[];
 
@@ -129,6 +437,93 @@ function GeneralSettings() {
   return (
     <div className={`${t.colors.text}`}>
       <h1 className="text-2xl font-bold mb-6">General Settings</h1>
+
+      {/* ── Avatar ──────────────────────────────────────────────── */}
+      <div className="mb-6 pb-6 border-b border-gray-700">
+        <label className={`block text-sm font-medium mb-3 ${t.colors.textMuted}`}>
+          Profile Photo
+        </label>
+        <div className="flex items-center gap-4">
+          {/* Circular avatar preview */}
+          <div className="relative group">
+            <div
+              className="w-20 h-20 rounded-full flex items-center justify-center text-xl font-bold text-white overflow-hidden flex-shrink-0"
+              style={{ background: showAvatar ? 'transparent' : 'var(--action, #7C3AED)' }}
+            >
+              {showAvatar ? (
+                <img
+                  src={avatarUrl!}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  onError={() => setImgLoadError(true)}
+                />
+              ) : (
+                getInitials()
+              )}
+            </div>
+
+            {/* Hover overlay */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={avatarUploading}
+              className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+            >
+              {avatarUploading ? (
+                <Loader2 size={20} className="text-white animate-spin" />
+              ) : (
+                <Camera size={20} className="text-white" />
+              )}
+            </button>
+          </div>
+
+          <div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={avatarUploading}
+                className={`px-3 py-1.5 text-sm ${t.borderRadius} ${t.colors.bgTertiary} ${t.colors.text} hover:bg-white/10 transition-colors`}
+              >
+                {avatarUrl ? 'Change' : 'Upload'}
+              </button>
+              {avatarUrl && (
+                <button
+                  onClick={handleRemoveAvatar}
+                  disabled={avatarUploading}
+                  className={`px-3 py-1.5 text-sm ${t.borderRadius} text-red-400 hover:text-red-300 ${t.colors.bgTertiary} hover:bg-white/10 transition-colors flex items-center gap-1.5`}
+                >
+                  <Trash2 size={14} />
+                  Remove
+                </button>
+              )}
+            </div>
+            <p className={`text-xs mt-1.5 ${t.colors.textMuted}`}>
+              JPG, PNG, or GIF. Max 5 MB.
+            </p>
+            {avatarError && (
+              <p className="text-xs mt-1 text-red-400">{avatarError}</p>
+            )}
+          </div>
+        </div>
+
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+      </div>
+
+      {/* Crop modal */}
+      {cropImageUrl && (
+        <AvatarCropModal
+          imageUrl={cropImageUrl}
+          theme={t}
+          onConfirm={handleCropConfirm}
+          onCancel={handleCropCancel}
+        />
+      )}
 
       {/* Theme selection */}
       <div className="mb-6">

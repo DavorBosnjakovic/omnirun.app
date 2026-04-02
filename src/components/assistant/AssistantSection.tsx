@@ -12,7 +12,7 @@
 // - Panel collapse/expand state
 
 import { useEffect, useState } from 'react';
-import { PanelLeftClose, PanelLeft } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, Brain } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAuthStore } from '../../stores/authStore';
 import { themes } from '../../config/themes';
@@ -22,9 +22,11 @@ import {
 import AccountsPanel from './AccountsPanel';
 import AssistantChatArea from './AssistantChatArea';
 import ConnectAccountModal from './ConnectAccountModal';
+import AboutMePanel from './AboutMePanel';
 
 function AssistantSection() {
   const [panelOpen, setPanelOpen] = useState(true);
+  const [activeView, setActiveView] = useState<'chat' | 'aboutme'>('chat');
 
   const { theme } = useSettingsStore();
   const t = themes[theme];
@@ -63,13 +65,22 @@ function AssistantSection() {
             <span className={`text-xs font-medium uppercase tracking-wider ${t.colors.textMuted}`}>
               Integrations
             </span>
-            <button
-              onClick={() => setPanelOpen(false)}
-              className={`p-1 ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
-              title="Collapse panel"
-            >
-              <PanelLeftClose size={15} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setActiveView(activeView === 'chat' ? 'aboutme' : 'chat')}
+                className={`p-1 ${activeView === 'aboutme' ? t.colors.text : t.colors.textMuted} hover:${t.colors.text} transition-colors`}
+                title={activeView === 'aboutme' ? 'Back to chat' : 'About me — what AI knows about you'}
+              >
+                <Brain size={15} />
+              </button>
+              <button
+                onClick={() => setPanelOpen(false)}
+                className={`p-1 ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
+                title="Collapse panel"
+              >
+                <PanelLeftClose size={15} />
+              </button>
+            </div>
           </div>
 
           {/* Scrollable accounts list */}
@@ -93,9 +104,13 @@ function AssistantSection() {
         </div>
       )}
 
-      {/* ── Chat area ── */}
+      {/* ── Main content area ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <AssistantChatArea plan={plan} />
+        {activeView === 'chat' ? (
+          <AssistantChatArea plan={plan} />
+        ) : (
+          <AboutMePanel onClose={() => setActiveView('chat')} />
+        )}
       </div>
 
       {/* ── Connect account modal ── */}

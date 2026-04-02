@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Monitor, Palette, ChevronDown, GitBranch, LogOut, Settings, Minus, Square, X } from "lucide-react";
+import { Monitor, Palette, ChevronDown, GitBranch, LogOut, Settings, Minus, Square, X, ArrowRight } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProjectStore } from "../../stores/projectStore";
 import { useAuthStore } from "../../stores/authStore";
+import { useNotificationStore, selectTopNotifications, getSourceLabel } from "../../stores/notificationStore";
 import { themes, ThemeKey } from "../../config/themes";
 import UsageIndicator from "../chat/UsageIndicator";
 import ToolsDropdown from "./ToolsDropdown";
@@ -16,17 +17,20 @@ interface TopbarProps {
   onToggleTerminal?: () => void;
   onToolsNavigate: (page: string) => void;
   onSettingsClick?: () => void;
+  onAssistantClick?: () => void;
 }
 
-function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsClick }: TopbarProps) {
+function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsClick, onAssistantClick }: TopbarProps) {
   const [themeDropdownOpen, setThemeDropdownOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [gitBranch, setGitBranch] = useState<string | null>(null);
   const [gitChanges, setGitChanges] = useState(0);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
   const { theme, mode, setTheme, toggleMode } = useSettingsStore();
   const { currentProject, projectPath } = useProjectStore();
   const { user, profile, plan, logout } = useAuthStore();
+  const { notifications, unreadCount, loadNotifications, syncFromSupabase, subscribeRealtime, unsubscribeRealtime, markAsRead } = useNotificationStore();
   const t = themes[theme];
   const themeKeys = Object.keys(themes) as ThemeKey[];
   const isLightTheme = theme === "light";
@@ -36,6 +40,31 @@ function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsCli
 
   const themeCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userMenuTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Top 3 unread notifications for the dropdown
+  const topNotifications = selectTopNotifications(notifications, 3);
+
+  // Avatar URL from profile
+  const avatarUrl = profile?.avatar_url || null;
+  const showAvatar = avatarUrl && !avatarError;
+
+  // ── Load notifications + subscribe to realtime ─────────────
+  useEffect(() => {
+    if (!user) return;
+
+    loadNotifications(user.id);
+    syncFromSupabase(user.id);
+    subscribeRealtime(user.id);
+
+    return () => {
+      unsubscribeRealtime();
+    };
+  }, [user?.id]);
+
+  // Reset avatar error state when profile avatar changes
+  useEffect(() => {
+    setAvatarError(false);
+  }, [profile?.avatar_url]);
 
   const handleThemeMouseEnter = useCallback(() => {
     if (themeCloseTimer.current) {
@@ -62,9 +91,9 @@ function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsCli
   const getInitials = () => {
     const name = user?.displayName || profile?.display_name || user?.email || '';
     if (!name) return '?';
-    const parts = name.split(/[\s@]+/);
+    const parts = name.split(/[\s@]+/).filter(Boolean);
     if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-    return name.slice(0, 2).toUpperCase();
+    return parts[0][0].toUpperCase();
   };
 
   const planLabels: Record<string, string> = {
@@ -138,6 +167,18 @@ function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsCli
     const interval = setInterval(fetchGitStatus, 10000);
     return () => clearInterval(interval);
   }, [projectPath, mode]);
+
+  // ── Accent color hex for the badge dot (extracted from theme) ─
+  const accentColorMap: Record<string, string> = {
+    omnirun: '#2DB87A',
+    dark: '#2563EB',
+    light: '#3B82F6',
+    sepia: '#C2410C',
+    retro: '#15803D',
+    midnight: '#4F46E5',
+    highContrast: '#FFFFFF',
+  };
+  const badgeColor = accentColorMap[theme] ?? '#2DB87A';
 
   return (
     <div
@@ -218,23 +259,114 @@ function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsCli
 
         {user && (
           <div className="relative" onMouseEnter={handleUserMenuEnter} onMouseLeave={handleUserMenuLeave}>
+            {/* Avatar button with notification badge dot */}
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white transition-all hover:ring-2 hover:ring-white/30"
-              style={{ background: 'var(--action, #7C3AED)' }}
+              className="relative w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white transition-all hover:ring-2 hover:ring-white/30 overflow-hidden"
+              style={{ background: showAvatar ? 'transparent' : 'var(--action, #7C3AED)' }}
               title={user.displayName || user.email}
             >
-              {getInitials()}
+              {showAvatar ? (
+                <img
+                  src={avatarUrl!}
+                  alt=""
+                  className="w-full h-full object-cover rounded-full"
+                  onError={() => setAvatarError(true)}
+                />
+              ) : (
+                getInitials()
+              )}
+
+              {/* Badge dot — visible when there are unread notifications */}
+              {unreadCount > 0 && (
+                <span
+                  className="absolute top-0 right-0 w-3 h-3 rounded-full border-2"
+                  style={{
+                    backgroundColor: badgeColor,
+                    borderColor: t.colors.bgSecondary.replace('bg-[', '').replace(']', '').startsWith('#')
+                      ? t.colors.bgSecondary.replace('bg-[', '').replace(']', '')
+                      : undefined,
+                  }}
+                />
+              )}
             </button>
 
             {userMenuOpen && (
-              <div className={`absolute right-0 mt-1 w-64 ${t.colors.bgSecondary} ${t.colors.border} border ${t.borderRadius} shadow-lg z-50`}>
+              <div className={`absolute right-0 mt-1 w-72 ${t.colors.bgSecondary} ${t.colors.border} border ${t.borderRadius} shadow-lg z-50`}>
+
+                {/* ── Notifications section (only if there are unread) ── */}
+                {topNotifications.length > 0 && (
+                  <>
+                    <div className="px-3 pt-2.5 pb-1.5 flex items-center justify-between">
+                      <span className={`text-xs font-medium uppercase tracking-wide ${t.colors.textMuted}`}>
+                        Notifications
+                      </span>
+                      <span
+                        className="text-xs font-medium px-1.5 py-0.5 rounded-full"
+                        style={{ backgroundColor: badgeColor, color: '#fff' }}
+                      >
+                        {unreadCount}
+                      </span>
+                    </div>
+
+                    {topNotifications.map((n) => (
+                      <button
+                        key={n.id}
+                        onClick={() => {
+                          markAsRead(n.id);
+                          setUserMenuOpen(false);
+                          onAssistantClick?.();
+                        }}
+                        className={`w-full px-3 py-2 text-left flex items-start gap-2.5 hover:bg-white/10 transition-colors`}
+                      >
+                        <span
+                          className="mt-1.5 w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: badgeColor }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className={`text-sm ${t.colors.text} truncate`}>
+                            {n.title}
+                          </div>
+                          <div className={`text-xs ${t.colors.textMuted}`}>
+                            {getSourceLabel(n.source)}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+
+                    {unreadCount > topNotifications.length && (
+                      <button
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          onAssistantClick?.();
+                        }}
+                        className={`w-full px-3 py-2 text-sm text-left flex items-center gap-2 ${t.colors.textMuted} hover:bg-white/10 transition-colors`}
+                      >
+                        See all in Assistant
+                        <ArrowRight size={14} />
+                      </button>
+                    )}
+
+                    <div className={`${t.colors.border} border-t`} />
+                  </>
+                )}
+
+                {/* ── User profile section ──────────────────── */}
                 <div className="px-3 py-3 flex items-center gap-3">
                   <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                    style={{ background: 'var(--action, #7C3AED)' }}
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0 overflow-hidden"
+                    style={{ background: showAvatar ? 'transparent' : 'var(--action, #7C3AED)' }}
                   >
-                    {getInitials()}
+                    {showAvatar ? (
+                      <img
+                        src={avatarUrl!}
+                        alt=""
+                        className="w-full h-full object-cover rounded-full"
+                        onError={() => setAvatarError(true)}
+                      />
+                    ) : (
+                      getInitials()
+                    )}
                   </div>
                   <div className="min-w-0">
                     <div className={`text-sm font-medium ${t.colors.text} truncate`}>

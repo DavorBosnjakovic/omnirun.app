@@ -74,6 +74,39 @@ interface DBAssistantAccount {
   synced_at: string;
 }
 
+interface DBNotification {
+  id: string;
+  user_id: string;
+  source: string;
+  title: string;
+  body: string | null;
+  source_meta: string; // JSON string
+  is_read: number;     // 0 or 1
+  created_at: string;
+}
+
+interface DBUserMemory {
+  id: number;
+  context_text: string;
+  updated_at: string;
+}
+
+interface DBMemoryObservation {
+  id: number;
+  content: string;
+  source: string;
+  session_id: string | null;
+  created_at: string;
+}
+
+interface DBMemorySettings {
+  id: number;
+  learn_assistant: number;
+  learn_projects: number;
+  learn_voice: number;
+  sync_enabled: number;
+}
+
 // ─── Database Instance ───────────────────────────────────────
 // The instance is also stored on window so it survives Vite HMR module
 // reloads in development (HMR re-executes this module, resetting `db` to
@@ -85,7 +118,7 @@ declare global {
 
 let db: Database | null = null;
 
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 8;
 
 // ─── Schema Creation ─────────────────────────────────────────
 
@@ -203,6 +236,39 @@ const CREATE_TABLES_SQL = `
     is_active INTEGER NOT NULL DEFAULT 1,
     connected_at TEXT,
     synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS notifications_cache (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT,
+    source_meta TEXT NOT NULL DEFAULT '{}',
+    is_read INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS user_memory (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    context_text TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS memory_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'assistant',
+    session_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS memory_settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    learn_assistant INTEGER NOT NULL DEFAULT 1,
+    learn_projects INTEGER NOT NULL DEFAULT 1,
+    learn_voice INTEGER NOT NULL DEFAULT 1,
+    sync_enabled INTEGER NOT NULL DEFAULT 0
   );
 `;
 
@@ -368,6 +434,61 @@ async function init(): Promise<void> {
           [6]
         );
         console.log('[DB] Migrated schema v5 → v6 (usage source + project_name)');
+      }
+
+      // v6 → v7: Add notifications_cache table
+      if (currentVersion >= 1 && currentVersion < 7) {
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS notifications_cache (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT,
+            source_meta TEXT NOT NULL DEFAULT '{}',
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+          )
+        `);
+        await db.execute(
+          'INSERT OR REPLACE INTO schema_version (version) VALUES (?)',
+          [7]
+        );
+        console.log('[DB] Migrated schema v6 → v7 (notifications_cache)');
+      }
+
+      // v7 → v8: Add memory system tables
+      if (currentVersion >= 1 && currentVersion < 8) {
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS user_memory (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            context_text TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          )
+        `);
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS memory_observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'assistant',
+            session_id TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+          )
+        `);
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS memory_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            learn_assistant INTEGER NOT NULL DEFAULT 1,
+            learn_projects INTEGER NOT NULL DEFAULT 1,
+            learn_voice INTEGER NOT NULL DEFAULT 1,
+            sync_enabled INTEGER NOT NULL DEFAULT 0
+          )
+        `);
+        await db.execute(
+          'INSERT OR REPLACE INTO schema_version (version) VALUES (?)',
+          [8]
+        );
+        console.log('[DB] Migrated schema v7 → v8 (memory system)');
       }
     }
 
@@ -1634,6 +1755,157 @@ async function clearAssistantAccountsForUser(userId: string): Promise<void> {
   );
 }
 
+// ─── Memory System ────────────────────────────────────────────
+// user_memory: stores the user context file (single row, id=1)
+// memory_observations: raw observations extracted after conversations
+// memory_settings: per-toggle on/off + sync preference
+
+async function getUserMemory(): Promise<DBUserMemory | null> {
+  const d = getDb();
+  const rows = await d.select<DBUserMemory[]>(
+    'SELECT * FROM user_memory WHERE id = 1'
+  );
+  return rows.length > 0 ? rows[0] : null;
+}
+
+async function saveUserMemory(contextText: string): Promise<void> {
+  const d = getDb();
+  await d.execute(
+    `INSERT OR REPLACE INTO user_memory (id, context_text, updated_at)
+     VALUES (1, ?, datetime('now'))`,
+    [contextText]
+  );
+}
+
+async function addMemoryObservation(obs: {
+  content: string;
+  source: string;
+  session_id: string | null;
+}): Promise<void> {
+  const d = getDb();
+  await d.execute(
+    `INSERT INTO memory_observations (content, source, session_id, created_at)
+     VALUES (?, ?, ?, datetime('now'))`,
+    [obs.content, obs.source, obs.session_id]
+  );
+}
+
+async function getRecentMemoryObservations(limit: number): Promise<DBMemoryObservation[]> {
+  const d = getDb();
+  return d.select<DBMemoryObservation[]>(
+    'SELECT * FROM memory_observations ORDER BY created_at DESC LIMIT ?',
+    [limit]
+  );
+}
+
+async function getMemoryObservationCount(): Promise<number> {
+  const d = getDb();
+  const rows = await d.select<{ cnt: number }[]>(
+    'SELECT COUNT(*) as cnt FROM memory_observations'
+  );
+  return rows[0]?.cnt ?? 0;
+}
+
+async function clearProcessedObservations(): Promise<void> {
+  const d = getDb();
+  await d.execute('DELETE FROM memory_observations');
+}
+
+async function clearAllMemoryObservations(): Promise<void> {
+  const d = getDb();
+  await d.execute('DELETE FROM memory_observations');
+}
+
+async function getMemorySettings(): Promise<{
+  learn_assistant: number;
+  learn_projects: number;
+  learn_voice: number;
+  sync_enabled: number;
+} | null> {
+  const d = getDb();
+  const rows = await d.select<DBMemorySettings[]>(
+    'SELECT * FROM memory_settings WHERE id = 1'
+  );
+  return rows.length > 0 ? rows[0] : null;
+}
+
+async function saveMemorySettings(settings: {
+  learn_assistant: number;
+  learn_projects: number;
+  learn_voice: number;
+  sync_enabled: number;
+}): Promise<void> {
+  const d = getDb();
+  await d.execute(
+    `INSERT OR REPLACE INTO memory_settings (id, learn_assistant, learn_projects, learn_voice, sync_enabled)
+     VALUES (1, ?, ?, ?, ?)`,
+    [settings.learn_assistant, settings.learn_projects, settings.learn_voice, settings.sync_enabled]
+  );
+}
+
+// ─── Notifications Cache ──────────────────────────────────────
+// Local cache of unread notifications from watching agents.
+// Source of truth is Supabase assistant_notifications table.
+// Only unread notifications are cached — read ones are removed.
+
+export interface CachedNotification {
+  id: string;
+  userId: string;
+  source: string;
+  title: string;
+  body: string | null;
+  sourceMeta: Record<string, any>;
+  isRead: boolean;
+  createdAt: string;
+}
+
+async function getUnreadNotifications(userId: string): Promise<CachedNotification[]> {
+  const d = getDb();
+  const rows = await d.select<DBNotification[]>(
+    'SELECT * FROM notifications_cache WHERE user_id = ? AND is_read = 0 ORDER BY created_at DESC',
+    [userId]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    source: r.source,
+    title: r.title,
+    body: r.body,
+    sourceMeta: r.source_meta ? JSON.parse(r.source_meta) : {},
+    isRead: r.is_read === 1,
+    createdAt: r.created_at,
+  }));
+}
+
+async function cacheNotification(n: CachedNotification): Promise<void> {
+  const d = getDb();
+  await d.execute(
+    `INSERT OR REPLACE INTO notifications_cache
+       (id, user_id, source, title, body, source_meta, is_read, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      n.id,
+      n.userId,
+      n.source,
+      n.title,
+      n.body,
+      JSON.stringify(n.sourceMeta),
+      n.isRead ? 1 : 0,
+      n.createdAt,
+    ]
+  );
+}
+
+async function deleteNotification(id: string): Promise<void> {
+  const d = getDb();
+  await d.execute('DELETE FROM notifications_cache WHERE id = ?', [id]);
+}
+
+async function clearNotificationsForUser(userId: string): Promise<void> {
+  const d = getDb();
+  await d.execute('DELETE FROM notifications_cache WHERE user_id = ?', [userId]);
+}
+
 // ─── Last Project ────────────────────────────────────────────
 
 async function getLastProjectId(): Promise<string | null> {
@@ -1752,6 +2024,23 @@ export const dbService = {
   updateAssistantAccountLabel,
   deleteAssistantAccount,
   clearAssistantAccountsForUser,
+
+  // Notifications cache
+  getUnreadNotifications,
+  cacheNotification,
+  deleteNotification,
+  clearNotificationsForUser,
+
+  // Memory system
+  getUserMemory,
+  saveUserMemory,
+  addMemoryObservation,
+  getRecentMemoryObservations,
+  getMemoryObservationCount,
+  clearProcessedObservations,
+  clearAllMemoryObservations,
+  getMemorySettings,
+  saveMemorySettings,
 
   // Last project
   getLastProjectId,
