@@ -33,7 +33,7 @@ const NAV_ITEMS: Array<{
   { id: 'home',      label: 'Home',      icon: Home },
   { id: 'projects',  label: 'Projects',  icon: LayoutGrid },
   { id: 'assistant', label: 'Assistant', icon: Bot },
-  { id: 'tasks',     label: 'Tasks',     icon: Clock },
+  { id: 'tasks',     label: 'Scheduled Tasks',     icon: Clock },
 ];
 
 function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionChange }: SidebarProps) {
