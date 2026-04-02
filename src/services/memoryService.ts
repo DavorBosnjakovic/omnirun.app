@@ -129,6 +129,7 @@ For each observation, categorize it:
 - PROJECT: something about a specific project
 - VOICE: something about how they write or communicate
 - CORRECTION: something they corrected or rejected
+- FAILED_ATTEMPT: something that was tried and didn't work or was abandoned
 
 IMPORTANT RULES:
 - Never store raw email content, only summaries
@@ -136,6 +137,8 @@ IMPORTANT RULES:
 - Never store third-party email addresses (first names only)
 - Never store raw code (only patterns and decisions)
 - Be specific: "prefers Tailwind over CSS modules" not "has CSS preferences"
+- DERIVABILITY RULE: Do NOT extract facts that can be determined by reading config files, package.json, or the codebase. Skip things like "project uses React" or "using TypeScript" — those are in the config files. DO extract decisions and WHY: "chose React over Vue because of team familiarity"
+- SUCCESS GATE: For observations about code changes or architecture, note whether the operation was confirmed successful, failed, or just discussed. Mark failed operations as FAILED_ATTEMPT — these are valuable because they prevent repeating mistakes.
 
 Respond ONLY with a JSON array of observations. No preamble, no explanation.
 Format: [{"type": "PREFERENCE", "observation": "..."}, ...]`;
@@ -221,19 +224,34 @@ You will receive:
 1. The current context file (what we already know)
 2. New observations from recent conversations
 
-Your job: produce an UPDATED context file that:
-- Integrates new observations into the existing structure
-- Keeps what matters, discards what doesn't
-- Prioritizes recent information over old when space is tight
-- Resolves contradictions (if something is contradicted multiple times, update it)
-- Stays UNDER 3000 tokens total (this is a hard limit)
-- Uses the exact section structure provided
-- Replaces placeholder text like "[Not yet known]" with real data when available
-- Is written in a neutral, factual tone
+Your job: produce an UPDATED context file by following these four phases IN ORDER.
 
-CRITICAL: If new observations contradict existing context and the contradiction has only appeared once, keep both and note the uncertainty. If contradicted 3+ times, update to the new information.
+PHASE 1 — DEDUPLICATE
+Compare new observations against existing context entries. Skip any observation that is already captured (even if worded differently). Do not add duplicates.
 
-Respond ONLY with the updated context file. No preamble, no explanation. Start directly with "## Identity".`;
+PHASE 2 — CHECK FOR CONTRADICTIONS
+Identify new observations that contradict existing context entries.
+- If the same new version has appeared 3+ times across observations → UPDATE the existing entry
+- If only 1-2 times → keep the existing entry, do not change it yet (it might be situational)
+- Flag entries about fast-changing topics (current focus, blockers, active projects) that haven't been reinforced recently — consider removing them
+
+PHASE 3 — CHECK FOR STALENESS
+Review every entry in the current context. For each one ask:
+- Is this derivable from config files or the codebase? (e.g. "uses React" — if yes, REMOVE it, the AI can read package.json)
+- Has this been reinforced by any recent observation? (if not reinforced in 60+ days and it's about something that changes, demote or remove)
+- Is this vague and never led to an action? (e.g. "seems to like clean code" — if yes, remove)
+
+PHASE 4 — COMPRESS AND WRITE
+Produce the updated context file:
+- Add genuinely new, non-derivable, durable observations
+- Remove stale, derivable, or superseded entries
+- Merge related items (don't have 3 entries that say the same thing differently)
+- Sharpen vague observations into specific, actionable facts
+- Stay UNDER 3000 tokens total. Recency + frequency determine what stays.
+- Use the exact section structure provided in the current context
+- Replace placeholder text like "[Not yet known]" with real data when available
+
+CRITICAL: Output ONLY the updated context file. No commentary, no phase labels, no explanations. Start directly with "## Identity".`;
 
 export async function compressMemory(): Promise<void> {
   try {
@@ -279,6 +297,39 @@ export async function compressMemory(): Promise<void> {
   }
 }
 
+// ─── Idle-time memory consolidation ──────────────────────────
+// Runs during idle periods (30+ min no user input, 10+ unprocessed
+// observations, 4+ hours since last consolidation).
+// Uses the same multi-phase compression prompt. Costs ~$0.001-0.003.
+// Called from ChatArea/AssistantChatArea idle detection timers.
+
+export async function runIdleConsolidation(): Promise<boolean> {
+  try {
+    // Check if there are enough unprocessed observations to bother
+    const count = await dbService.getMemoryObservationCount();
+    if (count < 10) return false;
+
+    // Check cooldown: at least 4 hours since last consolidation
+    const lastConsolidated = await dbService.getLastConsolidatedAt();
+    if (lastConsolidated) {
+      const hoursSince = (Date.now() - new Date(lastConsolidated + 'Z').getTime()) / (1000 * 60 * 60);
+      if (hoursSince < 4) return false;
+    }
+
+    // Run compression (reuses the same multi-phase prompt)
+    await compressMemory();
+
+    // Update the consolidation timestamp
+    await dbService.setLastConsolidatedAt();
+
+    console.log('[MemoryService] Idle consolidation complete');
+    return true;
+  } catch (err) {
+    console.error('[MemoryService] Idle consolidation failed (non-fatal):', err);
+    return false;
+  }
+}
+
 // ─── Build session orientation block ─────────────────────────
 // Returns a string to inject into the system prompt so the AI
 // behaves as if it knows this person without reciting every fact.
@@ -291,7 +342,13 @@ export async function buildMemoryBlock(): Promise<string> {
     return '';
   }
 
-  return `\n\n--- MEMORY (what you know about this user) ---\nUse this context to personalize your responses. Don't recite these facts — internalize them and let them naturally influence how you respond.\n\n${context}\n--- END MEMORY ---`;
+  return `\n\n--- MEMORY (what you know about this user) ---
+Use this context to personalize your responses. Don't recite these facts — internalize them and let them naturally influence how you respond.
+
+MEMORY VERIFICATION RULE: Information about user preferences, behavioral patterns, and past failures is TRUSTED — act on it directly. Information about project architecture, tech stack, dependencies, file structure, or current code state is treated as HINTS — verify against actual files before acting. If memory says "using Stripe for payments" but the codebase has no Stripe imports, trust the codebase, not memory.
+
+${context}
+--- END MEMORY ---`;
 }
 
 // ─── Provider helper ─────────────────────────────────────────
