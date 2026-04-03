@@ -10,6 +10,7 @@ mod server;
 mod scheduler;
 mod task_runner;
 mod oauth;
+mod screen_control;
 
 #[derive(Serialize, Deserialize)]
 pub struct FileEntry {
@@ -690,6 +691,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::default().build())
         .setup(|app| {
             // Start the background scheduler on app launch
             scheduler::start_scheduler(app.handle().clone());
@@ -732,7 +734,22 @@ pub fn run() {
             oauth::start_discord_oauth,
             oauth::start_github_oauth,
             oauth::start_notion_oauth,
-            oauth::start_todoist_oauth
+            oauth::start_todoist_oauth,
+            // Desktop app control (screen control)
+            screen_control::take_screenshot,
+            screen_control::screen_click,
+            screen_control::screen_double_click,
+            screen_control::screen_right_click,
+            screen_control::screen_mouse_move,
+            screen_control::screen_drag,
+            screen_control::screen_scroll,
+            screen_control::screen_type,
+            screen_control::screen_key,
+            screen_control::get_active_window,
+            screen_control::get_screen_size,
+            screen_control::list_monitors,
+            screen_control::launch_app,
+            screen_control::minimize_self,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
