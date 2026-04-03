@@ -2,13 +2,8 @@
 // AssistantChatArea.tsx
 // ============================================================
 // Chat interface for the Assistant section.
-// Same visual patterns as ChatArea.tsx but:
-// - Uses assistantStore messages (not chatStore)
-// - No project context, no tool calls, no file tree
-// - System prompt aware of ALL connected integrations
-// - Shows onboarding empty state when no accounts connected
-// - Records usage to SQLite with source: 'assistant'
-// - Screen control loop with smart monitor handling
+// Screen control loop with smart monitor handling, omni-files
+// app launching, playlist creation, kill switch.
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Square, Bot, Trash2, MessageSquarePlus, Zap, Brain, Monitor } from 'lucide-react';
@@ -34,8 +29,8 @@ import {
   getScreenSize,
   buildUserContextPrompt,
   isBlockedApp,
-  minimizeSelf,
-  matchAppFromShortcuts,
+  matchFileFromOmniFiles,
+  getOmniFilesPath,
   launchApp,
   createPlaylist,
   listMonitors,
@@ -47,14 +42,12 @@ import MarkdownRenderer from '../chat/MarkdownRenderer';
 import elipseDark from '../../assets/elipse_transparent_dark.svg';
 import elipseLight from '../../assets/elipse_transparent_light.svg';
 
-// Global shortcut for kill switch
 let globalShortcutRegistered = false;
 
 interface AssistantChatAreaProps {
   plan: string;
   onToggleAboutMe: () => void;
   activeView: 'chat' | 'aboutme';
-  // Screen control
   screenControlEnabled?: boolean;
   screenControlMode?: boolean;
   onScreenControlModeChange?: (active: boolean) => void;
@@ -65,12 +58,10 @@ interface AssistantChatAreaProps {
 }
 
 // ─── System prompt ────────────────────────────────────────────
-// Built fresh on each send so it always reflects current accounts.
 
 function buildSystemPrompt(
   accounts: { provider: string; email: string; accountLabel: string | null; providerType: string }[]
 ): string {
-  // Group accounts by type
   const byType = (type: string) => accounts.filter((a) => {
     const def = ASSISTANT_PROVIDERS.find((p) => p.id === a.provider);
     return def?.providerType === type;
@@ -103,55 +94,14 @@ function buildSystemPrompt(
   }
 
   const capabilities: string[] = [];
-  if (emailAccounts.length > 0) {
-    capabilities.push(
-      'Summarize unread or important emails',
-      'Draft and send email replies in the user\'s voice',
-      'Flag urgent emails and suggest actions',
-    );
-  }
-  if (calendarAccounts.length > 0) {
-    capabilities.push(
-      'Show today\'s schedule and upcoming events',
-      'Warn about scheduling conflicts',
-      'Help schedule or reschedule meetings',
-    );
-  }
-  if (messagingAccounts.length > 0) {
-    capabilities.push(
-      'Surface important Slack/Discord messages the user missed',
-      'Summarize busy channels',
-      'Draft and send replies',
-    );
-  }
-  if (devAccounts.length > 0) {
-    capabilities.push(
-      'Notify about new PRs, issues, and review requests',
-      'Summarize repo activity',
-    );
-  }
-  if (knowledgeAccounts.length > 0) {
-    capabilities.push(
-      'Search and reference the user\'s Notion pages',
-    );
-  }
-  if (taskAccounts.length > 0) {
-    capabilities.push(
-      'Show and manage Todoist tasks',
-      'Create, complete, or reschedule tasks',
-    );
-  }
-  if (watchers.length > 0) {
-    capabilities.push(
-      'Report on changes detected on watched websites',
-    );
-  }
-  if (capabilities.length === 0) {
-    capabilities.push(
-      'Help the user once they connect their accounts',
-      'Answer general questions',
-    );
-  }
+  if (emailAccounts.length > 0) capabilities.push('Summarize unread or important emails', 'Draft and send email replies in the user\'s voice', 'Flag urgent emails and suggest actions');
+  if (calendarAccounts.length > 0) capabilities.push('Show today\'s schedule and upcoming events', 'Warn about scheduling conflicts', 'Help schedule or reschedule meetings');
+  if (messagingAccounts.length > 0) capabilities.push('Surface important Slack/Discord messages the user missed', 'Summarize busy channels', 'Draft and send replies');
+  if (devAccounts.length > 0) capabilities.push('Notify about new PRs, issues, and review requests', 'Summarize repo activity');
+  if (knowledgeAccounts.length > 0) capabilities.push('Search and reference the user\'s Notion pages');
+  if (taskAccounts.length > 0) capabilities.push('Show and manage Todoist tasks', 'Create, complete, or reschedule tasks');
+  if (watchers.length > 0) capabilities.push('Report on changes detected on watched websites');
+  if (capabilities.length === 0) capabilities.push('Help the user once they connect their accounts', 'Answer general questions');
 
   return `You are a personal AI assistant integrated into Omnirun, a desktop productivity app.
 
@@ -170,7 +120,7 @@ Guidelines:
 - For morning briefs, prioritize: urgent emails, today's calendar, failed tasks, then everything else`;
 }
 
-// ─── Suggestion prompts based on connected accounts ───────────
+// ─── Suggestions ──────────────────────────────────────────────
 
 function getSuggestions(accounts: any[]): string[] {
   const hasEmail = accounts.some((a) => ['gmail', 'outlook'].includes(a.provider));
@@ -181,7 +131,6 @@ function getSuggestions(accounts: any[]): string[] {
   const hasWatcher = accounts.some((a) => a.provider === 'website_watcher');
 
   const suggestions: string[] = [];
-
   if (hasEmail || hasCalendar) suggestions.push('Give me a morning brief');
   if (hasEmail) suggestions.push('What emails need my attention today?');
   if (hasCalendar) suggestions.push("What's on my calendar today?");
@@ -189,13 +138,10 @@ function getSuggestions(accounts: any[]): string[] {
   if (hasDev) suggestions.push('Any new PRs or issues?');
   if (hasTasks) suggestions.push("What's on my to-do list?");
   if (hasWatcher) suggestions.push('Any changes on my watched pages?');
-
   return suggestions.slice(0, 4);
 }
 
-// ─── Empty / onboarding state ─────────────────────────────────
-
-// ── Screen control request detection ─────────────────────────
+// ─── Screen control patterns ─────────────────────────────────
 
 const SCREEN_CONTROL_PATTERNS = [
   /\b(open|launch|start|run)\s+(app|application|program|software|notepad|terminal|finder|explorer|photoshop|figma|excel|word|outlook|slack|discord|spotify|chrome|firefox|safari|edge|brave|vscode|code|sublime|atom)\b/i,
@@ -208,8 +154,6 @@ const SCREEN_CONTROL_PATTERNS = [
   /\bcontrol\s+(my\s+)?(screen|computer|desktop)\b/i,
   /\bwhat('s| is)\s+on\s+(my\s+)?screen\b/i,
   /\bwhat\s+am\s+i\s+looking\s+at\b/i,
-  /\b(write|type|enter|input)\s+.{1,50}(in|into|on|to)?\b/i,
-  /\b(write|type)\s+(it\s+)?["'].+["']/i,
   /\b(scroll|drag|swipe)\s+(up|down|left|right)/i,
   /\b(go\s+to|navigate\s+to|switch\s+to|focus)\s+/i,
   /\b(copy|paste|cut|undo|redo|save|select\s+all)\b/i,
@@ -217,72 +161,44 @@ const SCREEN_CONTROL_PATTERNS = [
 ];
 
 function isScreenControlRequest(message: string): boolean {
-  return SCREEN_CONTROL_PATTERNS.some((pattern) => pattern.test(message));
+  return SCREEN_CONTROL_PATTERNS.some((p) => p.test(message));
 }
 
-// ── Direct Anthropic API call for screen control ──────────
-// Bypasses sendMessage entirely — no smart routing, no tool prompts,
-// no system prompt interference. Clean screen control only.
+// ─── Screen control system prompt ─────────────────────────────
 
-const SCREEN_CONTROL_SYSTEM_PROMPT = `You are a desktop automation agent. You can see the user's screen via screenshots and control it with mouse/keyboard actions.
+const SCREEN_CONTROL_SYSTEM_PROMPT = `You are a desktop automation agent. You see the user's screen via screenshots and control it.
 
-RESPONSE FORMAT — you MUST use this EXACT format every time, no exceptions:
+RESPONSE FORMAT — EXACT, every time:
 
-OBSERVATION: [one sentence describing what you see on screen]
-ACTION: [exactly one action from the list below]
+OBSERVATION: [one sentence about what you see]
+ACTION: [one action]
 
-Available actions:
-CLICK x y — left click at pixel coordinates
-DOUBLE_CLICK x y — double click
-RIGHT_CLICK x y — right click
-TYPE text — type a text string (do NOT add quotes around the text)
-KEY combo — press key combo (examples: enter, tab, escape, ctrl+s, alt+tab, ctrl+a)
-SCROLL up/down amount — scroll (example: SCROLL down 3)
-WAIT seconds — wait for something to load (example: WAIT 2)
-DONE — task is complete
-FAIL reason — cannot complete, explain why
+Actions: CLICK x y | DOUBLE_CLICK x y | RIGHT_CLICK x y | TYPE text | KEY combo | SCROLL up/down amount | WAIT seconds | DONE | FAIL reason
 
-STRICT RULES:
-- ALWAYS output exactly two lines: one OBSERVATION and one ACTION. Nothing else.
-- Never write explanations, questions, suggestions, or commentary.
-- Never use XML tags, markdown, or any other formatting.
-- Coordinates are in screenshot pixel space.
-- ONE action per response. Never combine multiple actions.
-- If an app icon is visible in the taskbar, click it directly. Do not use Start menu.
-- After completing the task, respond with ACTION: DONE
-- If you only need to describe the screen, describe it then say ACTION: DONE
-- NEVER click send/submit/post, enter passwords, or interact with payment screens without user approval.
-- If something unexpected appears (error, popup, wrong app), respond with ACTION: FAIL and explain.
-- Some apps may have been pre-launched for you. Check the screenshot to see what is already open.
+Rules:
+- Exactly two lines: OBSERVATION + ACTION. Nothing else.
+- No explanations, questions, or commentary.
+- Coordinates are screenshot pixel space.
+- One action per response.
+- If app icon is in taskbar, click it directly.
+- After task is done: ACTION: DONE
+- NEVER click send/submit, enter passwords, or payment screens without approval.
+- If unexpected popup/error: ACTION: FAIL with reason.
+- Some apps may be pre-launched. Check screenshot first.
 
-EXAMPLES:
+Examples:
 
-User provides screenshot of Windows desktop with Notepad in taskbar.
-Task: Open Notepad and type hello world.
-
-OBSERVATION: I see the Windows desktop. Notepad icon is visible in the taskbar at approximately (450, 1060).
+OBSERVATION: Desktop with Notepad in taskbar at (450, 1060).
 ACTION: CLICK 450 1060
 
----
-
-User provides screenshot showing Notepad is now open with an empty document.
-
-OBSERVATION: Notepad is open with a blank document. The text cursor is in the editing area.
+OBSERVATION: Notepad open, empty document, cursor ready.
 ACTION: TYPE hello world
 
----
-
-User provides screenshot showing "hello world" typed in Notepad.
-
-OBSERVATION: The text "hello world" has been typed successfully in Notepad.
+OBSERVATION: Text typed successfully in Notepad.
 ACTION: DONE
 
----
-
-User provides screenshot showing an unexpected error dialog.
-
-OBSERVATION: An error dialog appeared saying "Application not responding".
-ACTION: FAIL Unexpected error dialog appeared — application not responding.`;
+OBSERVATION: Error dialog "App not responding" appeared.
+ACTION: FAIL Application not responding.`;
 
 async function sendScreenControlMessage(
   messages: { role: 'user' | 'assistant'; content: any }[],
@@ -320,22 +236,18 @@ async function sendScreenControlMessage(
   };
 }
 
-// ── Clean AI responses for display ───────────────────────────
-// Strip <tool_call>...</tool_call> tags and other raw AI markup
-// so users see clean, readable text.
+// ─── Clean AI response ────────────────────────────────────────
 
 function cleanAiResponse(text: string): string {
   let cleaned = text;
-  // Remove <tool_call>...</tool_call> blocks entirely
   cleaned = cleaned.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim();
-  // Remove orphaned <tool_call> without closing tag
   cleaned = cleaned.replace(/<tool_call>[\s\S]*$/g, '').trim();
-  // Remove <screenshot_base64>...</screenshot_base64> blocks (internal data)
   cleaned = cleaned.replace(/<screenshot_base64>[\s\S]*?<\/screenshot_base64>/g, '').trim();
-  // Collapse multiple blank lines
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
   return cleaned;
 }
+
+// ─── Empty state ──────────────────────────────────────────────
 
 function EmptyState({
   hasAccounts,
@@ -343,12 +255,16 @@ function EmptyState({
   accounts,
   onSuggestion,
   theme: t,
+  screenControlEnabled,
+  onScreenControlEnable,
 }: {
   hasAccounts: boolean;
   onConnect: () => void;
   accounts: any[];
   onSuggestion: (text: string) => void;
   theme: any;
+  screenControlEnabled?: boolean;
+  onScreenControlEnable?: () => void;
 }) {
   if (hasAccounts) {
     const suggestions = getSuggestions(accounts);
@@ -384,9 +300,7 @@ function EmptyState({
       >
         <Zap size={24} style={{ color: '#2DB87A' }} />
       </div>
-      <p className={`text-sm font-medium mb-2 ${t.colors.text}`}>
-        Connect your first account
-      </p>
+      <p className={`text-sm font-medium mb-2 ${t.colors.text}`}>Connect your first account</p>
       <p className={`text-xs leading-relaxed mb-5 ${t.colors.textMuted}`}>
         Connect Gmail, Calendar, Slack, GitHub, or any of your accounts and your assistant will help you manage them all from one place.
       </p>
@@ -397,6 +311,33 @@ function EmptyState({
       >
         Connect an account
       </button>
+
+      {/* Screen control option */}
+      {screenControlEnabled && onScreenControlEnable && (
+        <div className="mt-8">
+          <div className={`flex items-center gap-3 mb-3`}>
+            <div className={`flex-1 h-px ${t.colors.border}`} style={{ borderTop: '1px solid' }} />
+            <span className={`text-[10px] uppercase tracking-wider ${t.colors.textMuted}`}>or</span>
+            <div className={`flex-1 h-px ${t.colors.border}`} style={{ borderTop: '1px solid' }} />
+          </div>
+          <div className="flex items-center gap-2 mb-2">
+            <Monitor size={16} style={{ color: '#2DB87A' }} />
+            <span className={`text-sm font-medium ${t.colors.text}`}>Control your desktop</span>
+          </div>
+          <p className={`text-xs leading-relaxed mb-4 ${t.colors.textMuted}`}>
+            Let AI see your screen and control apps with mouse and keyboard. Open apps, click buttons, type text — hands free.
+          </p>
+          <button
+            onClick={onScreenControlEnable}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90 ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text}`}
+          >
+            <span className="flex items-center gap-2 justify-center">
+              <Monitor size={14} />
+              Turn on Screen Control
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -437,15 +378,12 @@ function AssistantChatArea({
   const activeAccounts = accounts.filter((a) => a.isActive);
   const hasAccounts = activeAccounts.length > 0;
 
-  // ── User avatar ────────────────────────────────────────────
   const { user, profile } = useAuthStore();
   const [avatarError, setAvatarError] = useState(false);
   const avatarUrl = profile?.avatar_url || null;
   const showAvatar = avatarUrl && !avatarError;
 
-  useEffect(() => {
-    setAvatarError(false);
-  }, [profile?.avatar_url]);
+  useEffect(() => { setAvatarError(false); }, [profile?.avatar_url]);
 
   const getInitials = () => {
     const name = user?.displayName || profile?.display_name || user?.email || '';
@@ -459,54 +397,41 @@ function AssistantChatArea({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // ── Kill switch: global hotkey registration ─────────────────
-  // Registers the kill switch hotkey (default F10) on mount.
-  // When pressed, immediately stops screen control.
+  // ── Kill switch ─────────────────────────────────────────────
   useEffect(() => {
     if (!screenControlEnabled) return;
-
     let cleanedUp = false;
 
     const registerKillSwitch = async () => {
       try {
         const { register, unregister } = await import('@tauri-apps/plugin-global-shortcut');
-        const settings = loadScreenControlSettings();
-        const hotkey = settings.killSwitchKey || 'F10';
-
-        // Unregister first in case it was already registered
-        try { await unregister(hotkey); } catch { /* ignore */ }
-
+        const hotkey = loadScreenControlSettings().killSwitchKey || 'F10';
+        try { await unregister(hotkey); } catch {}
         await register(hotkey, (event: any) => {
           if (event.state === 'Pressed' && !cleanedUp) {
-            console.log('[ScreenControl] Kill switch activated:', hotkey);
             if (screenControlStopRef) screenControlStopRef.current = true;
             onScreenControlModeChange?.(false);
             onScreenControlEnd?.();
           }
         });
-
         globalShortcutRegistered = true;
-        console.log('[ScreenControl] Kill switch registered:', hotkey);
       } catch (err) {
-        console.warn('[ScreenControl] Failed to register kill switch:', err);
+        console.warn('[ScreenControl] Kill switch failed:', err);
       }
     };
-
     registerKillSwitch();
-
     return () => {
       cleanedUp = true;
       if (globalShortcutRegistered) {
         import('@tauri-apps/plugin-global-shortcut').then(({ unregister }) => {
-          const settings = loadScreenControlSettings();
-          unregister(settings.killSwitchKey || 'F10').catch(() => {});
+          unregister(loadScreenControlSettings().killSwitchKey || 'F10').catch(() => {});
           globalShortcutRegistered = false;
         }).catch(() => {});
       }
     };
   }, [screenControlEnabled]);
 
-  // ── Get provider for screen control (bypasses Haiku override) ──
+  // ── Screen control provider ─────────────────────────────────
   const getScreenControlProvider = () => {
     const activeProviderId = localStorage.getItem('ai-active-provider') || 'anthropic';
     const savedProviders = localStorage.getItem('ai-providers');
@@ -515,21 +440,18 @@ function AssistantChatArea({
     const config = providers.find((p: any) => p.providerId === activeProviderId);
     if (!config || !config.apiKey) return null;
 
-    // Use the model from screen control settings — no Haiku override, no smart routing
     const scSettings = loadScreenControlSettings();
     let model = config.selectedModel;
-
     if (activeProviderId === 'anthropic') {
       if (scSettings.modelPreference === 'opus') model = 'claude-opus-4-6';
       else if (scSettings.modelPreference === 'sonnet') model = 'claude-sonnet-4-5-20250929';
       else if (scSettings.modelPreference === 'haiku') model = 'claude-haiku-4-5-20251001';
-      else model = 'claude-sonnet-4-5-20250929'; // "auto" defaults to sonnet for screen control
+      else model = 'claude-sonnet-4-5-20250929';
     }
-
     return { id: activeProviderId, apiKey: config.apiKey, model };
   };
 
-  // ── Provider helpers (same pattern as ChatArea) ───────────
+  // ── Normal chat provider (Haiku) ────────────────────────────
   const getActiveProvider = () => {
     const activeProviderId = localStorage.getItem('ai-active-provider') || 'anthropic';
     const savedProviders = localStorage.getItem('ai-providers');
@@ -537,14 +459,8 @@ function AssistantChatArea({
     const providers = JSON.parse(savedProviders);
     const config = providers.find((p: any) => p.providerId === activeProviderId);
     if (!config || !config.apiKey) return null;
-
     let model = config.selectedModel;
-
-    // Assistant tasks (emails, calendar, chat) are simple — prefer Haiku to save cost
-    if (activeProviderId === 'anthropic' && model && !/haiku/i.test(model)) {
-      model = 'claude-haiku-4-5-20251001';
-    }
-
+    if (activeProviderId === 'anthropic' && model && !/haiku/i.test(model)) model = 'claude-haiku-4-5-20251001';
     return { id: activeProviderId, apiKey: config.apiKey, model };
   };
 
@@ -555,24 +471,14 @@ function AssistantChatArea({
     const providers = JSON.parse(savedProviders);
     const config = providers.find((p: any) => p.providerId === activeProviderId);
     if (!config) return 'No provider';
-    const names: Record<string, string> = {
-      anthropic: 'Claude', groq: 'Groq', openai: 'OpenAI', google: 'Gemini', ollama: 'Ollama',
-    };
-    const name = names[activeProviderId] || activeProviderId;
-
+    const names: Record<string, string> = { anthropic: 'Claude', groq: 'Groq', openai: 'OpenAI', google: 'Gemini', ollama: 'Ollama' };
     let selectedModel = config.selectedModel ?? '';
-
-    // Reflect the Haiku override for Anthropic in assistant
-    if (activeProviderId === 'anthropic' && !/haiku/i.test(selectedModel)) {
-      selectedModel = 'claude-haiku-4-5-20251001';
-    }
-
+    if (activeProviderId === 'anthropic' && !/haiku/i.test(selectedModel)) selectedModel = 'claude-haiku-4-5-20251001';
     const model = selectedModel.split('-').slice(0, 2).join(' ') || '';
-    return `${name} \u2022 ${model}`;
+    return `${names[activeProviderId] || activeProviderId} \u2022 ${model}`;
   };
 
   const handleStop = () => {
-    // Stop screen control if active, otherwise stop chat streaming
     if (screenControlMode && screenControlStopRef) {
       screenControlStopRef.current = true;
       onScreenControlModeChange?.(false);
@@ -586,33 +492,24 @@ function AssistantChatArea({
   };
 
   // ── Screen Control Loop ─────────────────────────────────────
-  // Screenshot → AI → Action → Screenshot → AI → Action → ... until DONE/FAIL/stopped.
-  // Smart monitor handling: dual = minimize Omnirun + capture apps monitor.
-  // Single = don't minimize, apps open on top.
 
   const MAX_SCREEN_STEPS = 12;
 
   const runScreenControlLoop = useCallback(async (instruction: string) => {
     if (!screenControlEnabled) return;
-
-    // Use dedicated provider — correct model, no Haiku override, no smart routing interference
     const screenProvider = getScreenControlProvider();
     if (!screenProvider) return;
 
     const scSettings = loadScreenControlSettings();
-
     onScreenControlStart?.();
     onScreenControlStatus?.('idle', 0, 'Starting...');
 
-    // Single message bubble — updated in-place as steps progress
     const logId = (Date.now() + 1).toString();
     addMessage({ id: logId, role: 'assistant', content: '🖥️ Starting screen control...', timestamp: new Date() });
 
     const updateLog = (text: string) => {
       useAssistantStore.setState((state) => ({
-        messages: state.messages.map((m) =>
-          m.id === logId ? { ...m, content: text } : m
-        ),
+        messages: state.messages.map((m) => m.id === logId ? { ...m, content: text } : m),
       }));
     };
 
@@ -622,7 +519,7 @@ function AssistantChatArea({
       updateLog(logText);
     };
 
-    // ── Detect monitor setup ──────────────────────────────────
+    // ── Detect monitor setup ──
     let monitors: any[] = [];
     let appsMonitor = 0;
     let singleMon = true;
@@ -630,25 +527,16 @@ function AssistantChatArea({
       monitors = await listMonitors();
       singleMon = isSingleMonitor(monitors);
       appsMonitor = getAppsMonitorIndex(monitors, scSettings.omnirunMonitor);
-    } catch {
-      // Fallback: single monitor, index 0
-    }
+    } catch {}
 
-    // ── Step 0: Smart minimize ────────────────────────────────
-    // Dual monitor: minimize Omnirun so AI captures the apps screen.
-    // Single monitor: don't minimize — apps will open on top of Omnirun.
+    // ── Log monitor setup (no minimize) ──
     if (!singleMon) {
-      try {
-        await minimizeSelf();
-        log(`📌 Dual monitor — Omnirun minimized. Capturing monitor ${appsMonitor + 1}.`);
-      } catch (err: any) {
-        log('⚠️ Could not minimize Omnirun: ' + (err?.message || err));
-      }
+      log(`📌 Dual monitor — Omnirun on monitor ${scSettings.omnirunMonitor + 1}, capturing monitor ${appsMonitor + 1}.`);
     } else {
       log('📌 Single monitor — apps will open on top.');
     }
 
-    // ── Step 0.5a: Auto-create playlist if needed ─────────────
+    // ── Auto-create playlist if needed ──
     const wantsPlaylist = /\b(create|make|build|generate)\s+(a\s+)?playlist\b/i.test(instruction)
       || (/\bplay\s+(my\s+)?(music|songs|tracks)\b/i.test(instruction));
 
@@ -663,200 +551,162 @@ function AssistantChatArea({
           log(`⚠️ Playlist failed: ${err?.message || err}`);
         }
       } else {
-        log('⚠️ No Music folder set. Go to Settings → Screen Control → Key folders → Music.');
+        log('⚠️ No Music folder set in Settings → Screen Control.');
       }
     }
 
-    // ── Step 0.5b: Auto-launch app from shortcuts folder ──────
-    const appMatch = await matchAppFromShortcuts(instruction);
-    if (appMatch) {
+    // ── Auto-launch from omni-files ──
+    const fileMatch = await matchFileFromOmniFiles(instruction);
+    if (fileMatch) {
       try {
-        // Use playlist as the file arg if we just created one
-        const fileArg = playlistPath || appMatch.fileArg;
-        await launchApp(appMatch.path, fileArg);
-        log(`🚀 Launched ${appMatch.name}${fileArg ? ` with ${fileArg}` : ''}`);
-        // Wait for app to open before taking first screenshot
+        const fileArg = playlistPath || fileMatch.fileArg;
+        await launchApp(fileMatch.path, fileArg);
+        log(`🚀 Launched ${fileMatch.name}${fileArg ? ` with ${fileArg}` : ''}`);
         await new Promise((r) => setTimeout(r, 2000));
       } catch (err: any) {
-        log(`⚠️ Could not launch ${appMatch.name}: ${err?.message || err}`);
-        // Continue anyway — AI will try to find/open the app visually
+        log(`⚠️ Could not launch ${fileMatch.name}: ${err?.message || err}`);
       }
     } else if (playlistPath) {
-      // No app matched but we made a playlist — open with default player
       try {
         await launchApp(playlistPath);
-        log('🚀 Opened playlist with default media player');
+        log('🚀 Opened playlist with default player');
         await new Promise((r) => setTimeout(r, 2000));
       } catch (err: any) {
         log(`⚠️ Could not open playlist: ${err?.message || err}`);
       }
+    } else if (/(?:open|launch|start|run)\s+/i.test(instruction) && !playlistPath) {
+      // User asked to open something but it's not in omni-files
+      let omniPath = '';
+      try { omniPath = await getOmniFilesPath(); } catch {}
+      log(`⚠️ Not found in omni-files. Add a shortcut to: ${omniPath || '~/omni-files'}`);
+      onScreenControlStatus?.('idle', 0, 'File not in omni-files');
+      return;
     }
 
-    // ── Build system prompt with user context ──
+    // ── Build system prompt ──
     const userCtx = buildUserContextPrompt();
     const fullSystemPrompt = SCREEN_CONTROL_SYSTEM_PROMPT + (userCtx ? '\n' + userCtx : '');
 
-    const conversationHistory: { role: 'user' | 'assistant'; content: string; images?: { base64: string; mimeType: string }[] }[] = [];
+    const conversationHistory: { role: 'user' | 'assistant'; content: any }[] = [];
     let step = 0;
     let done = false;
 
     try {
       while (!done && step < MAX_SCREEN_STEPS) {
-        if (screenControlStopRef?.current) {
-          log('\n⏹️ Stopped by user.');
-          break;
-        }
+        if (screenControlStopRef?.current) { log('\n⏹️ Stopped by user.'); break; }
 
         step++;
         onScreenControlStatus?.('capturing', step, 'Capturing...');
 
-        // ── Blocked app check before screenshot ──
-        try {
-          const blockCheck = await isBlockedApp();
-          if (blockCheck.blocked) {
-            log(`🚫 Blocked app detected: "${blockCheck.appName}". Waiting for user to switch apps...`);
-            onScreenControlStatus?.('paused', step, `Blocked: ${blockCheck.appName}`);
-            // Wait and retry once
-            await new Promise((r) => setTimeout(r, 2000));
-            const recheck = await isBlockedApp();
-            if (recheck.blocked) {
-              log(`🚫 Still on blocked app "${recheck.appName}". Stopping.`);
-              break;
-            }
-          }
-        } catch { /* ignore check failures */ }
-
-        // 1. Screenshot — capture the APPS monitor, not the Omnirun monitor
+        // Screenshot — on dual monitor, capture ALL monitors so AI sees everything
         let screenshot;
+        const useCaptureAll = !singleMon;
         try {
-          screenshot = await takeScreenshot(scSettings.cropToWindow, scSettings.screenshotQuality, appsMonitor);
-        } catch (e: any) {
-          log(`❌ Screenshot failed: ${e?.message || e}`);
-          break;
-        }
+          screenshot = await takeScreenshot(
+            singleMon ? scSettings.cropToWindow : false,
+            scSettings.screenshotQuality,
+            appsMonitor,
+            useCaptureAll,
+          );
+        } catch (e: any) { log(`❌ Screenshot failed: ${e?.message || e}`); break; }
 
         log(`📸 Step ${step} — captured ${screenshot.width}×${screenshot.height}`);
         onScreenControlStatus?.('analyzing', step, 'Reading screen...');
 
-        // 2. Window + screen context (appended to user message for per-step info)
+        // Context
         let ctx = '';
         try {
           const win = await getActiveWindow();
-          const scr = await getScreenSize(appsMonitor);
-          ctx = `\nContext: Active app="${win.app_name}" title="${win.title}" (${win.width}x${win.height} at ${win.x},${win.y}). Screen: ${scr.width}x${scr.height}. Screenshot: ${screenshot.width}x${screenshot.height}. Coordinates: use the screenshot pixel space (0-${screenshot.width}, 0-${screenshot.height}). OS: Windows. Taskbar is at the bottom of the screen.`;
+          if (useCaptureAll && monitors.length > 1) {
+            const minX = Math.min(...monitors.map((m: any) => m.x));
+            const minY = Math.min(...monitors.map((m: any) => m.y));
+            const totalW = Math.max(...monitors.map((m: any) => m.x + m.width)) - minX;
+            const totalH = Math.max(...monitors.map((m: any) => m.y + m.height)) - minY;
+            ctx = `\nContext: Active app="${win.app_name}" title="${win.title}" (${win.width}x${win.height}). Virtual desktop: ${totalW}x${totalH} (${monitors.length} monitors). Screenshot: ${screenshot.width}x${screenshot.height}. Coords: screenshot pixel space (0-${screenshot.width}, 0-${screenshot.height}). OS: Windows. Taskbar at bottom.`;
+          } else {
+            const scr = await getScreenSize(appsMonitor);
+            ctx = `\nContext: Active app="${win.app_name}" title="${win.title}" (${win.width}x${win.height}). Screen: ${scr.width}x${scr.height}. Screenshot: ${screenshot.width}x${screenshot.height}. Coords: screenshot pixel space (0-${screenshot.width}, 0-${screenshot.height}). OS: Windows. Taskbar at bottom.`;
+          }
         } catch {}
 
-        // 3. Build user message with screenshot as Anthropic vision content block
         const textContent = step === 1
-          ? `Task: ${instruction}${ctx}`
+          ? `Task: ${instruction}${fileMatch ? `. NOTE: I pre-launched "${fileMatch.name}" for you. Focus ONLY on that app window. Do NOT interact with any other similar apps.` : ''}${ctx}`
           : `Screenshot after previous action.${ctx}`;
 
-        const userMsg = {
+        conversationHistory.push({
           role: 'user' as const,
           content: [
             { type: 'image', source: { type: 'base64', media_type: 'image/png', data: screenshot.base64 } },
             { type: 'text', text: textContent },
           ],
-        };
-        conversationHistory.push(userMsg);
+        });
 
-        // 4. Trim history: first user+assistant + last 2 exchanges
+        // Trim history
         let trimmed = [...conversationHistory];
         if (trimmed.length > 6) {
-          const first = trimmed.slice(0, 2);
-          const recent = trimmed.slice(-4);
-          trimmed = [...first, { role: 'user' as const, content: '[previous steps omitted]' }, ...recent];
+          trimmed = [...trimmed.slice(0, 2), { role: 'user' as const, content: '[steps omitted]' }, ...trimmed.slice(-4)];
         }
 
-        // 5. Direct API call — bypasses sendMessage entirely
+        // AI call
         let aiText = '';
         try {
           const result = await sendScreenControlMessage(trimmed, screenProvider.apiKey, screenProvider.model, fullSystemPrompt);
           aiText = result.text;
-
-          // Track usage in Zustand store (updates widget immediately)
           useUsageStore.getState().trackAPICall({
-            model: screenProvider.model,
-            provider: screenProvider.id,
-            inputTokens: result.inputTokens,
-            outputTokens: result.outputTokens,
-            source: 'assistant',
+            model: screenProvider.model, provider: screenProvider.id,
+            inputTokens: result.inputTokens, outputTokens: result.outputTokens, source: 'assistant',
           });
-        } catch (e: any) {
-          log(`❌ AI error: ${e?.message || e}`);
-          break;
-        }
+        } catch (e: any) { log(`❌ AI error: ${e?.message || e}`); break; }
 
         conversationHistory.push({ role: 'assistant', content: aiText });
 
-        // 6. Extract observation — always show something
+        // Observation
         const obsMatch = aiText.match(/OBSERVATION:\s*(.+)/i);
-        const observation = obsMatch ? obsMatch[1].trim() : cleanAiResponse(aiText).split('\n')[0].slice(0, 120);
-        log(`👁️ ${observation}`);
+        log(`👁️ ${obsMatch ? obsMatch[1].trim() : cleanAiResponse(aiText).split('\n')[0].slice(0, 120)}`);
 
-        // 7. Parse action
+        // Parse action
         const action = parseScreenAction(aiText);
-
         if (!action) {
-          // AI didn't follow the format — log what it said and retry
-          log('⚠️ No clear action parsed. AI response: ' + cleanAiResponse(aiText).slice(0, 100));
-          if (step >= 3) { log('⚠️ Giving up after repeated failures.'); break; }
+          log('⚠️ No action parsed: ' + cleanAiResponse(aiText).slice(0, 80));
+          if (step >= 3) { log('⚠️ Giving up.'); break; }
           continue;
         }
 
-        // 8. Terminal actions
-        if (action.type === 'DONE') {
-          log('\n✅ Done.');
-          done = true;
-          onScreenControlStatus?.('idle', step, 'Complete');
-          break;
-        }
-        if (action.type === 'FAIL') {
-          log(`\n❌ Failed: ${action.reason || 'unknown reason'}`);
-          done = true;
-          break;
-        }
+        if (action.type === 'DONE') { log('\n✅ Done.'); done = true; onScreenControlStatus?.('idle', step, 'Complete'); break; }
+        if (action.type === 'FAIL') { log(`\n❌ ${action.reason || 'Failed'}`); done = true; break; }
 
-        // 8.5 CRITICAL: Scale coordinates from screenshot space to actual screen space.
-        // AI sees 960x540 screenshot but screen is 1920x1080 — coordinates must be scaled.
+        // Scale coordinates from screenshot space to real screen space
         if (action.x !== undefined && action.y !== undefined) {
           try {
-            const scr = await getScreenSize(appsMonitor);
-            const scaleX = scr.width / screenshot.width;
-            const scaleY = scr.height / screenshot.height;
-            action.x = Math.round(action.x * scaleX);
-            action.y = Math.round(action.y * scaleY);
-            if (action.x2 !== undefined && action.y2 !== undefined) {
-              action.x2 = Math.round(action.x2 * scaleX);
-              action.y2 = Math.round(action.y2 * scaleY);
-            }
-
-            // Multi-monitor offset: add the apps monitor's x/y position
-            // so clicks land on the correct physical screen
-            if (!singleMon) {
-              const appsMon = monitors.find((m: any) => m.index === appsMonitor);
-              if (appsMon) {
-                action.x += appsMon.x;
-                action.y += appsMon.y;
-                if (action.x2 !== undefined && action.y2 !== undefined) {
-                  action.x2 += appsMon.x;
-                  action.y2 += appsMon.y;
-                }
+            if (useCaptureAll && monitors.length > 1) {
+              // Combined screenshot: scale to virtual desktop, then add origin offset
+              const minX = Math.min(...monitors.map((m: any) => m.x));
+              const minY = Math.min(...monitors.map((m: any) => m.y));
+              const totalW = Math.max(...monitors.map((m: any) => m.x + m.width)) - minX;
+              const totalH = Math.max(...monitors.map((m: any) => m.y + m.height)) - minY;
+              const sx = totalW / screenshot.width;
+              const sy = totalH / screenshot.height;
+              action.x = Math.round(action.x * sx) + minX;
+              action.y = Math.round(action.y * sy) + minY;
+              if (action.x2 !== undefined && action.y2 !== undefined) {
+                action.x2 = Math.round(action.x2 * sx) + minX;
+                action.y2 = Math.round(action.y2 * sy) + minY;
+              }
+            } else {
+              // Single monitor: scale to that monitor's resolution
+              const scr = await getScreenSize(appsMonitor);
+              const sx = scr.width / screenshot.width;
+              const sy = scr.height / screenshot.height;
+              action.x = Math.round(action.x * sx);
+              action.y = Math.round(action.y * sy);
+              if (action.x2 !== undefined && action.y2 !== undefined) {
+                action.x2 = Math.round(action.x2 * sx);
+                action.y2 = Math.round(action.y2 * sy);
               }
             }
           } catch {}
         }
 
-        // ── Blocked app check before executing action ──
-        try {
-          const blockCheck = await isBlockedApp();
-          if (blockCheck.blocked) {
-            log(`🚫 Cannot act on blocked app "${blockCheck.appName}". Stopping.`);
-            break;
-          }
-        } catch { /* ignore */ }
-
-        // 9. Execute action
         if (screenControlStopRef?.current) { log('\n⏹️ Stopped.'); break; }
 
         const actionLabel = `${action.type}${action.x !== undefined ? ` ${action.x},${action.y}` : ''}${action.text ? ` "${action.text.slice(0, 30)}"` : ''}${action.combo ? ` ${action.combo}` : ''}${action.direction ? ` ${action.direction}` : ''}`;
@@ -866,48 +716,30 @@ function AssistantChatArea({
           const result = await executeScreenAction(action);
           log(`⚡ ${result}`);
         } catch (e: any) {
-          const errMsg = e?.message || e?.toString?.() || JSON.stringify(e) || 'Unknown error';
-          log(`❌ Action failed: ${errMsg}`);
+          log(`❌ Action failed: ${e?.message || e?.toString?.() || 'Unknown'}`);
           break;
         }
 
-        // 10. Delay before next step
         const delay = scSettings.actionDelay || 500;
-        if (delay > 0 && action.type !== 'WAIT') {
-          await new Promise((r) => setTimeout(r, delay));
-        }
+        if (delay > 0 && action.type !== 'WAIT') await new Promise((r) => setTimeout(r, delay));
       }
 
-      if (step >= MAX_SCREEN_STEPS && !done) {
-        log(`\n⚠️ Step limit reached (${MAX_SCREEN_STEPS}).`);
-      }
-
+      if (step >= MAX_SCREEN_STEPS && !done) log(`\n⚠️ Step limit (${MAX_SCREEN_STEPS}).`);
     } finally {
       onScreenControlStatus?.('idle', 0, 'Ready for next command');
     }
   }, [screenControlEnabled, screenControlStopRef, onScreenControlStart, onScreenControlEnd, onScreenControlStatus, addMessage]);
 
-  // ── Record assistant usage to SQLite + Zustand store ─────
-  const recordAssistantUsage = async (
-    result: any,
-    providerConfig: { id: string; model: string }
-  ) => {
+  // ── Record usage ────────────────────────────────────────────
+  const recordAssistantUsage = async (result: any, providerConfig: { id: string; model: string }) => {
     try {
       const raw = result?.usage ?? {};
-
-      const inputTokens        = raw.inputTokens        ?? raw.input_tokens                 ?? 0;
-      const outputTokens       = raw.outputTokens       ?? raw.output_tokens                ?? 0;
-      const cacheCreationTokens = raw.cacheCreationTokens ?? raw.cache_creation_input_tokens ?? 0;
-      const cacheReadTokens    = raw.cacheReadTokens    ?? raw.cache_read_input_tokens       ?? 0;
-
-      // Update the Zustand store (updates the UI widget immediately)
       useUsageStore.getState().trackAPICall({
-        model: providerConfig.model ?? '',
-        provider: providerConfig.id,
-        inputTokens,
-        outputTokens,
-        cacheCreationTokens,
-        cacheReadTokens,
+        model: providerConfig.model ?? '', provider: providerConfig.id,
+        inputTokens: raw.inputTokens ?? raw.input_tokens ?? 0,
+        outputTokens: raw.outputTokens ?? raw.output_tokens ?? 0,
+        cacheCreationTokens: raw.cacheCreationTokens ?? raw.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: raw.cacheReadTokens ?? raw.cache_read_input_tokens ?? 0,
         source: 'assistant',
       });
     } catch (err) {
@@ -915,19 +747,15 @@ function AssistantChatArea({
     }
   };
 
-  // ── Send message ──────────────────────────────────────────
+  // ── Send message ────────────────────────────────────────────
   const handleSend = useCallback(async (overrideText?: string) => {
     const messageText = overrideText || input.trim();
     if (!messageText || isLoading) return;
-
     setInput('');
 
     const userMsgId = Date.now().toString();
     addMessage({ id: userMsgId, role: 'user', content: messageText, timestamp: new Date() });
 
-    // ── Screen control routing ─────────────────────────────
-    // If in screen control mode (user toggled it on), ALL messages
-    // go through the screenshot→AI→action loop. No pattern matching.
     if (screenControlEnabled && screenControlMode) {
       runScreenControlLoop(messageText);
       return;
@@ -938,157 +766,76 @@ function AssistantChatArea({
 
     try {
       const provider = getActiveProvider();
-      if (!provider) {
-        throw new Error('No API key configured. Go to Settings \u2192 API Keys to add one.');
-      }
+      if (!provider) throw new Error('No API key configured. Go to Settings \u2192 API Keys.');
 
-      const history = messages
-        .filter((m) => m.content.trim() !== '')
-        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
-
-      const apiMessages = [
-        ...history,
-        { role: 'user' as const, content: messageText },
-      ];
-
+      const history = messages.filter((m) => m.content.trim() !== '').map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+      const apiMessages = [...history, { role: 'user' as const, content: messageText }];
       const assistantId = (Date.now() + 1).toString();
       addMessage({ id: assistantId, role: 'assistant', content: '', timestamp: new Date() });
-
       let fullResponse = '';
 
-      const systemPrompt = buildSystemPrompt(
-        activeAccounts.map((a) => ({
-          provider: a.provider,
-          email: a.email,
-          accountLabel: a.accountLabel,
-          providerType: a.providerType ?? 'email',
-        }))
-      );
-
-      // Append memory context (what the AI knows about this user)
+      const systemPrompt = buildSystemPrompt(activeAccounts.map((a) => ({ provider: a.provider, email: a.email, accountLabel: a.accountLabel, providerType: a.providerType ?? 'email' })));
       let memoryBlock = '';
-      try {
-        memoryBlock = await buildMemoryBlock();
-      } catch {
-        // Non-fatal — proceed without memory
-      }
-
-      // Append routines context (trigger phrases and steps)
+      try { memoryBlock = await buildMemoryBlock(); } catch {}
       const routinesBlock = buildRoutinesPromptBlock();
-
-      // Append screen control instructions (if feature is enabled)
       const screenControlBlock = buildScreenControlPrompt();
 
-      const assistantContext = {
-        path: '',
-        manifest: null,
-        contextString: systemPrompt + memoryBlock + routinesBlock + screenControlBlock,
-      };
-
       const result = await sendMessage(
-        apiMessages,
-        provider,
+        apiMessages, provider,
         (chunk) => {
           if (stoppedRef.current) return;
           fullResponse += chunk;
-          useAssistantStore.setState((state) => ({
-            messages: state.messages.map((m) =>
-              m.id === assistantId ? { ...m, content: fullResponse } : m
-            ),
-          }));
+          useAssistantStore.setState((state) => ({ messages: state.messages.map((m) => m.id === assistantId ? { ...m, content: fullResponse } : m) }));
         },
-        assistantContext,
+        { path: '', manifest: null, contextString: systemPrompt + memoryBlock + routinesBlock + screenControlBlock },
         undefined,
         (reader) => { readerRef.current = reader; }
       );
 
       fullResponse = result.text;
-
-      useAssistantStore.setState((state) => ({
-        messages: state.messages.map((m) =>
-          m.id === assistantId ? { ...m, content: fullResponse } : m
-        ),
-      }));
-
-      if (!stoppedRef.current) {
-        await recordAssistantUsage(result, { id: provider.id, model: provider.model ?? '' });
-      }
+      useAssistantStore.setState((state) => ({ messages: state.messages.map((m) => m.id === assistantId ? { ...m, content: fullResponse } : m) }));
+      if (!stoppedRef.current) await recordAssistantUsage(result, { id: provider.id, model: provider.model ?? '' });
 
     } catch (error: any) {
       if (!stoppedRef.current) {
         useAssistantStore.setState((state) => ({
-          messages: state.messages
-            .filter((m) => m.content !== '')
-            .concat({
-              id: (Date.now() + 2).toString(),
-              role: 'assistant',
-              content: `\u274C ${error.message}`,
-              timestamp: new Date(),
-            }),
+          messages: state.messages.filter((m) => m.content !== '').concat({ id: (Date.now() + 2).toString(), role: 'assistant', content: `\u274C ${error.message}`, timestamp: new Date() }),
         }));
       }
     } finally {
       stoppedRef.current = false;
       readerRef.current = null;
       setLoading(false);
-
-      // Silent background: extract observations for memory system
       const currentMsgs = useAssistantStore.getState().messages;
-      if (currentMsgs.length >= 4) {
-        extractObservations(
-          currentMsgs.map((m) => ({ role: m.role, content: m.content })),
-          'assistant'
-        ).catch(() => {}); // fire-and-forget, never block
-      }
+      if (currentMsgs.length >= 4) extractObservations(currentMsgs.map((m) => ({ role: m.role, content: m.content })), 'assistant').catch(() => {});
     }
-  }, [input, isLoading, messages, activeAccounts, screenControlEnabled, screenControlMode, onScreenControlModeChange, runScreenControlLoop]);
+  }, [input, isLoading, messages, activeAccounts, screenControlEnabled, screenControlMode, runScreenControlLoop]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
-  const handleSuggestion = (text: string) => {
-    handleSend(text);
-  };
+  const handleSuggestion = (text: string) => { handleSend(text); };
 
-  // ── Render ────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────
   return (
     <div className={`flex flex-col h-full ${t.colors.bg}`}>
-
       {/* Header */}
       <div className={`px-4 py-2 ${t.colors.bgSecondary} ${t.colors.border} border-b flex items-center justify-between flex-shrink-0`}>
         <span className={`text-sm ${t.colors.textMuted}`}>
           {screenControlMode ? `Screen Control \u2022 ${(() => {
             const s = loadScreenControlSettings();
-            const m = s.modelPreference === 'haiku' ? 'Haiku'
-              : s.modelPreference === 'sonnet' ? 'Sonnet'
-              : s.modelPreference === 'opus' ? 'Opus'
-              : 'Auto (Sonnet)';
-            return m;
+            return s.modelPreference === 'haiku' ? 'Haiku' : s.modelPreference === 'sonnet' ? 'Sonnet' : s.modelPreference === 'opus' ? 'Opus' : 'Auto (Sonnet)';
           })()}` : `${getActiveProviderDisplay()} \u2699`}
         </span>
         <div className="flex items-center gap-2">
-          {/* Screen control toggle */}
           {screenControlEnabled && (
             <button
               onClick={() => {
-                if (screenControlMode) {
-                  onScreenControlModeChange?.(false);
-                  if (screenControlStopRef) screenControlStopRef.current = true;
-                } else {
-                  onScreenControlModeChange?.(true);
-                  onScreenControlStart?.();
-                  onScreenControlStatus?.('idle', 0, 'Ready — type a command');
-                }
+                if (screenControlMode) { onScreenControlModeChange?.(false); if (screenControlStopRef) screenControlStopRef.current = true; }
+                else { onScreenControlModeChange?.(true); onScreenControlStart?.(); onScreenControlStatus?.('idle', 0, 'Ready — type a command'); }
               }}
-              className={`flex items-center gap-1.5 px-2 py-1 text-xs font-medium ${t.borderRadius} transition-colors ${
-                screenControlMode
-                  ? 'bg-green-600 text-white'
-                  : `${t.colors.bgTertiary} ${t.colors.textMuted} hover:${t.colors.text}`
-              }`}
+              className={`flex items-center gap-1.5 px-2 py-1 text-xs font-medium ${t.borderRadius} transition-colors ${screenControlMode ? 'bg-green-600 text-white' : `${t.colors.bgTertiary} ${t.colors.textMuted} hover:${t.colors.text}`}`}
               title={screenControlMode ? 'Screen control active — click to stop' : 'Enable screen control'}
             >
               <Monitor size={13} />
@@ -1104,18 +851,10 @@ function AssistantChatArea({
           </button>
           {messages.length > 0 && (
             <>
-              <button
-                onClick={clearMessages}
-                className={`p-1.5 ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
-                title="New conversation"
-              >
+              <button onClick={clearMessages} className={`p-1.5 ${t.colors.textMuted} hover:${t.colors.text} transition-colors`} title="New conversation">
                 <MessageSquarePlus size={16} />
               </button>
-              <button
-                onClick={clearMessages}
-                className={`p-1 ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
-                title="Clear chat"
-              >
+              <button onClick={clearMessages} className={`p-1 ${t.colors.textMuted} hover:${t.colors.text} transition-colors`} title="Clear chat">
                 <Trash2 size={16} />
               </button>
             </>
@@ -1132,57 +871,41 @@ function AssistantChatArea({
             accounts={activeAccounts}
             onSuggestion={handleSuggestion}
             theme={t}
+            screenControlEnabled={screenControlEnabled}
+            onScreenControlEnable={() => {
+              onScreenControlModeChange?.(true);
+              onScreenControlStart?.();
+              onScreenControlStatus?.('idle', 0, 'Ready — type a command');
+            }}
           />
         ) : (
           <div className="space-y-4 max-w-3xl mx-auto">
             {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
+              <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {message.role === 'assistant' && (
                   <div className={`w-10 h-10 ${t.borderRadius} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
                     <img src={theme === 'light' || theme === 'highContrast' ? elipseLight : elipseDark} alt="omnirun" className="w-10 h-10" />
                   </div>
                 )}
-
-                <div
-                  className={`max-w-[80%] px-4 py-2 break-words overflow-hidden ${t.borderRadius} ${
-                    message.role === 'user'
-                      ? `${t.colors.accent} ${theme === 'highContrast' ? 'text-black' : 'text-white'}`
-                      : `${t.colors.bgSecondary} ${t.colors.text}`
-                  }`}
-                >
+                <div className={`max-w-[80%] px-4 py-2 break-words overflow-hidden ${t.borderRadius} ${message.role === 'user' ? `${t.colors.accent} ${theme === 'highContrast' ? 'text-black' : 'text-white'}` : `${t.colors.bgSecondary} ${t.colors.text}`}`}>
                   <div className={t.fontFamily} style={{ fontSize: fontSize === 'small' ? '13px' : fontSize === 'large' ? '17px' : '15px' }}>
                     {message.content
                       ? message.role === 'assistant'
-                        ? <MarkdownRenderer
-                            content={cleanAiResponse(message.content)}
-                            theme={t}
-                            themeKey={theme}
-                            projectPath={null}
-                            onSaveCodeBlock={() => {}}
-                          />
+                        ? <MarkdownRenderer content={cleanAiResponse(message.content)} theme={t} themeKey={theme} projectPath={null} onSaveCodeBlock={() => {}} />
                         : message.content
                       : <span className={`${t.colors.textMuted} italic`}>Thinking...</span>
                     }
                   </div>
                   <div className={`text-[10px] mt-1 opacity-50 ${message.role === 'user' ? 'text-right' : ''}`}>
-                    {new Date(message.timestamp).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: timeFormat === '12h',
-                    })}
+                    {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: timeFormat === '12h' })}
                   </div>
                 </div>
-
                 {message.role === 'user' && (
                   <div className={`w-8 h-8 ${t.borderRadius} flex items-center justify-center flex-shrink-0 overflow-hidden`} style={{ background: showAvatar ? 'transparent' : 'var(--action, #7C3AED)' }}>
-                    {showAvatar ? (
-                      <img src={avatarUrl!} alt="avatar" className="w-8 h-8 object-cover" onError={() => setAvatarError(true)} />
-                    ) : (
-                      <span className="text-white text-xs font-semibold">{getInitials()}</span>
-                    )}
+                    {showAvatar
+                      ? <img src={avatarUrl!} alt="avatar" className="w-8 h-8 object-cover" onError={() => setAvatarError(true)} />
+                      : <span className="text-white text-xs font-semibold">{getInitials()}</span>
+                    }
                   </div>
                 )}
               </div>
@@ -1192,7 +915,7 @@ function AssistantChatArea({
         )}
       </div>
 
-      {/* Input area */}
+      {/* Input */}
       <div className={`p-4 flex-shrink-0 ${t.colors.border} border-t`}>
         <div className="flex gap-2 max-w-3xl mx-auto">
           <textarea
@@ -1206,33 +929,18 @@ function AssistantChatArea({
               e.target.style.overflowY = e.target.scrollHeight > 200 ? 'auto' : 'hidden';
             }}
             onKeyDown={handleKeyDown}
-            placeholder={
-              isLoading
-                ? 'Waiting for response...'
-                : hasAccounts
-                  ? screenControlEnabled
-                    ? 'Ask about emails, calendar, or control your screen...'
-                    : 'Ask about your emails, calendar, tasks...'
-                  : 'Connect an account to get started...'
-            }
+            placeholder={isLoading ? 'Waiting...' : hasAccounts ? (screenControlEnabled ? 'Ask about emails, calendar, or control your screen...' : 'Ask about emails, calendar, tasks...') : 'Connect an account to get started...'}
             disabled={isLoading}
             rows={1}
             className={`flex-1 ${t.colors.bgSecondary} ${t.colors.border} border ${t.colors.text} ${t.borderRadius} px-4 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500 ${t.fontFamily} disabled:opacity-50 resize-none overflow-hidden`}
             style={{ maxHeight: '200px' }}
           />
           {isLoading ? (
-            <button
-              onClick={handleStop}
-              className={`bg-red-600 hover:bg-red-700 text-white px-4 py-2 ${t.borderRadius} flex items-center gap-2 self-end`}
-            >
+            <button onClick={handleStop} className={`bg-red-600 hover:bg-red-700 text-white px-4 py-2 ${t.borderRadius} flex items-center gap-2 self-end`}>
               <Square size={18} fill="currentColor" />
             </button>
           ) : (
-            <button
-              onClick={() => handleSend()}
-              disabled={!input.trim()}
-              className={`${t.colors.accent} ${t.colors.accentHover} ${theme === 'highContrast' ? 'text-black' : 'text-white'} px-4 py-2 ${t.borderRadius} flex items-center gap-2 disabled:opacity-50 self-end`}
-            >
+            <button onClick={() => handleSend()} disabled={!input.trim()} className={`${t.colors.accent} ${t.colors.accentHover} ${theme === 'highContrast' ? 'text-black' : 'text-white'} px-4 py-2 ${t.borderRadius} flex items-center gap-2 disabled:opacity-50 self-end`}>
               <Send size={18} />
             </button>
           )}

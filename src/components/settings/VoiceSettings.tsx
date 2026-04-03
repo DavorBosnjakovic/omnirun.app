@@ -29,7 +29,7 @@ function VoiceSettings() {
           />
           <div>
             <span className="font-medium">Enable voice input</span>
-            <p className={`text-sm ${t.colors.textMuted}`}>Use your microphone to talk to Claude</p>
+            <p className={`text-sm ${t.colors.textMuted}`}>Use your microphone to talk to omnirun</p>
           </div>
         </label>
       </div>
