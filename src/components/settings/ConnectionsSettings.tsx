@@ -4,14 +4,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Github,
-  Triangle,
-  Globe,
-  Database,
-  CreditCard,
-  Mail,
   Shield,
-  Globe2,
   ExternalLink,
   CheckCircle,
   XCircle,
@@ -24,12 +17,24 @@ import {
   Unplug,
   Plug,
   RefreshCw,
-  Rabbit,
-  Send,
-  Landmark,
   FolderOpen,
 } from 'lucide-react';
+
+// --------------- Custom Service Icons ---------------
+import githubIcon from '../../assets/icons/connections/github.svg';
+import vercelIcon from '../../assets/icons/connections/vercel.svg';
+import supabaseIcon from '../../assets/icons/connections/supabase.svg';
+import cloudflareIcon from '../../assets/icons/connections/cloudflare.svg';
+import stripeIcon from '../../assets/icons/connections/stripe.svg';
+import netlifyIcon from '../../assets/icons/connections/Netlify.svg';
+import sendgridIcon from '../../assets/icons/connections/sendgrid.svg';
+import namecheapIcon from '../../assets/icons/connections/namecheap.svg';
+import godaddyIcon from '../../assets/icons/connections/GoDaddy.svg';
+import resendIcon from '../../assets/icons/connections/resend.svg';
+import porkbunIcon from '../../assets/icons/connections/porkbun.svg';
+import bunnyIcon from '../../assets/icons/connections/Bunny.svg';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { themes } from '../../config/themes';
 import { useConnectionsStore } from '../../stores/connectionsStore';
 import { useProjectStore } from '../../stores/projectStore';
 import {
@@ -45,22 +50,23 @@ import type { ConnectionProvider, ConnectionCategory, ProviderMeta } from '../..
 
 // --------------- Icon Map ---------------
 
-const ICONS: Record<string, any> = {
-  Github,
-  Triangle,
-  Globe,
-  Database,
-  CreditCard,
-  Mail,
-  Shield,
-  Globe2,
-  Rabbit,
-  Send,
-  Landmark,
+const SERVICE_ICONS: Record<string, string> = {
+  github: githubIcon,
+  vercel: vercelIcon,
+  supabase: supabaseIcon,
+  cloudflare: cloudflareIcon,
+  stripe: stripeIcon,
+  netlify: netlifyIcon,
+  sendgrid: sendgridIcon,
+  namecheap: namecheapIcon,
+  godaddy: godaddyIcon,
+  resend: resendIcon,
+  porkbun: porkbunIcon,
+  bunny: bunnyIcon,
 };
 
-function getIcon(iconName: string) {
-  return ICONS[iconName] || Globe;
+function getServiceIcon(providerId: string): string | null {
+  return SERVICE_ICONS[providerId] || null;
 }
 
 // --------------- Status Badge ---------------
@@ -116,6 +122,7 @@ interface ConnectionCardProps {
 
 function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
   const { theme } = useSettingsStore();
+  const t = themes[theme];
   const store = useConnectionsStore();
   const connection = store.projectConnections[projectId]?.[provider.id];
   const status = connection?.status || 'disconnected';
@@ -135,31 +142,7 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
   const [selectedRef, setSelectedRef] = useState('');
   const needsProjectPicker = PROVIDERS_WITH_PROJECT_PICKER.has(provider.id);
 
-  const Icon = getIcon(provider.icon);
-
-  const bgCard = theme === 'light'
-    ? 'bg-white border border-gray-200 shadow-sm'
-    : theme === 'sepia'
-    ? 'bg-stone-800 border border-stone-700'
-    : theme === 'retro'
-    ? 'bg-black border border-green-800'
-    : theme === 'midnight'
-    ? 'bg-slate-900 border border-slate-700'
-    : theme === 'highContrast'
-    ? 'bg-black border border-white'
-    : 'bg-gray-800 border border-gray-700';
-
-  const bgInput = theme === 'light'
-    ? 'bg-gray-100 border-gray-300 text-gray-900'
-    : theme === 'sepia'
-    ? 'bg-stone-900 border-stone-600 text-orange-100'
-    : theme === 'retro'
-    ? 'bg-black border-green-700 text-green-400 font-mono'
-    : theme === 'midnight'
-    ? 'bg-slate-950 border-slate-600 text-slate-100'
-    : theme === 'highContrast'
-    ? 'bg-black border-white text-white'
-    : 'bg-gray-900 border-gray-600 text-white';
+  const serviceIcon = getServiceIcon(provider.id);
 
   /** Step 1: Validate the token. If provider has multiple projects, pause for selection. */
   const handleConnect = async () => {
@@ -265,23 +248,27 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
   })();
 
   return (
-    <div className={`rounded-lg overflow-hidden ${bgCard}`}>
+    <div
+      className={`overflow-hidden ${t.colors.bgSecondary} ${t.borderRadius} ${isConnected ? 'border' : ''}`}
+      style={isConnected ? { borderColor: t.colors.accent.match(/#[0-9A-Fa-f]+/)?.[0] || '#2DB87A' } : undefined}
+    >
       {/* Header Row */}
       <div
         className="flex items-center justify-between p-4 cursor-pointer select-none"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-3">
-          <div
-            className="w-9 h-9 rounded-lg flex items-center justify-center"
-            style={{
-              backgroundColor: isConnected
-                ? 'rgba(74, 222, 128, 0.15)'
-                : 'rgba(148, 163, 184, 0.15)',
-            }}
-          >
-            <Icon size={18} className={isConnected ? 'text-green-400' : 'opacity-60'} />
-          </div>
+          {serviceIcon ? (
+            <img
+              src={serviceIcon}
+              alt={provider.name}
+              className="w-[30px] h-[30px] shrink-0"
+            />
+          ) : (
+            <span className="text-sm font-bold shrink-0">
+              {provider.name.charAt(0)}
+            </span>
+          )}
           <div>
             <div className="flex items-center gap-2">
               <span className="font-medium text-sm">{provider.name}</span>
@@ -388,7 +375,7 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
                 <select
                   value={selectedRef}
                   onChange={(e) => setSelectedRef(e.target.value)}
-                  className={`w-full px-3 py-2 rounded text-xs border outline-none focus:ring-1 focus:ring-blue-500 ${bgInput}`}
+                  className={`w-full px-3 py-2 text-xs border outline-none focus:outline-none ${t.colors.bgSecondary} ${t.colors.border} ${t.colors.text} ${t.borderRadius}`}
                   onClick={(e) => e.stopPropagation()}
                 >
                   {pendingProjects.map((proj: any) => {
@@ -425,15 +412,20 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
           {/* Disconnected / Connect Form */}
           {!isPicking && (status === 'disconnected' || status === 'error' || status === 'expired') && (
             <div className="mt-3 space-y-3">
-              <a
-                href={provider.tokenHelpUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition"
-                onClick={(e) => e.stopPropagation()}
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    const { openUrl } = await import('@tauri-apps/plugin-opener');
+                    await openUrl(provider.tokenHelpUrl);
+                  } catch {
+                    window.open(provider.tokenHelpUrl, '_blank');
+                  }
+                }}
+                className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition cursor-pointer"
               >
                 Get your {provider.tokenName} <ExternalLink size={10} />
-              </a>
+              </button>
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <input
@@ -442,7 +434,7 @@ function ConnectionCard({ provider, projectId }: ConnectionCardProps) {
                     onChange={(e) => { setTokenInput(e.target.value); setError(''); }}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleConnect(); }}
                     placeholder={provider.tokenPlaceholder}
-                    className={`w-full px-3 py-2 pr-8 rounded text-xs border outline-none focus:ring-1 focus:ring-blue-500 ${bgInput}`}
+                    className={`w-full px-3 py-2 pr-8 text-xs border outline-none focus:outline-none ${t.colors.bgSecondary} ${t.colors.border} ${t.colors.text} ${t.borderRadius}`}
                     onClick={(e) => e.stopPropagation()}
                   />
                   <button
@@ -499,18 +491,11 @@ function CategoryFilter({
   onChange: (cat: ConnectionCategory | 'all') => void;
 }) {
   const { theme } = useSettingsStore();
+  const t = themes[theme];
 
   const btnBase = 'px-3 py-1.5 rounded-full text-xs font-medium transition';
-  const btnActive = theme === 'light'
-    ? 'bg-blue-500 text-white'
-    : theme === 'retro'
-    ? 'bg-green-700 text-black'
-    : 'bg-blue-600 text-white';
-  const btnInactive = theme === 'light'
-    ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-    : theme === 'retro'
-    ? 'bg-black text-green-500 border border-green-800 hover:bg-green-900/30'
-    : 'bg-gray-800 text-gray-400 hover:bg-gray-700';
+  const btnActive = 'bg-blue-600 text-white';
+  const btnInactive = `${t.colors.bgSecondary} ${t.colors.textMuted} hover:opacity-80`;
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -541,6 +526,7 @@ function CategoryFilter({
 
 export default function ConnectionsSettings() {
   const { theme } = useSettingsStore();
+  const t = themes[theme];
   const projects = useProjectStore((s) => s.projects);
   const currentProject = useProjectStore((s) => s.currentProject);
   const loadProjectConnectionsFromDB = useConnectionsStore((s) => s.loadProjectConnectionsFromDB);
@@ -548,6 +534,7 @@ export default function ConnectionsSettings() {
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<ConnectionCategory | 'all'>('all');
+  const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
 
   // Default to the currently open project, or the first in the list
   useEffect(() => {
@@ -583,18 +570,6 @@ export default function ConnectionsSettings() {
     return PROVIDERS[a].name.localeCompare(PROVIDERS[b].name);
   });
 
-  const bgSelect = theme === 'light'
-    ? 'bg-white border-gray-300 text-gray-900'
-    : theme === 'sepia'
-    ? 'bg-stone-800 border-stone-600 text-orange-100'
-    : theme === 'retro'
-    ? 'bg-black border-green-700 text-green-400 font-mono'
-    : theme === 'midnight'
-    ? 'bg-slate-900 border-slate-600 text-slate-100'
-    : theme === 'highContrast'
-    ? 'bg-black border-white text-white'
-    : 'bg-gray-800 border-gray-600 text-white';
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -606,35 +581,70 @@ export default function ConnectionsSettings() {
       </div>
 
       {/* Project Selector */}
-      <div className={`rounded-lg p-4 w-1/3 ${
-        theme === 'light'
-          ? 'bg-gray-50 border border-gray-200'
-          : 'bg-gray-800/60 border border-gray-700'
-      }`}>
-        <div className="flex items-center gap-3">
-          <FolderOpen size={16} className="opacity-60 shrink-0" />
-          <div className="flex-1 min-w-0">
-            <label className="text-xs font-medium opacity-60 block mb-1.5">Project</label>
-            {projects.length === 0 ? (
-              <p className="text-sm opacity-40">No projects yet — create a project first.</p>
-            ) : (
-              <select
-                value={selectedProjectId || ''}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
-                className={`w-full px-3 py-2 rounded text-sm border outline-none focus:ring-1 focus:ring-blue-500 ${bgSelect}`}
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
+      <div className="flex items-center gap-3">
+        <FolderOpen size={16} className="opacity-60 shrink-0" />
+        <label className="text-xs font-medium opacity-60">Project</label>
+
+        {projects.length === 0 ? (
+          <p className="text-sm opacity-40">No projects yet — create a project first.</p>
+        ) : (
+          <div className="relative">
+            <button
+              onClick={() => setProjectDropdownOpen((o) => !o)}
+              className={`flex items-center gap-2 px-3 py-1.5 text-sm border transition-opacity hover:opacity-80 ${t.colors.bgSecondary} ${t.colors.border} ${t.colors.text} ${t.borderRadius}`}
+            >
+              <span className="truncate max-w-[200px]">
+                {selectedProject?.name || 'Select project'}
+              </span>
+              <ChevronDown
+                size={12}
+                className={`opacity-50 transition-transform ${projectDropdownOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {projectDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setProjectDropdownOpen(false)} />
+                <div className={`absolute left-0 top-full mt-1 w-56 border shadow-xl z-20 overflow-hidden py-1 ${t.colors.bg} ${t.colors.border} ${t.borderRadius}`}>
+                  {projects.map((p) => {
+                    const isActive = p.id === selectedProjectId;
+                    const pConnCount = Object.values(projectConnections[p.id] || {}).filter(
+                      (c) => c?.status === 'connected'
+                    ).length;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setSelectedProjectId(p.id);
+                          setProjectDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-1.5 text-xs text-left transition-opacity hover:opacity-70 ${
+                          isActive ? 'opacity-100' : 'opacity-60'
+                        }`}
+                      >
+                        <span className="truncate">{p.name}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {pConnCount > 0 && (
+                            <span className="text-[10px] text-green-400">{pConnCount} connected</span>
+                          )}
+                          {isActive && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
-          {connectedCount > 0 && (
-            <span className="text-xs text-green-400 shrink-0 font-medium">
-              {connectedCount} connected
-            </span>
-          )}
-        </div>
+        )}
+
+        {connectedCount > 0 && (
+          <span className="text-xs text-green-400 shrink-0 font-medium">
+            {connectedCount} connected
+          </span>
+        )}
       </div>
 
       {/* Category Tabs + Cards */}
@@ -661,9 +671,7 @@ export default function ConnectionsSettings() {
       )}
 
       {/* Security Note */}
-      <div className={`rounded-lg p-3 text-xs opacity-50 ${
-        theme === 'light' ? 'bg-gray-50' : 'bg-gray-800/50'
-      }`}>
+      <div className={`p-3 text-xs opacity-50 ${t.colors.bgSecondary} ${t.borderRadius}`}>
         <div className="flex items-center gap-1.5 font-medium mb-1">
           <Shield size={12} /> Security
         </div>

@@ -749,6 +749,8 @@ pub fn run() {
             screen_control::get_screen_size,
             screen_control::list_monitors,
             screen_control::launch_app,
+            screen_control::scan_shortcuts_folder,
+            screen_control::create_playlist,
             screen_control::minimize_self,
         ])
         .run(tauri::generate_context!())

@@ -7,7 +7,7 @@
 // Used by:
 // - toolService.ts (AI tool execution)
 // - AssistantChatArea.tsx (screenshot→AI→action loop)
-// - ScreenControlSettings.tsx (test actions)
+// - ScreenControlSettings.tsx (settings)
 
 import { invoke } from "@tauri-apps/api/core";
 
@@ -44,6 +44,12 @@ export interface MonitorInfo {
   is_primary: boolean;
 }
 
+export interface ShortcutEntry {
+  name: string;       // "Photoshop" (filename without extension)
+  path: string;       // full path to the .lnk / .exe file
+  extension: string;  // "lnk", "exe", "url"
+}
+
 /** Parsed action from AI response */
 export interface ScreenAction {
   type: "CLICK" | "DOUBLE_CLICK" | "RIGHT_CLICK" | "TYPE" | "KEY" | "SCROLL" | "DRAG" | "WAIT" | "DONE" | "FAIL" | "MOVE";
@@ -59,74 +65,41 @@ export interface ScreenAction {
   reason?: string;
 }
 
-// ── Common Apps Registry ──────────────────────────────────────
-// Apps that Windows/Mac/Linux can launch by name without a full path.
-// Users toggle these on/off — no manual path entry needed.
-
-export interface CommonApp {
-  id: string;
-  label: string;
-  command: string;        // what gets passed to launch_app (e.g. "wmplayer")
-  description: string;
-  aliases: string[];      // words the user might say to refer to this app
-}
-
-export const COMMON_APPS: CommonApp[] = [
-  { id: "notepad",    label: "Notepad",               command: "notepad",     description: "Text editor",        aliases: ["notepad", "text editor"] },
-  { id: "calc",       label: "Calculator",             command: "calc",        description: "Calculator",         aliases: ["calculator", "calc"] },
-  { id: "paint",      label: "Paint",                  command: "mspaint",     description: "Image editor",       aliases: ["paint", "mspaint", "drawing"] },
-  { id: "wmplayer",   label: "Windows Media Player",   command: "wmplayer",    description: "Media player",       aliases: ["wmp", "windows media player", "media player", "wmplayer"] },
-  { id: "explorer",   label: "File Explorer",          command: "explorer",    description: "File manager",       aliases: ["file explorer", "explorer", "files", "my computer"] },
-  { id: "cmd",        label: "Command Prompt",         command: "cmd",         description: "Terminal",           aliases: ["command prompt", "cmd", "terminal", "console"] },
-  { id: "powershell", label: "PowerShell",             command: "powershell",  description: "Terminal",           aliases: ["powershell", "ps"] },
-  { id: "winword",    label: "Microsoft Word",         command: "winword",     description: "Word processor",     aliases: ["word", "microsoft word", "winword"] },
-  { id: "excel",      label: "Microsoft Excel",        command: "excel",       description: "Spreadsheet",        aliases: ["excel", "microsoft excel", "spreadsheet"] },
-  { id: "powerpnt",   label: "Microsoft PowerPoint",   command: "powerpnt",    description: "Presentations",      aliases: ["powerpoint", "microsoft powerpoint", "ppt", "slides"] },
-  { id: "outlook",    label: "Microsoft Outlook",      command: "outlook",     description: "Email client",       aliases: ["outlook", "microsoft outlook", "email"] },
-  { id: "chrome",     label: "Google Chrome",          command: "chrome",      description: "Web browser",        aliases: ["chrome", "google chrome"] },
-  { id: "firefox",    label: "Firefox",                command: "firefox",     description: "Web browser",        aliases: ["firefox", "mozilla firefox"] },
-  { id: "brave",      label: "Brave",                  command: "brave",       description: "Web browser",        aliases: ["brave", "brave browser"] },
-  { id: "spotify",    label: "Spotify",                command: "spotify",     description: "Music streaming",    aliases: ["spotify", "music"] },
-  { id: "vlc",        label: "VLC",                    command: "vlc",         description: "Media player",       aliases: ["vlc", "vlc player", "video player"] },
-  { id: "code",       label: "VS Code",                command: "code",        description: "Code editor",        aliases: ["vscode", "vs code", "visual studio code", "code editor"] },
-];
-
-// ── Settings (read from localStorage, written by ScreenControlSettings) ──
+// ── Settings ──────────────────────────────────────────────────
 
 export interface ScreenControlSettings {
   enabled: boolean;
   screenshotQuality: "low" | "medium" | "high";
-  actionDelay: number;        // ms between actions (default 500)
-  cropToWindow: boolean;      // crop screenshot to active window
+  actionDelay: number;
+  cropToWindow: boolean;
   modelPreference: "haiku" | "auto" | "sonnet" | "opus";
-  blockedApps: string[];      // apps that screen control should never interact with
-  killSwitchKey: string;      // global hotkey to stop (default "F10")
-  confirmSensitive: boolean;  // pause on password/payment/send screens
-  selectedMonitor: number;    // monitor index (0 = primary/first)
-  // User preferences — context injected into every screen control prompt
-  userContext: string;        // free-text: display setup, habits, preferences
-  appNotes: string;           // free-text: app locations, shortcuts, common workflows
-  folders: { label: string; path: string }[]; // labeled folder paths picked via explorer
-  // Registered apps — the AI can launch these instantly (no screenshots needed)
-  enabledCommonApps: string[];  // IDs from COMMON_APPS that are enabled
-  customApps: { label: string; path: string }[];  // user-added apps with full .exe path
+  blockedApps: string[];
+  killSwitchKey: string;
+  confirmSensitive: boolean;
+  // Monitor setup
+  omnirunMonitor: number;     // which monitor Omnirun lives on (user picks visually)
+  // User preferences
+  userContext: string;
+  appNotes: string;
+  folders: { label: string; path: string }[];
+  // App shortcuts folder — user drops .lnk / .exe shortcuts here
+  shortcutsFolder: string;
 }
 
 const DEFAULT_SETTINGS: ScreenControlSettings = {
   enabled: false,
-  screenshotQuality: "medium",
+  screenshotQuality: "low",
   actionDelay: 500,
   cropToWindow: true,
-  modelPreference: "opus",
+  modelPreference: "sonnet",
   blockedApps: [],
   killSwitchKey: "F10",
   confirmSensitive: true,
-  selectedMonitor: 0,
+  omnirunMonitor: 0,
   userContext: "",
   appNotes: "",
   folders: [],
-  enabledCommonApps: ["notepad", "calc", "wmplayer", "explorer", "chrome", "excel", "spotify"],
-  customApps: [],
+  shortcutsFolder: "",
 };
 
 export function loadScreenControlSettings(): ScreenControlSettings {
@@ -134,20 +107,11 @@ export function loadScreenControlSettings(): ScreenControlSettings {
     const saved = localStorage.getItem("screen-control-settings");
     if (saved) {
       const parsed = JSON.parse(saved);
-      // Migrate: old format had folders as a string, new format is array
-      if (typeof parsed.folders === "string") {
-        parsed.folders = [];
-      }
-      if (!Array.isArray(parsed.folders)) {
-        parsed.folders = [];
-      }
-      // Migrate: add new fields if missing
-      if (!Array.isArray(parsed.enabledCommonApps)) {
-        parsed.enabledCommonApps = DEFAULT_SETTINGS.enabledCommonApps;
-      }
-      if (!Array.isArray(parsed.customApps)) {
-        parsed.customApps = [];
-      }
+      // Migrate old formats
+      if (typeof parsed.folders === "string") parsed.folders = [];
+      if (!Array.isArray(parsed.folders)) parsed.folders = [];
+      if (typeof parsed.shortcutsFolder !== "string") parsed.shortcutsFolder = "";
+      if (typeof parsed.omnirunMonitor !== "number") parsed.omnirunMonitor = parsed.selectedMonitor ?? 0;
       return { ...DEFAULT_SETTINGS, ...parsed };
     }
   } catch {
@@ -160,15 +124,31 @@ export function saveScreenControlSettings(settings: ScreenControlSettings): void
   localStorage.setItem("screen-control-settings", JSON.stringify(settings));
 }
 
+// ── Monitor Helpers ───────────────────────────────────────────
+// On dual monitors: Omnirun stays on omnirunMonitor, apps open on the other.
+// On single monitor: everything happens on monitor 0, no minimize needed.
+
+export function getAppsMonitorIndex(monitors: MonitorInfo[], omnirunMonitor: number): number {
+  if (monitors.length <= 1) return 0;
+  // Return the first monitor that isn't the Omnirun monitor
+  const other = monitors.find((m) => m.index !== omnirunMonitor);
+  return other ? other.index : 0;
+}
+
+export function isSingleMonitor(monitors: MonitorInfo[]): boolean {
+  return monitors.length <= 1;
+}
+
 // ── Screenshot ────────────────────────────────────────────────
 
 export async function takeScreenshot(
   cropToWindow: boolean = true,
-  quality: string = "medium"
+  quality: string = "low",
+  monitorIndex?: number,
 ): Promise<ScreenshotResult> {
   const settings = loadScreenControlSettings();
   return invoke<ScreenshotResult>("take_screenshot", {
-    monitorIndex: settings.selectedMonitor,
+    monitorIndex: monitorIndex ?? settings.omnirunMonitor,
     cropToWindow,
     quality,
   });
@@ -224,9 +204,9 @@ export async function getActiveWindow(): Promise<ActiveWindow> {
   return invoke<ActiveWindow>("get_active_window");
 }
 
-export async function getScreenSize(): Promise<ScreenSize> {
+export async function getScreenSize(monitorIndex?: number): Promise<ScreenSize> {
   const settings = loadScreenControlSettings();
-  return invoke<ScreenSize>("get_screen_size", { monitorIndex: settings.selectedMonitor });
+  return invoke<ScreenSize>("get_screen_size", { monitorIndex: monitorIndex ?? settings.omnirunMonitor });
 }
 
 // ── Action Parser ─────────────────────────────────────────────
@@ -236,88 +216,51 @@ export function parseScreenAction(aiResponse: string): ScreenAction | null {
   return actions.length > 0 ? actions[0] : null;
 }
 
-/** Parse ALL action lines from an AI response. Supports batching. */
 export function parseAllScreenActions(aiResponse: string): ScreenAction[] {
   const lines = aiResponse.trim().split("\n");
   const actions: ScreenAction[] = [];
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    // Strip markdown bold/formatting
     const clean = line.replace(/\*\*/g, "").replace(/`/g, "").trim();
-
-    // Match: Action: CLICK x y  OR just  CLICK x y
     const actionLine = clean.replace(/^Action:\s*/i, "").trim();
-
-    // Handle compound lines like "TYPE hello KEY enter" — split on known action keywords
     const subActions = splitCompoundAction(actionLine);
-    
+
     for (const sub of subActions) {
       const clickMatch = sub.match(/^CLICK\s+(\d+)[,\s]+(\d+)$/i);
-      if (clickMatch) {
-        actions.push({ type: "CLICK", x: parseInt(clickMatch[1]), y: parseInt(clickMatch[2]) });
-        continue;
-      }
+      if (clickMatch) { actions.push({ type: "CLICK", x: parseInt(clickMatch[1]), y: parseInt(clickMatch[2]) }); continue; }
 
       const dblClickMatch = sub.match(/^DOUBLE_CLICK\s+(\d+)[,\s]+(\d+)$/i);
-      if (dblClickMatch) {
-        actions.push({ type: "DOUBLE_CLICK", x: parseInt(dblClickMatch[1]), y: parseInt(dblClickMatch[2]) });
-        continue;
-      }
+      if (dblClickMatch) { actions.push({ type: "DOUBLE_CLICK", x: parseInt(dblClickMatch[1]), y: parseInt(dblClickMatch[2]) }); continue; }
 
       const rightClickMatch = sub.match(/^RIGHT_CLICK\s+(\d+)[,\s]+(\d+)$/i);
-      if (rightClickMatch) {
-        actions.push({ type: "RIGHT_CLICK", x: parseInt(rightClickMatch[1]), y: parseInt(rightClickMatch[2]) });
-        continue;
-      }
+      if (rightClickMatch) { actions.push({ type: "RIGHT_CLICK", x: parseInt(rightClickMatch[1]), y: parseInt(rightClickMatch[2]) }); continue; }
 
       const typeMatch = sub.match(/^TYPE\s+(.+)$/i);
-      if (typeMatch) {
-        actions.push({ type: "TYPE", text: typeMatch[1] });
-        continue;
-      }
+      if (typeMatch) { actions.push({ type: "TYPE", text: typeMatch[1] }); continue; }
 
       const keyMatch = sub.match(/^KEY\s+(.+)$/i);
-      if (keyMatch) {
-        actions.push({ type: "KEY", combo: keyMatch[1].trim() });
-        continue;
-      }
+      if (keyMatch) { actions.push({ type: "KEY", combo: keyMatch[1].trim() }); continue; }
 
       const scrollMatch = sub.match(/^SCROLL\s+(up|down|left|right)\s*(\d*)$/i);
-      if (scrollMatch) {
-        actions.push({ type: "SCROLL", direction: scrollMatch[1].toLowerCase(), amount: scrollMatch[2] ? parseInt(scrollMatch[2]) : 3 });
-        continue;
-      }
+      if (scrollMatch) { actions.push({ type: "SCROLL", direction: scrollMatch[1].toLowerCase(), amount: scrollMatch[2] ? parseInt(scrollMatch[2]) : 3 }); continue; }
 
       const dragMatch = sub.match(/^DRAG\s+(\d+)[,\s]+(\d+)[,\s]+(\d+)[,\s]+(\d+)$/i);
-      if (dragMatch) {
-        actions.push({ type: "DRAG", x: parseInt(dragMatch[1]), y: parseInt(dragMatch[2]), x2: parseInt(dragMatch[3]), y2: parseInt(dragMatch[4]) });
-        continue;
-      }
+      if (dragMatch) { actions.push({ type: "DRAG", x: parseInt(dragMatch[1]), y: parseInt(dragMatch[2]), x2: parseInt(dragMatch[3]), y2: parseInt(dragMatch[4]) }); continue; }
 
       const waitMatch = sub.match(/^WAIT\s+(\d+)$/i);
-      if (waitMatch) {
-        actions.push({ type: "WAIT", seconds: parseInt(waitMatch[1]) });
-        continue;
-      }
+      if (waitMatch) { actions.push({ type: "WAIT", seconds: parseInt(waitMatch[1]) }); continue; }
 
-      if (/^DONE$/i.test(sub)) {
-        actions.push({ type: "DONE" });
-        continue;
-      }
+      if (/^DONE$/i.test(sub)) { actions.push({ type: "DONE" }); continue; }
 
       const failMatch = sub.match(/^FAIL\s+(.+)$/i);
-      if (failMatch) {
-        actions.push({ type: "FAIL", reason: failMatch[1] });
-        continue;
-      }
+      if (failMatch) { actions.push({ type: "FAIL", reason: failMatch[1] }); continue; }
     }
   }
 
   return actions;
 }
 
-/** Split a compound action line like "TYPE hello KEY enter" into separate actions */
 function splitCompoundAction(line: string): string[] {
   const parts = line.split(/\s+(?=(?:CLICK|DOUBLE_CLICK|RIGHT_CLICK|TYPE|KEY|SCROLL|DRAG|WAIT|DONE|FAIL)\s)/i);
   return parts.map(p => p.trim()).filter(Boolean);
@@ -330,48 +273,143 @@ export async function executeScreenAction(action: ScreenAction): Promise<string>
     case "CLICK":
       await screenClick(action.x!, action.y!);
       return `Clicked at (${action.x}, ${action.y})`;
-
     case "DOUBLE_CLICK":
       await screenDoubleClick(action.x!, action.y!);
       return `Double-clicked at (${action.x}, ${action.y})`;
-
     case "RIGHT_CLICK":
       await screenRightClick(action.x!, action.y!);
       return `Right-clicked at (${action.x}, ${action.y})`;
-
     case "TYPE":
       await screenType(action.text!);
       return `Typed: "${action.text!.slice(0, 50)}${action.text!.length > 50 ? "..." : ""}"`;
-
     case "KEY":
       await screenKey(action.combo!);
       return `Pressed: ${action.combo}`;
-
     case "SCROLL":
       await screenScroll(action.direction!, action.amount ?? 3);
       return `Scrolled ${action.direction} ${action.amount ?? 3} ticks`;
-
     case "DRAG":
       await screenDrag(action.x!, action.y!, action.x2!, action.y2!);
       return `Dragged from (${action.x}, ${action.y}) to (${action.x2}, ${action.y2})`;
-
     case "WAIT":
       await new Promise((resolve) => setTimeout(resolve, (action.seconds ?? 1) * 1000));
       return `Waited ${action.seconds} seconds`;
-
     case "DONE":
       return "Task complete";
-
     case "FAIL":
       return `Failed: ${action.reason}`;
-
     default:
       return `Unknown action: ${action.type}`;
   }
 }
 
+// ── Shortcuts Folder Scanning ─────────────────────────────────
+// User creates a folder, drops .lnk / .exe shortcuts into it.
+// We scan that folder to know what apps are launchable.
+
+export async function scanShortcutsFolder(): Promise<ShortcutEntry[]> {
+  const settings = loadScreenControlSettings();
+  if (!settings.shortcutsFolder) return [];
+  try {
+    return await invoke<ShortcutEntry[]>("scan_shortcuts_folder", { folder: settings.shortcutsFolder });
+  } catch {
+    return [];
+  }
+}
+
+// ── App Launch Matcher ────────────────────────────────────────
+// Given "open photoshop and resize image", scans the shortcuts folder
+// for a matching .lnk, returns the path to launch.
+// Returns null if no match — AI handles it visually instead.
+
+export async function matchAppFromShortcuts(
+  instruction: string
+): Promise<{ name: string; path: string; fileArg?: string } | null> {
+  // Only match if instruction has an "open" intent
+  const openMatch = instruction.match(/(?:open|launch|start|run|play)\s+(.+)/i);
+  if (!openMatch) return null;
+
+  const rest = openMatch[1].toLowerCase();
+
+  // Scan shortcuts folder
+  const shortcuts = await scanShortcutsFolder();
+  if (shortcuts.length === 0) return null;
+
+  // Try to match: check if any shortcut name appears in the instruction
+  // "open photoshop" matches "Adobe Photoshop.lnk" because "photoshop" is in the name
+  let bestMatch: ShortcutEntry | null = null;
+  let bestScore = 0;
+
+  for (const shortcut of shortcuts) {
+    const shortcutLower = shortcut.name.toLowerCase();
+    const shortcutWords = shortcutLower.split(/[\s\-_]+/);
+
+    // Exact full name match (highest priority)
+    if (rest.includes(shortcutLower)) {
+      bestMatch = shortcut;
+      bestScore = 100;
+      break;
+    }
+
+    // Word match: count how many words from the shortcut name appear in the instruction
+    let wordHits = 0;
+    for (const word of shortcutWords) {
+      if (word.length >= 3 && rest.includes(word)) {
+        wordHits++;
+      }
+    }
+
+    // At least one significant word must match
+    if (wordHits > 0) {
+      const score = wordHits * 10 + (shortcutLower.length > 5 ? 5 : 0);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = shortcut;
+      }
+    }
+  }
+
+  if (!bestMatch) return null;
+
+  // Check if instruction also mentions a folder
+  const settings = loadScreenControlSettings();
+  const fileArg = matchFolderArg(instruction, settings);
+
+  return { name: bestMatch.name, path: bestMatch.path, fileArg };
+}
+
+// Try to match a folder reference in the instruction
+function matchFolderArg(instruction: string, settings: ScreenControlSettings): string | undefined {
+  const lower = instruction.toLowerCase();
+
+  // Direct folder label match
+  for (const folder of settings.folders) {
+    if (lower.includes(folder.label.toLowerCase())) {
+      return folder.path;
+    }
+  }
+
+  // Common keywords → folder labels
+  const keywordMap: Record<string, string> = {
+    "music": "Music", "song": "Music", "songs": "Music",
+    "video": "Videos", "videos": "Videos", "movie": "Videos",
+    "document": "Documents", "documents": "Documents",
+    "download": "Downloads", "downloads": "Downloads",
+    "picture": "Pictures", "pictures": "Pictures", "photo": "Pictures", "photos": "Pictures",
+    "project": "Projects", "projects": "Projects",
+  };
+
+  for (const [keyword, folderLabel] of Object.entries(keywordMap)) {
+    if (lower.includes(keyword)) {
+      const folder = settings.folders.find((f) => f.label === folderLabel);
+      if (folder) return folder.path;
+    }
+  }
+
+  return undefined;
+}
+
 // ── User Context Builder ──────────────────────────────────────
-// Builds a context string from user preferences to inject into screen control prompts.
 
 export function buildUserContextPrompt(): string {
   const settings = loadScreenControlSettings();
@@ -388,112 +426,8 @@ export function buildUserContextPrompt(): string {
     parts.push(`Key folders: ${folderLines}`);
   }
 
-  // Include registered apps so AI knows what's available for instant launch
-  const registeredApps = getRegisteredApps();
-  if (registeredApps.length > 0) {
-    const appLines = registeredApps.map((a) => `${a.label} (command: ${a.command})`).join(", ");
-    parts.push(`Registered apps (can be launched instantly): ${appLines}`);
-  }
-
   if (parts.length === 0) return "";
   return "\nUser preferences:\n" + parts.join("\n") + "\n";
-}
-
-// ── Registered Apps Helper ────────────────────────────────────
-// Returns the full list of launchable apps (common + custom).
-
-export function getRegisteredApps(): { label: string; command: string }[] {
-  const settings = loadScreenControlSettings();
-  const apps: { label: string; command: string }[] = [];
-
-  // Add enabled common apps
-  for (const id of settings.enabledCommonApps) {
-    const common = COMMON_APPS.find((a) => a.id === id);
-    if (common) {
-      apps.push({ label: common.label, command: common.command });
-    }
-  }
-
-  // Add custom apps
-  for (const custom of settings.customApps) {
-    if (custom.label && custom.path) {
-      apps.push({ label: custom.label, command: custom.path });
-    }
-  }
-
-  return apps;
-}
-
-// ── App Launch Matcher ────────────────────────────────────────
-// Given a user instruction like "open WMP and play my music",
-// tries to match an app from the registry and returns the launch command.
-// Returns null if no match found (AI handles it visually instead).
-
-export function matchAppLaunch(instruction: string): { label: string; command: string; fileArg?: string } | null {
-  const settings = loadScreenControlSettings();
-  const lower = instruction.toLowerCase();
-
-  // Only match if instruction starts with an "open" intent
-  const openMatch = lower.match(/(?:open|launch|start|run)\s+(.+)/i);
-  if (!openMatch) return null;
-
-  const rest = openMatch[1];
-
-  // Check enabled common apps (match by alias)
-  for (const id of settings.enabledCommonApps) {
-    const common = COMMON_APPS.find((a) => a.id === id);
-    if (!common) continue;
-
-    for (const alias of common.aliases) {
-      if (rest.includes(alias)) {
-        // Check if user also mentioned a folder
-        const fileArg = matchFolderArg(instruction, settings);
-        return { label: common.label, command: common.command, fileArg };
-      }
-    }
-  }
-
-  // Check custom apps (match by label)
-  for (const custom of settings.customApps) {
-    if (rest.includes(custom.label.toLowerCase())) {
-      const fileArg = matchFolderArg(instruction, settings);
-      return { label: custom.label, command: custom.path, fileArg };
-    }
-  }
-
-  return null;
-}
-
-// Try to match a folder reference in the instruction (e.g. "play my music" → Music folder path)
-function matchFolderArg(instruction: string, settings: ScreenControlSettings): string | undefined {
-  const lower = instruction.toLowerCase();
-
-  // Direct folder label match
-  for (const folder of settings.folders) {
-    if (lower.includes(folder.label.toLowerCase())) {
-      return folder.path;
-    }
-  }
-
-  // Common keyword → folder label mapping
-  const keywordMap: Record<string, string> = {
-    "music": "Music",
-    "video": "Videos",
-    "document": "Documents",
-    "download": "Downloads",
-    "picture": "Pictures",
-    "photo": "Pictures",
-    "project": "Projects",
-  };
-
-  for (const [keyword, folderLabel] of Object.entries(keywordMap)) {
-    if (lower.includes(keyword)) {
-      const folder = settings.folders.find((f) => f.label === folderLabel);
-      if (folder) return folder.path;
-    }
-  }
-
-  return undefined;
 }
 
 // ── Blocked App Check ─────────────────────────────────────────
@@ -516,19 +450,25 @@ export async function isBlockedApp(): Promise<{ blocked: boolean; appName: strin
   }
 }
 
-// ── App Launch (scripted pre-step — no AI needed) ─────────────
+// ── App Launch ────────────────────────────────────────────────
 
 export async function launchApp(app: string, file?: string): Promise<string> {
   return invoke<string>("launch_app", { app, file: file ?? null });
 }
 
-// ── Minimize Self (get Omnirun out of the way) ────────────────
+// ── Playlist Creator ──────────────────────────────────────────
+
+export async function createPlaylist(folder: string, outputPath?: string): Promise<string> {
+  return invoke<string>("create_playlist", { folder, outputPath: outputPath ?? null });
+}
+
+// ── Minimize Self ─────────────────────────────────────────────
 
 export async function minimizeSelf(): Promise<void> {
   return invoke("minimize_self");
 }
 
-// ── Browser Detection (for auto-routing to Playwright) ────────
+// ── Browser Detection ─────────────────────────────────────────
 
 const BROWSER_APPS = [
   "chrome", "firefox", "safari", "edge", "msedge", "brave",
