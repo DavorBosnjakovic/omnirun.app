@@ -3,11 +3,6 @@
 // ============================================================
 // Frontend service layer for desktop app control.
 // Wraps Tauri invoke() calls to the Rust screen_control module.
-//
-// Used by:
-// - toolService.ts (AI tool execution)
-// - AssistantChatArea.tsx (screenshot→AI→action loop)
-// - ScreenControlSettings.tsx (settings)
 
 import { invoke } from "@tauri-apps/api/core";
 
@@ -45,12 +40,11 @@ export interface MonitorInfo {
 }
 
 export interface ShortcutEntry {
-  name: string;       // "Photoshop" (filename without extension)
-  path: string;       // full path to the .lnk / .exe file
-  extension: string;  // "lnk", "exe", "url"
+  name: string;
+  path: string;
+  extension: string;
 }
 
-/** Parsed action from AI response */
 export interface ScreenAction {
   type: "CLICK" | "DOUBLE_CLICK" | "RIGHT_CLICK" | "TYPE" | "KEY" | "SCROLL" | "DRAG" | "WAIT" | "DONE" | "FAIL" | "MOVE";
   x?: number;
@@ -73,17 +67,12 @@ export interface ScreenControlSettings {
   actionDelay: number;
   cropToWindow: boolean;
   modelPreference: "haiku" | "auto" | "sonnet" | "opus";
-  blockedApps: string[];
   killSwitchKey: string;
   confirmSensitive: boolean;
-  // Monitor setup
-  omnirunMonitor: number;     // which monitor Omnirun lives on (user picks visually)
-  // User preferences
-  userContext: string;
+  omnirunMonitor: number;
+  omniFilesPath: string;
   appNotes: string;
   folders: { label: string; path: string }[];
-  // App shortcuts folder — user drops .lnk / .exe shortcuts here
-  shortcutsFolder: string;
 }
 
 const DEFAULT_SETTINGS: ScreenControlSettings = {
@@ -92,14 +81,12 @@ const DEFAULT_SETTINGS: ScreenControlSettings = {
   actionDelay: 500,
   cropToWindow: true,
   modelPreference: "sonnet",
-  blockedApps: [],
   killSwitchKey: "F10",
   confirmSensitive: true,
   omnirunMonitor: 0,
-  userContext: "",
+  omniFilesPath: "",
   appNotes: "",
   folders: [],
-  shortcutsFolder: "",
 };
 
 export function loadScreenControlSettings(): ScreenControlSettings {
@@ -107,11 +94,13 @@ export function loadScreenControlSettings(): ScreenControlSettings {
     const saved = localStorage.getItem("screen-control-settings");
     if (saved) {
       const parsed = JSON.parse(saved);
-      // Migrate old formats
       if (typeof parsed.folders === "string") parsed.folders = [];
       if (!Array.isArray(parsed.folders)) parsed.folders = [];
-      if (typeof parsed.shortcutsFolder !== "string") parsed.shortcutsFolder = "";
       if (typeof parsed.omnirunMonitor !== "number") parsed.omnirunMonitor = parsed.selectedMonitor ?? 0;
+      // Migrate old shortcutsFolder to omniFilesPath
+      if (parsed.shortcutsFolder && !parsed.omniFilesPath) {
+        parsed.omniFilesPath = parsed.shortcutsFolder;
+      }
       return { ...DEFAULT_SETTINGS, ...parsed };
     }
   } catch {
@@ -125,12 +114,9 @@ export function saveScreenControlSettings(settings: ScreenControlSettings): void
 }
 
 // ── Monitor Helpers ───────────────────────────────────────────
-// On dual monitors: Omnirun stays on omnirunMonitor, apps open on the other.
-// On single monitor: everything happens on monitor 0, no minimize needed.
 
 export function getAppsMonitorIndex(monitors: MonitorInfo[], omnirunMonitor: number): number {
   if (monitors.length <= 1) return 0;
-  // Return the first monitor that isn't the Omnirun monitor
   const other = monitors.find((m) => m.index !== omnirunMonitor);
   return other ? other.index : 0;
 }
@@ -145,12 +131,14 @@ export async function takeScreenshot(
   cropToWindow: boolean = true,
   quality: string = "low",
   monitorIndex?: number,
+  captureAll?: boolean,
 ): Promise<ScreenshotResult> {
   const settings = loadScreenControlSettings();
   return invoke<ScreenshotResult>("take_screenshot", {
     monitorIndex: monitorIndex ?? settings.omnirunMonitor,
     cropToWindow,
     quality,
+    captureAll: captureAll ?? false,
   });
 }
 
@@ -303,93 +291,87 @@ export async function executeScreenAction(action: ScreenAction): Promise<string>
   }
 }
 
-// ── Shortcuts Folder Scanning ─────────────────────────────────
-// User creates a folder, drops .lnk / .exe shortcuts into it.
-// We scan that folder to know what apps are launchable.
+// ── omni-files Folder ─────────────────────────────────────────
+// User picks any folder they want. Omnirun scans it for files to launch.
+// Any file type accepted — shortcuts, documents, scripts, media, anything.
 
-export async function scanShortcutsFolder(): Promise<ShortcutEntry[]> {
-  const settings = loadScreenControlSettings();
-  if (!settings.shortcutsFolder) return [];
+export function getOmniFilesPath(): string {
+  return loadScreenControlSettings().omniFilesPath;
+}
+
+export async function scanOmniFiles(): Promise<ShortcutEntry[]> {
+  const folder = getOmniFilesPath();
+  if (!folder) return [];
   try {
-    return await invoke<ShortcutEntry[]>("scan_shortcuts_folder", { folder: settings.shortcutsFolder });
+    return await invoke<ShortcutEntry[]>("scan_shortcuts_folder", { folder });
   } catch {
     return [];
   }
 }
 
-// ── App Launch Matcher ────────────────────────────────────────
-// Given "open photoshop and resize image", scans the shortcuts folder
-// for a matching .lnk, returns the path to launch.
-// Returns null if no match — AI handles it visually instead.
+// ── File/App Launch Matcher ───────────────────────────────────
+// Given "open fl studio" or "open my resume", scans omni-files
+// for a matching file and returns the path to launch.
 
-export async function matchAppFromShortcuts(
+export async function matchFileFromOmniFiles(
   instruction: string
 ): Promise<{ name: string; path: string; fileArg?: string } | null> {
-  // Only match if instruction has an "open" intent
   const openMatch = instruction.match(/(?:open|launch|start|run|play)\s+(.+)/i);
   if (!openMatch) return null;
 
   const rest = openMatch[1].toLowerCase();
 
-  // Scan shortcuts folder
-  const shortcuts = await scanShortcutsFolder();
-  if (shortcuts.length === 0) return null;
+  const files = await scanOmniFiles();
+  if (files.length === 0) return null;
 
-  // Try to match: check if any shortcut name appears in the instruction
-  // "open photoshop" matches "Adobe Photoshop.lnk" because "photoshop" is in the name
   let bestMatch: ShortcutEntry | null = null;
   let bestScore = 0;
 
-  for (const shortcut of shortcuts) {
-    const shortcutLower = shortcut.name.toLowerCase();
-    const shortcutWords = shortcutLower.split(/[\s\-_]+/);
+  for (const file of files) {
+    const fileLower = file.name.toLowerCase();
+    const fileWords = fileLower.split(/[\s\-_().]+/);
 
-    // Exact full name match (highest priority)
-    if (rest.includes(shortcutLower)) {
-      bestMatch = shortcut;
+    // Exact full name match
+    if (rest.includes(fileLower)) {
+      bestMatch = file;
       bestScore = 100;
       break;
     }
 
-    // Word match: count how many words from the shortcut name appear in the instruction
+    // Word match
     let wordHits = 0;
-    for (const word of shortcutWords) {
+    for (const word of fileWords) {
       if (word.length >= 3 && rest.includes(word)) {
         wordHits++;
       }
     }
 
-    // At least one significant word must match
     if (wordHits > 0) {
-      const score = wordHits * 10 + (shortcutLower.length > 5 ? 5 : 0);
+      const score = wordHits * 10 + (fileLower.length > 5 ? 5 : 0);
       if (score > bestScore) {
         bestScore = score;
-        bestMatch = shortcut;
+        bestMatch = file;
       }
     }
   }
 
   if (!bestMatch) return null;
 
-  // Check if instruction also mentions a folder
   const settings = loadScreenControlSettings();
   const fileArg = matchFolderArg(instruction, settings);
 
   return { name: bestMatch.name, path: bestMatch.path, fileArg };
 }
 
-// Try to match a folder reference in the instruction
 function matchFolderArg(instruction: string, settings: ScreenControlSettings): string | undefined {
   const lower = instruction.toLowerCase();
 
-  // Direct folder label match
   for (const folder of settings.folders) {
     if (lower.includes(folder.label.toLowerCase())) {
       return folder.path;
     }
   }
 
-  // Common keywords → folder labels
   const keywordMap: Record<string, string> = {
     "music": "Music", "song": "Music", "songs": "Music",
     "video": "Videos", "videos": "Videos", "movie": "Videos",
@@ -415,11 +397,8 @@ export function buildUserContextPrompt(): string {
   const settings = loadScreenControlSettings();
   const parts: string[] = [];
 
-  if (settings.userContext.trim()) {
-    parts.push(`User setup: ${settings.userContext.trim()}`);
-  }
   if (settings.appNotes.trim()) {
-    parts.push(`App notes: ${settings.appNotes.trim()}`);
+    parts.push(`Notes: ${settings.appNotes.trim()}`);
   }
   if (settings.folders.length > 0) {
     const folderLines = settings.folders.map((f) => `${f.label}: ${f.path}`).join(", ");
@@ -433,24 +412,10 @@ export function buildUserContextPrompt(): string {
 // ── Blocked App Check ─────────────────────────────────────────
 
 export async function isBlockedApp(): Promise<{ blocked: boolean; appName: string }> {
-  const settings = loadScreenControlSettings();
-  if (settings.blockedApps.length === 0) {
-    return { blocked: false, appName: "" };
-  }
-
-  try {
-    const win = await getActiveWindow();
-    const appLower = win.app_name.toLowerCase();
-    const blocked = settings.blockedApps.some(
-      (b) => appLower.includes(b.toLowerCase())
-    );
-    return { blocked, appName: win.app_name };
-  } catch {
-    return { blocked: false, appName: "" };
-  }
+  return { blocked: false, appName: "" };
 }
 
-// ── App Launch ────────────────────────────────────────────────
+// ── App/File Launch ───────────────────────────────────────────
 
 export async function launchApp(app: string, file?: string): Promise<string> {
   return invoke<string>("launch_app", { app, file: file ?? null });
