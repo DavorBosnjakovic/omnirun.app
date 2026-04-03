@@ -2,22 +2,16 @@
 // screen_control.rs
 // ============================================================
 // Desktop app control via screenshot + input simulation.
-// Cross-platform: Windows (SendInput/BitBlt), Mac (CGEvent/CGWindowList), Linux (X11).
+// Cross-platform: Windows, Mac, Linux.
 //
-// Provides Tauri commands for:
-// - take_screenshot: capture full screen or active window, return base64 PNG
-// - screen_click: simulate mouse click at (x, y)
-// - screen_double_click: simulate double-click at (x, y)
-// - screen_right_click: simulate right-click at (x, y)
-// - screen_type: type text string
-// - screen_key: press key combination (e.g. "ctrl+s")
-// - screen_scroll: scroll in a direction
-// - screen_drag: click-drag from (x1,y1) to (x2,y2)
-// - screen_mouse_move: move mouse to (x, y) without clicking
-// - get_active_window: return app name, title, and dimensions
-// - get_screen_size: return primary monitor dimensions
-// - launch_app: open an app by name/path, optionally with a file argument
-// - minimize_self: minimize the Omnirun window to get out of the way
+// Tauri commands:
+// - take_screenshot, screen_click, screen_double_click, screen_right_click
+// - screen_mouse_move, screen_drag, screen_scroll, screen_type, screen_key
+// - get_active_window, get_screen_size, list_monitors
+// - launch_app: open an app by name/path with optional file
+// - scan_shortcuts_folder: list launchable shortcuts in user's app folder
+// - create_playlist: scan music folder → create .m3u file
+// - minimize_self: minimize Omnirun window
 
 use serde::{Deserialize, Serialize};
 use std::thread;
@@ -71,9 +65,15 @@ pub struct MonitorInfo {
     pub is_primary: bool,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ShortcutEntry {
+    pub name: String,       // "Photoshop" (filename without extension)
+    pub path: String,       // full path to the .lnk / .exe / .url file
+    pub extension: String,  // "lnk", "exe", "url"
+}
+
 // ── Monitor Enumeration ───────────────────────────────────────
 
-/// List all available monitors with their dimensions and positions.
 #[tauri::command]
 pub fn list_monitors() -> Result<Vec<MonitorInfo>, String> {
     let screens = screenshots::Screen::all().map_err(|e| format!("Failed to enumerate screens: {}", e))?;
@@ -95,10 +95,6 @@ pub fn list_monitors() -> Result<Vec<MonitorInfo>, String> {
 
 // ── Screenshot ────────────────────────────────────────────────
 
-/// Take a screenshot.
-/// `monitor_index`: which monitor (0 = first/primary). Use list_monitors to enumerate.
-/// `crop_to_window`: if true, crop to active window bounds (falls back to full screen if window is too small).
-/// `quality`: "low" = 960px, "medium" = 1280px, "high" = full res.
 #[tauri::command]
 pub fn take_screenshot(monitor_index: usize, crop_to_window: bool, quality: String) -> Result<ScreenshotResult, String> {
     let screens = screenshots::Screen::all().map_err(|e| format!("Failed to enumerate screens: {}", e))?;
@@ -110,10 +106,8 @@ pub fn take_screenshot(monitor_index: usize, crop_to_window: bool, quality: Stri
     };
 
     let captured = if crop_to_window {
-        // Try to get active window bounds and capture just that region
         match get_active_window_info() {
             Ok(win) if win.width > 100 && win.height > 100 => {
-                // Clamp capture region to screen bounds
                 let screen_w = screen.display_info.width as i32;
                 let screen_h = screen.display_info.height as i32;
                 let x = win.x.max(0);
@@ -125,12 +119,10 @@ pub fn take_screenshot(monitor_index: usize, crop_to_window: bool, quality: Stri
                     screen.capture_area(x, y, w, h)
                         .unwrap_or_else(|_| screen.capture().unwrap())
                 } else {
-                    // Window is mostly off-screen, capture full screen
                     screen.capture().map_err(|e| format!("Screenshot failed: {}", e))?
                 }
             }
             _ => {
-                // Fallback to full screen
                 screen.capture().map_err(|e| format!("Screenshot failed: {}", e))?
             }
         }
@@ -138,18 +130,15 @@ pub fn take_screenshot(monitor_index: usize, crop_to_window: bool, quality: Stri
         screen.capture().map_err(|e| format!("Screenshot failed: {}", e))?
     };
 
-    // The `screenshots` crate returns an ImageBuffer<Rgba<u8>, Vec<u8>>.
     let raw_width = captured.width();
     let raw_height = captured.height();
 
-    // Determine target dimensions based on quality
     let (target_w, target_h) = match quality.as_str() {
         "low" => scale_dimensions(raw_width, raw_height, 960),
         "medium" => scale_dimensions(raw_width, raw_height, 1280),
-        _ => (raw_width, raw_height), // "high" or default = full res
+        _ => (raw_width, raw_height),
     };
 
-    // Wrap in DynamicImage for resize + PNG encode
     let dynamic = image::DynamicImage::ImageRgba8(captured);
 
     let final_img = if target_w != raw_width || target_h != raw_height {
@@ -158,7 +147,6 @@ pub fn take_screenshot(monitor_index: usize, crop_to_window: bool, quality: Stri
         dynamic
     };
 
-    // Encode to PNG
     let mut png_bytes: Vec<u8> = Vec::new();
     let mut cursor = std::io::Cursor::new(&mut png_bytes);
     final_img
@@ -175,7 +163,6 @@ pub fn take_screenshot(monitor_index: usize, crop_to_window: bool, quality: Stri
     })
 }
 
-/// Scale dimensions to fit within max_width while preserving aspect ratio.
 fn scale_dimensions(w: u32, h: u32, max_width: u32) -> (u32, u32) {
     if w <= max_width {
         return (w, h);
@@ -187,7 +174,6 @@ fn scale_dimensions(w: u32, h: u32, max_width: u32) -> (u32, u32) {
 
 // ── Mouse Actions ─────────────────────────────────────────────
 
-/// Move mouse to (x, y) and perform a left click.
 #[tauri::command]
 pub fn screen_click(x: i32, y: i32) -> Result<(), String> {
     let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| e.to_string())?;
@@ -197,7 +183,6 @@ pub fn screen_click(x: i32, y: i32) -> Result<(), String> {
     Ok(())
 }
 
-/// Move mouse to (x, y) and perform a double left click.
 #[tauri::command]
 pub fn screen_double_click(x: i32, y: i32) -> Result<(), String> {
     let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| e.to_string())?;
@@ -209,7 +194,6 @@ pub fn screen_double_click(x: i32, y: i32) -> Result<(), String> {
     Ok(())
 }
 
-/// Move mouse to (x, y) and perform a right click.
 #[tauri::command]
 pub fn screen_right_click(x: i32, y: i32) -> Result<(), String> {
     let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| e.to_string())?;
@@ -219,7 +203,6 @@ pub fn screen_right_click(x: i32, y: i32) -> Result<(), String> {
     Ok(())
 }
 
-/// Move mouse to (x, y) without clicking.
 #[tauri::command]
 pub fn screen_mouse_move(x: i32, y: i32) -> Result<(), String> {
     let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| e.to_string())?;
@@ -227,7 +210,6 @@ pub fn screen_mouse_move(x: i32, y: i32) -> Result<(), String> {
     Ok(())
 }
 
-/// Click-drag from (x1, y1) to (x2, y2).
 #[tauri::command]
 pub fn screen_drag(x1: i32, y1: i32, x2: i32, y2: i32) -> Result<(), String> {
     let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| e.to_string())?;
@@ -235,7 +217,6 @@ pub fn screen_drag(x1: i32, y1: i32, x2: i32, y2: i32) -> Result<(), String> {
     thread::sleep(Duration::from_millis(50));
     enigo.button(Button::Left, Direction::Press).map_err(|e| e.to_string())?;
     thread::sleep(Duration::from_millis(100));
-    // Move in small steps for smooth drag
     let steps = 10;
     for i in 1..=steps {
         let cx = x1 + (x2 - x1) * i / steps;
@@ -249,8 +230,6 @@ pub fn screen_drag(x1: i32, y1: i32, x2: i32, y2: i32) -> Result<(), String> {
 
 // ── Scroll ────────────────────────────────────────────────────
 
-/// Scroll in a direction. `amount` is number of scroll ticks.
-/// `direction`: "up", "down", "left", "right"
 #[tauri::command]
 pub fn screen_scroll(direction: String, amount: i32) -> Result<(), String> {
     let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| e.to_string())?;
@@ -261,7 +240,7 @@ pub fn screen_scroll(direction: String, amount: i32) -> Result<(), String> {
             "down" => enigo.scroll(-1, enigo::Axis::Vertical).map_err(|e| e.to_string())?,
             "left" => enigo.scroll(-1, enigo::Axis::Horizontal).map_err(|e| e.to_string())?,
             "right" => enigo.scroll(1, enigo::Axis::Horizontal).map_err(|e| e.to_string())?,
-            _ => return Err(format!("Invalid scroll direction: {}. Use up/down/left/right", direction)),
+            _ => return Err(format!("Invalid scroll direction: {}", direction)),
         }
         thread::sleep(Duration::from_millis(30));
     }
@@ -270,7 +249,6 @@ pub fn screen_scroll(direction: String, amount: i32) -> Result<(), String> {
 
 // ── Keyboard ──────────────────────────────────────────────────
 
-/// Type a text string with natural keystrokes.
 #[tauri::command]
 pub fn screen_type(text: String) -> Result<(), String> {
     let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| e.to_string())?;
@@ -278,24 +256,18 @@ pub fn screen_type(text: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Press a key combination like "ctrl+s", "enter", "alt+tab", "shift+ctrl+n".
-/// Supports modifier keys: ctrl, alt, shift, meta/win/cmd.
-/// Supports special keys: enter, tab, escape, backspace, delete, space, up, down, left, right,
-///   home, end, pageup, pagedown, f1-f12.
 #[tauri::command]
 pub fn screen_key(combo: String) -> Result<(), String> {
     let mut enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| e.to_string())?;
 
     let parts: Vec<&str> = combo.split('+').map(|s| s.trim().to_lowercase().leak() as &str).collect();
 
-    // Separate modifiers from the final key
     let mut modifiers: Vec<Key> = Vec::new();
     let mut final_key: Option<Key> = None;
 
     for (i, part) in parts.iter().enumerate() {
         let key = parse_key(part)?;
         if i < parts.len() - 1 {
-            // All but last are modifiers
             modifiers.push(key);
         } else {
             final_key = Some(key);
@@ -304,15 +276,12 @@ pub fn screen_key(combo: String) -> Result<(), String> {
 
     let final_key = final_key.ok_or("No key specified in combo")?;
 
-    // Press modifiers
     for m in &modifiers {
         enigo.key(*m, Direction::Press).map_err(|e| e.to_string())?;
     }
 
-    // Press and release the final key
     enigo.key(final_key, Direction::Click).map_err(|e| e.to_string())?;
 
-    // Release modifiers (reverse order)
     for m in modifiers.iter().rev() {
         enigo.key(*m, Direction::Release).map_err(|e| e.to_string())?;
     }
@@ -320,68 +289,45 @@ pub fn screen_key(combo: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Parse a key name string into an enigo Key enum.
 fn parse_key(name: &str) -> Result<Key, String> {
     match name.to_lowercase().as_str() {
-        // Modifiers
         "ctrl" | "control" => Ok(Key::Control),
         "alt" | "option" => Ok(Key::Alt),
         "shift" => Ok(Key::Shift),
         "meta" | "win" | "cmd" | "command" | "super" => Ok(Key::Meta),
-
-        // Special keys
         "enter" | "return" => Ok(Key::Return),
         "tab" => Ok(Key::Tab),
         "escape" | "esc" => Ok(Key::Escape),
         "backspace" => Ok(Key::Backspace),
         "delete" | "del" => Ok(Key::Delete),
         "space" => Ok(Key::Space),
-
-        // Arrow keys
         "up" | "arrowup" => Ok(Key::UpArrow),
         "down" | "arrowdown" => Ok(Key::DownArrow),
         "left" | "arrowleft" => Ok(Key::LeftArrow),
         "right" | "arrowright" => Ok(Key::RightArrow),
-
-        // Navigation
         "home" => Ok(Key::Home),
         "end" => Ok(Key::End),
         "pageup" | "pgup" => Ok(Key::PageUp),
         "pagedown" | "pgdown" => Ok(Key::PageDown),
-
-        // Function keys
-        "f1" => Ok(Key::F1),
-        "f2" => Ok(Key::F2),
-        "f3" => Ok(Key::F3),
-        "f4" => Ok(Key::F4),
-        "f5" => Ok(Key::F5),
-        "f6" => Ok(Key::F6),
-        "f7" => Ok(Key::F7),
-        "f8" => Ok(Key::F8),
-        "f9" => Ok(Key::F9),
-        "f10" => Ok(Key::F10),
-        "f11" => Ok(Key::F11),
-        "f12" => Ok(Key::F12),
-
-        // Single character keys
+        "f1" => Ok(Key::F1),   "f2" => Ok(Key::F2),   "f3" => Ok(Key::F3),
+        "f4" => Ok(Key::F4),   "f5" => Ok(Key::F5),   "f6" => Ok(Key::F6),
+        "f7" => Ok(Key::F7),   "f8" => Ok(Key::F8),   "f9" => Ok(Key::F9),
+        "f10" => Ok(Key::F10), "f11" => Ok(Key::F11), "f12" => Ok(Key::F12),
         s if s.len() == 1 => {
             let c = s.chars().next().unwrap();
             Ok(Key::Unicode(c))
         }
-
-        _ => Err(format!("Unknown key: '{}'. Use: ctrl, alt, shift, meta, enter, tab, escape, backspace, delete, space, up/down/left/right, home, end, pageup, pagedown, f1-f12, or a single character.", name)),
+        _ => Err(format!("Unknown key: '{}'", name)),
     }
 }
 
 // ── Active Window Detection ───────────────────────────────────
 
-/// Get info about the currently focused/active window.
 #[tauri::command]
 pub fn get_active_window() -> Result<ActiveWindow, String> {
     get_active_window_info()
 }
 
-/// Get the screen dimensions for a specific monitor.
 #[tauri::command]
 pub fn get_screen_size(monitor_index: usize) -> Result<ScreenSize, String> {
     let screens = screenshots::Screen::all().map_err(|e| format!("Failed to enumerate screens: {}", e))?;
@@ -396,19 +342,8 @@ pub fn get_screen_size(monitor_index: usize) -> Result<ScreenSize, String> {
     })
 }
 
-// ── App Launch (scripted pre-step — no AI needed) ─────────────
+// ── App Launch (scripted — no AI needed) ──────────────────────
 
-/// Launch an application by name or path, optionally opening a file in it.
-/// This is the "scripted" part of screen control — instant, free, no AI tokens.
-///
-/// Examples:
-///   launch_app("notepad", None)              → opens Notepad
-///   launch_app("notepad", Some("C:\\readme.txt"))  → opens file in Notepad
-///   launch_app("C:\\Program Files\\WMP\\wmplayer.exe", Some("D:\\Music")) → opens WMP with folder
-///
-/// On Windows: uses `cmd /C start` for app names, direct spawn for full paths.
-/// On Mac: uses `open -a` for app names, `open` for files.
-/// On Linux: spawns directly or uses `xdg-open` for files.
 #[tauri::command]
 pub fn launch_app(app: String, file: Option<String>) -> Result<String, String> {
     launch_app_platform(&app, file.as_deref())
@@ -418,13 +353,18 @@ pub fn launch_app(app: String, file: Option<String>) -> Result<String, String> {
 fn launch_app_platform(app: &str, file: Option<&str>) -> Result<String, String> {
     use std::process::Command;
 
-    // If app looks like a full path (contains \ or /), spawn directly
-    if app.contains('\\') || app.contains('/') {
+    let app_lower = app.to_lowercase();
+    let is_shortcut = app_lower.ends_with(".lnk") || app_lower.ends_with(".url");
+    let is_full_path = app.contains('\\') || app.contains('/');
+
+    // Only spawn directly for full-path .exe files (not shortcuts).
+    // .lnk and .url are Shell Links — they MUST go through cmd /C start.
+    // App names (notepad, wmplayer) also go through cmd /C start.
+    if is_full_path && !is_shortcut {
         let mut cmd = Command::new(app);
         if let Some(f) = file {
             cmd.arg(f);
         }
-        // CREATE_NO_WINDOW flag to avoid flashing console
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
@@ -434,7 +374,7 @@ fn launch_app_platform(app: &str, file: Option<&str>) -> Result<String, String> 
         return Ok(format!("Launched {}", app));
     }
 
-    // For app names (notepad, wmplayer, excel, etc.), use `cmd /C start`
+    // cmd /C start handles: app names, .lnk shortcuts, .url shortcuts
     let mut cmd = Command::new("cmd");
     cmd.arg("/C").arg("start").arg(""); // empty title for start command
     cmd.arg(app);
@@ -444,7 +384,7 @@ fn launch_app_platform(app: &str, file: Option<&str>) -> Result<String, String> 
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
     cmd.spawn().map_err(|e| format!("Failed to launch '{}': {}", app, e))?;
     Ok(format!("Launched {}", app))
@@ -453,13 +393,10 @@ fn launch_app_platform(app: &str, file: Option<&str>) -> Result<String, String> 
 #[cfg(target_os = "macos")]
 fn launch_app_platform(app: &str, file: Option<&str>) -> Result<String, String> {
     use std::process::Command;
-
     let mut cmd = Command::new("open");
     if let Some(f) = file {
-        // open file with specific app: open -a "App" "file"
         cmd.arg("-a").arg(app).arg(f);
     } else {
-        // Just launch app: open -a "App"
         cmd.arg("-a").arg(app);
     }
     cmd.spawn().map_err(|e| format!("Failed to launch '{}': {}", app, e))?;
@@ -469,21 +406,17 @@ fn launch_app_platform(app: &str, file: Option<&str>) -> Result<String, String> 
 #[cfg(target_os = "linux")]
 fn launch_app_platform(app: &str, file: Option<&str>) -> Result<String, String> {
     use std::process::Command;
-
     if let Some(f) = file {
-        // Try launching app with file argument
         let result = Command::new(app).arg(f).spawn();
         match result {
             Ok(_) => return Ok(format!("Launched {} with {}", app, f)),
             Err(_) => {
-                // Fallback: open file with xdg-open (ignores app param)
                 Command::new("xdg-open").arg(f).spawn()
                     .map_err(|e| format!("Failed to open '{}': {}", f, e))?;
                 return Ok(format!("Opened {} with default app", f));
             }
         }
     }
-
     Command::new(app).spawn()
         .map_err(|e| format!("Failed to launch '{}': {}", app, e))?;
     Ok(format!("Launched {}", app))
@@ -494,14 +427,129 @@ fn launch_app_platform(app: &str, _file: Option<&str>) -> Result<String, String>
     Err(format!("App launching not supported on this platform for '{}'", app))
 }
 
-// ── Minimize Self (get Omnirun out of the way) ────────────────
+// ── Scan Shortcuts Folder ─────────────────────────────────────
+// Lists all launchable files in the user's app shortcuts folder.
+// Users drop .lnk (Windows shortcuts), .exe, .url, or .app files
+// into this folder. Omnirun scans it to know what apps are available.
 
-/// Minimize the Omnirun window so it doesn't interfere with screen control.
-/// Called before the AI screenshot loop starts to ensure the target app is visible.
+#[tauri::command]
+pub fn scan_shortcuts_folder(folder: String) -> Result<Vec<ShortcutEntry>, String> {
+    use std::path::Path;
+
+    let folder_path = Path::new(&folder);
+    if !folder_path.exists() || !folder_path.is_dir() {
+        return Err(format!("Folder not found: {}", folder));
+    }
+
+    let launchable_extensions = ["lnk", "exe", "url", "app", "command", "sh", "desktop"];
+    let mut entries: Vec<ShortcutEntry> = Vec::new();
+
+    let dir = std::fs::read_dir(folder_path)
+        .map_err(|e| format!("Failed to read folder: {}", e))?;
+
+    for entry in dir {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let ext = path.extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+
+        if !launchable_extensions.contains(&ext.as_str()) {
+            continue;
+        }
+
+        let name = path.file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        if name.is_empty() {
+            continue;
+        }
+
+        entries.push(ShortcutEntry {
+            name,
+            path: path.to_string_lossy().to_string(),
+            extension: ext,
+        });
+    }
+
+    // Sort alphabetically
+    entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+    Ok(entries)
+}
+
+// ── Playlist Creator (scripted — no AI needed) ────────────────
+
+#[tauri::command]
+pub fn create_playlist(folder: String, output_path: Option<String>) -> Result<String, String> {
+    use std::path::Path;
+
+    let folder_path = Path::new(&folder);
+    if !folder_path.exists() || !folder_path.is_dir() {
+        return Err(format!("Folder not found: {}", folder));
+    }
+
+    let music_extensions = ["mp3", "wav", "flac", "m4a", "wma", "ogg", "aac", "opus"];
+    let mut tracks: Vec<String> = Vec::new();
+
+    fn scan_dir(dir: &Path, extensions: &[&str], tracks: &mut Vec<String>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            let mut paths: Vec<std::path::PathBuf> = entries
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .collect();
+            paths.sort();
+
+            for path in paths {
+                if path.is_dir() {
+                    scan_dir(&path, extensions, tracks);
+                } else if let Some(ext) = path.extension() {
+                    let ext_lower = ext.to_string_lossy().to_lowercase();
+                    if extensions.contains(&ext_lower.as_str()) {
+                        tracks.push(path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    use std::path::Path as StdPath;
+    scan_dir(folder_path, &music_extensions, &mut tracks);
+
+    if tracks.is_empty() {
+        return Err(format!("No music files found in {}", folder));
+    }
+
+    let playlist_path = match output_path {
+        Some(p) => p,
+        None => folder_path.join("omnirun_playlist.m3u").to_string_lossy().to_string(),
+    };
+
+    let mut content = String::from("#EXTM3U\n");
+    for track in &tracks {
+        content.push_str(track);
+        content.push('\n');
+    }
+
+    std::fs::write(&playlist_path, &content)
+        .map_err(|e| format!("Failed to write playlist: {}", e))?;
+
+    Ok(playlist_path)
+}
+
+// ── Minimize Self ─────────────────────────────────────────────
+
 #[tauri::command]
 pub fn minimize_self(window: tauri::Window) -> Result<(), String> {
     window.minimize().map_err(|e| format!("Failed to minimize window: {}", e))?;
-    // Small delay to let the window animation complete before first screenshot
     thread::sleep(Duration::from_millis(300));
     Ok(())
 }
@@ -513,13 +561,11 @@ fn get_active_window_info() -> Result<ActiveWindow, String> {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
 
-    // Get foreground window handle
     let hwnd = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
     if hwnd.is_null() {
         return Err("No foreground window".to_string());
     }
 
-    // Get window title
     let mut title_buf: [u16; 512] = [0; 512];
     let title_len = unsafe {
         windows_sys::Win32::UI::WindowsAndMessaging::GetWindowTextW(
@@ -532,19 +578,14 @@ fn get_active_window_info() -> Result<ActiveWindow, String> {
         .to_string_lossy()
         .to_string();
 
-    // Get process name
     let mut pid: u32 = 0;
     unsafe {
         windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(hwnd, &mut pid);
     }
     let app_name = get_process_name_win(pid).unwrap_or_else(|_| "Unknown".to_string());
 
-    // Get window rect
     let mut rect = windows_sys::Win32::Foundation::RECT {
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
+        left: 0, top: 0, right: 0, bottom: 0,
     };
     unsafe {
         windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut rect);
@@ -568,7 +609,7 @@ fn get_process_name_win(pid: u32) -> Result<String, String> {
     let handle = unsafe {
         windows_sys::Win32::System::Threading::OpenProcess(
             windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION,
-            0, // FALSE
+            0,
             pid,
         )
     };
@@ -598,7 +639,6 @@ fn get_process_name_win(pid: u32) -> Result<String, String> {
         .to_string_lossy()
         .to_string();
 
-    // Extract just the filename without extension
     let name = full_path
         .rsplit('\\')
         .next()
@@ -611,7 +651,6 @@ fn get_process_name_win(pid: u32) -> Result<String, String> {
 
 #[cfg(target_os = "macos")]
 fn get_active_window_info() -> Result<ActiveWindow, String> {
-    // Use osascript to get active window info on macOS
     let output = std::process::Command::new("osascript")
         .arg("-e")
         .arg(r#"
@@ -660,25 +699,22 @@ fn get_active_window_info() -> Result<ActiveWindow, String> {
 
 #[cfg(target_os = "linux")]
 fn get_active_window_info() -> Result<ActiveWindow, String> {
-    // Use xdotool to get active window info on Linux (X11)
     let id_output = std::process::Command::new("xdotool")
         .arg("getactivewindow")
         .output()
-        .map_err(|e| format!("xdotool not found: {}. Install with: sudo apt install xdotool", e))?;
+        .map_err(|e| format!("xdotool not found: {}", e))?;
 
     let window_id = String::from_utf8_lossy(&id_output.stdout).trim().to_string();
     if window_id.is_empty() {
         return Err("No active window found".to_string());
     }
 
-    // Get window name
     let name_output = std::process::Command::new("xdotool")
         .args(["getwindowname", &window_id])
         .output()
         .map_err(|e| e.to_string())?;
     let title = String::from_utf8_lossy(&name_output.stdout).trim().to_string();
 
-    // Get window PID for app name
     let pid_output = std::process::Command::new("xdotool")
         .args(["getwindowpid", &window_id])
         .output()
@@ -686,7 +722,6 @@ fn get_active_window_info() -> Result<ActiveWindow, String> {
     let pid = String::from_utf8_lossy(&pid_output.stdout).trim().to_string();
 
     let app_name = if !pid.is_empty() {
-        // Read /proc/<pid>/comm for the process name
         std::fs::read_to_string(format!("/proc/{}/comm", pid))
             .unwrap_or_else(|_| "Unknown".to_string())
             .trim()
@@ -695,7 +730,6 @@ fn get_active_window_info() -> Result<ActiveWindow, String> {
         "Unknown".to_string()
     };
 
-    // Get window geometry
     let geo_output = std::process::Command::new("xdotool")
         .args(["getwindowgeometry", "--shell", &window_id])
         .output()
@@ -729,7 +763,6 @@ fn get_active_window_info() -> Result<ActiveWindow, String> {
     })
 }
 
-// Fallback for any other OS (shouldn't happen with Tauri targets)
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn get_active_window_info() -> Result<ActiveWindow, String> {
     Err("Active window detection not supported on this platform".to_string())
