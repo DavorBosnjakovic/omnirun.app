@@ -6,6 +6,22 @@ import { updateContextFromAI, VALID_SECTIONS, type ContextSection, type ProjectC
 import { createTask } from "../stores/taskStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  takeScreenshot,
+  screenClick,
+  screenDoubleClick,
+  screenRightClick,
+  screenType,
+  screenKey,
+  screenScroll,
+  screenDrag,
+  getActiveWindow,
+  getScreenSize,
+  loadScreenControlSettings,
+  parseScreenAction,
+  executeScreenAction,
+  isBlockedApp,
+} from "./screenControlService";
 
 // Blocklist: directories/files that should never be read or listed
 const BLOCKLIST = [
@@ -136,6 +152,8 @@ const RATE_LIMITS: Record<string, { max: number; window: number }> = {
   edit_file: { max: 20, window: 60_000 },      // 20 edits per minute
   web_search: { max: 10, window: 60_000 },     // 10 searches per minute
   create_scheduled_task: { max: 5, window: 60_000 }, // 5 task creations per minute
+  screen_capture: { max: 30, window: 60_000 },       // 30 screenshots per minute
+  screen_action: { max: 50, window: 60_000 },         // 50 actions per minute (safety cap)
 };
 
 const toolCallTimestamps: Map<string, number[]> = new Map();
@@ -282,6 +300,22 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
     description: "Create a scheduled task that runs automatically on a schedule. Set scope to 'project' (default) for project tasks or 'assistant' for personal/global tasks (email, calendar, etc). For simple tasks, just provide a command. For multi-step tasks, provide a steps array with executor ('local' or 'web') and action objects. Action types — local: run_command, backup_files, git_commit, git_push, run_script, delete_files. Web: http_request, send_webhook.",
     parameters: '{"name": "Nightly Backup", "description": "Back up src folder every night", "schedule": "Every day at 2:00 AM", "cron_expression": "0 2 * * *", "scope": "project", "command": "cp -r ./src ./backups/src_backup"}',
   },
+  // ── Screen Control Tools (Desktop App Control) ──────────────
+  {
+    name: "screen_capture",
+    description: "Take a screenshot of the current screen or active window. Returns the image for analysis. Use this to see what's on screen before performing actions.",
+    parameters: '{"crop_to_window": true}',
+  },
+  {
+    name: "screen_action",
+    description: "Perform a mouse or keyboard action on the screen. Types: CLICK x y, DOUBLE_CLICK x y, RIGHT_CLICK x y, TYPE text, KEY combo (e.g. ctrl+s), SCROLL direction amount (up/down/left/right), DRAG x1 y1 x2 y2, WAIT seconds. Coordinates are pixel positions from the screenshot.",
+    parameters: '{"action": "CLICK", "x": 450, "y": 230}',
+  },
+  {
+    name: "screen_info",
+    description: "Get info about the active window (app name, title, dimensions) and screen size. Use before screen_capture to understand context.",
+    parameters: '{}',
+  },
 ];
 
 // ── Tool name aliases (XML tags → canonical names) ─────────────
@@ -343,6 +377,18 @@ const XML_TOOL_NAME_MAP: Record<string, string> = {
   replace_in_file: "edit_file",
   patch_file: "edit_file",
   modify_file: "edit_file",
+  // Screen control aliases
+  screen_capture: "screen_capture",
+  take_screenshot: "screen_capture",
+  screenshot: "screen_capture",
+  capture_screen: "screen_capture",
+  screen_action: "screen_action",
+  click: "screen_action",
+  type_text: "screen_action",
+  press_key: "screen_action",
+  screen_info: "screen_info",
+  get_active_window: "screen_info",
+  window_info: "screen_info",
 };
 
 // ── Tool Call Parsing ──────────────────────────────────────────
@@ -1766,6 +1812,148 @@ export async function executeTool(
         }
       }
 
+      // ── Screen Control Tools ─────────────────────────────────
+
+      case "screen_capture": {
+        const settings = loadScreenControlSettings();
+        if (!settings.enabled) {
+          return {
+            result: {
+              tool: name,
+              success: false,
+              result: "❌ Desktop app control is disabled. The user can enable it in Settings → Screen Control.",
+            },
+            updatedManifest,
+          };
+        }
+
+        // Check if active app is blocked
+        const blockCheck = await isBlockedApp();
+        if (blockCheck.blocked) {
+          return {
+            result: {
+              tool: name,
+              success: false,
+              result: `❌ BLOCKED: "${blockCheck.appName}" is in the blocked apps list. Screen control will not interact with this app.`,
+            },
+            updatedManifest,
+          };
+        }
+
+        const cropToWindow = args.crop_to_window !== false && settings.cropToWindow;
+        const quality = settings.screenshotQuality || "medium";
+
+        const screenshot = await takeScreenshot(cropToWindow, quality);
+
+        // Return base64 image data — the AI integration layer will
+        // attach this as a vision image to the next message
+        return {
+          result: {
+            tool: name,
+            success: true,
+            result: `✅ Screenshot captured (${screenshot.width}x${screenshot.height})\n<screenshot_base64>${screenshot.base64}</screenshot_base64>`,
+          },
+          updatedManifest,
+        };
+      }
+
+      case "screen_action": {
+        const settings = loadScreenControlSettings();
+        if (!settings.enabled) {
+          return {
+            result: {
+              tool: name,
+              success: false,
+              result: "❌ Desktop app control is disabled. The user can enable it in Settings → Screen Control.",
+            },
+            updatedManifest,
+          };
+        }
+
+        // Check if active app is blocked
+        const actionBlockCheck = await isBlockedApp();
+        if (actionBlockCheck.blocked) {
+          return {
+            result: {
+              tool: name,
+              success: false,
+              result: `❌ BLOCKED: "${actionBlockCheck.appName}" is in the blocked apps list.`,
+            },
+            updatedManifest,
+          };
+        }
+
+        // Build action from args
+        const actionType = (args.action || args.type || "").toUpperCase();
+        const action: any = { type: actionType };
+
+        if (args.x !== undefined) action.x = parseInt(args.x);
+        if (args.y !== undefined) action.y = parseInt(args.y);
+        if (args.x2 !== undefined) action.x2 = parseInt(args.x2);
+        if (args.y2 !== undefined) action.y2 = parseInt(args.y2);
+        if (args.text !== undefined) action.text = args.text;
+        if (args.combo !== undefined) action.combo = args.combo;
+        if (args.direction !== undefined) action.direction = args.direction;
+        if (args.amount !== undefined) action.amount = parseInt(args.amount);
+        if (args.seconds !== undefined) action.seconds = parseInt(args.seconds);
+        if (args.reason !== undefined) action.reason = args.reason;
+
+        // Add configurable delay before action
+        const delay = settings.actionDelay || 500;
+        if (delay > 0) {
+          await new Promise((r) => setTimeout(r, delay));
+        }
+
+        const actionResult = await executeScreenAction(action);
+
+        return {
+          result: {
+            tool: name,
+            success: true,
+            result: `✅ ${actionResult}`,
+          },
+          updatedManifest,
+        };
+      }
+
+      case "screen_info": {
+        const settings = loadScreenControlSettings();
+        if (!settings.enabled) {
+          return {
+            result: {
+              tool: name,
+              success: false,
+              result: "❌ Desktop app control is disabled. The user can enable it in Settings → Screen Control.",
+            },
+            updatedManifest,
+          };
+        }
+
+        let info = "";
+        try {
+          const win = await getActiveWindow();
+          info += `Active window:\n  App: ${win.app_name}\n  Title: ${win.title}\n  Position: (${win.x}, ${win.y})\n  Size: ${win.width}x${win.height}\n`;
+        } catch (e: any) {
+          info += `Active window: could not detect (${e.message})\n`;
+        }
+
+        try {
+          const screen = await getScreenSize();
+          info += `Screen size: ${screen.width}x${screen.height}`;
+        } catch (e: any) {
+          info += `Screen size: could not detect (${e.message})`;
+        }
+
+        return {
+          result: {
+            tool: name,
+            success: true,
+            result: info,
+          },
+          updatedManifest,
+        };
+      }
+
       default:
         return {
           result: {
@@ -1878,6 +2066,18 @@ export function generateToolSummary(toolCall: ToolCall): string {
       return `Saving project context`;
     case "create_scheduled_task":
       return `Creating scheduled task: ${args.name || ""}`;
+    case "screen_capture":
+      return "Taking screenshot";
+    case "screen_action": {
+      const act = args.action || args.type || "";
+      if (act === "CLICK" || act === "DOUBLE_CLICK" || act === "RIGHT_CLICK") return `${act} at (${args.x}, ${args.y})`;
+      if (act === "TYPE") return `Typing: "${(args.text || "").slice(0, 30)}${(args.text || "").length > 30 ? "…" : ""}"`;
+      if (act === "KEY") return `Pressing: ${args.combo}`;
+      if (act === "SCROLL") return `Scrolling ${args.direction}`;
+      return `Screen action: ${act}`;
+    }
+    case "screen_info":
+      return "Getting screen info";
     default:
       return `${name}${filename ? `: ${filename}` : ""}`;
   }
@@ -1991,6 +2191,47 @@ FORMAT — use this EXACT format (do NOT put inside code blocks):
     prompt += connectedProviders.length > 0
       ? buildConnectionToolPrompt(connectedProviders)
       : connectionToolPrompt;
+  }
+
+  // Include screen control tools if enabled
+  const screenSettings = loadScreenControlSettings();
+  if (screenSettings.enabled) {
+    prompt += `
+### Screen Control (Desktop App Control)
+You can see and control the user's screen. Use these tools to interact with ANY desktop application.
+
+**screen_capture** — Take a screenshot. Returns an image you can analyze.
+Parameters: {"crop_to_window": true}
+
+**screen_action** — Perform a mouse/keyboard action.
+Parameters vary by action type:
+- CLICK: {"action": "CLICK", "x": 450, "y": 230}
+- DOUBLE_CLICK: {"action": "DOUBLE_CLICK", "x": 450, "y": 230}
+- RIGHT_CLICK: {"action": "RIGHT_CLICK", "x": 450, "y": 230}
+- TYPE: {"action": "TYPE", "text": "hello world"}
+- KEY: {"action": "KEY", "combo": "ctrl+s"}
+- SCROLL: {"action": "SCROLL", "direction": "down", "amount": 3}
+- DRAG: {"action": "DRAG", "x": 100, "y": 200, "x2": 400, "y2": 500}
+- WAIT: {"action": "WAIT", "seconds": 2}
+
+**screen_info** — Get active window name, title, dimensions, and screen size.
+Parameters: {}
+
+#### Screen control workflow:
+1. Use screen_info to understand what app is active
+2. Use screen_capture to see the screen
+3. Describe what you see, then use screen_action to interact
+4. Use screen_capture again to verify the result
+5. Repeat until the task is done
+
+#### Rules:
+- Always describe what you see before acting
+- Use screen_capture after actions to verify results
+- If something unexpected appears (dialog, error, popup), handle it or ask the user
+- If you're unsure about coordinates, describe the element and ask
+- When confident, you can batch 2-3 actions between screenshots
+- NEVER interact with password fields, payment screens, or send/submit buttons without asking the user first
+`;
   }
 
   return prompt;

@@ -2,7 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
@@ -16,12 +18,20 @@
     "fs:default",
     {
       "identifier": "fs:allow-read-text-file",
-      "allow": [{ "path": "**" }]
+      "allow": [
+        {
+          "path": "**"
+        }
+      ]
     },
     "fs:allow-exists",
     {
       "identifier": "fs:allow-watch",
-      "allow": [{ "path": "**" }]
+      "allow": [
+        {
+          "path": "**"
+        }
+      ]
     },
     "fs:allow-unwatch",
     "sql:default",
@@ -29,12 +39,19 @@
     {
       "identifier": "http:default",
       "allow": [
-        { "url": "https://**" },
-        { "url": "http://localhost:*/**" }
+        {
+          "url": "https://**"
+        },
+        {
+          "url": "http://localhost:*/**"
+        }
       ]
-    }
+    },
+    "global-shortcut:default"
   ],
   "remote": {
-    "urls": ["asset://*"]
+    "urls": [
+      "asset://*"
+    ]
   }
 }

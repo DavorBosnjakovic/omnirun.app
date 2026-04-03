@@ -11,7 +11,7 @@
 // - Rendering ConnectAccountModal when open
 // - Panel collapse/expand state
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { PanelLeftClose, PanelLeft } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -19,14 +19,25 @@ import { themes } from '../../config/themes';
 import {
   useAssistantStore,
 } from '../../stores/assistantStore';
+import { loadScreenControlSettings } from '../../services/screenControlService';
 import AccountsPanel from './AccountsPanel';
 import AssistantChatArea from './AssistantChatArea';
 import ConnectAccountModal from './ConnectAccountModal';
 import AboutMePanel from './AboutMePanel';
+import ScreenControlOverlay from './ScreenControlOverlay';
+import type { ScreenControlStatus } from './ScreenControlOverlay';
 
 function AssistantSection() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [activeView, setActiveView] = useState<'chat' | 'aboutme'>('chat');
+
+  // Screen control state — driven by AssistantChatArea during control loop
+  const [screenControlActive, setScreenControlActive] = useState(false);
+  const [screenControlMode, setScreenControlMode] = useState(false);
+  const [screenControlStatus, setScreenControlStatus] = useState<ScreenControlStatus>('idle');
+  const [screenControlStep, setScreenControlStep] = useState(0);
+  const [screenControlAction, setScreenControlAction] = useState('');
+  const screenControlStopRef = useRef(false);
 
   const { theme } = useSettingsStore();
   const t = themes[theme];
@@ -42,6 +53,9 @@ function AssistantSection() {
     connectingProvider,
   } = useAssistantStore();
 
+  // Check if screen control feature is enabled
+  const screenControlEnabled = loadScreenControlSettings().enabled;
+
   // Load cached accounts instantly, then sync from Supabase in background
   useEffect(() => {
     if (!user?.id) return;
@@ -50,6 +64,16 @@ function AssistantSection() {
       syncAccountsFromSupabase(user.id);
     });
   }, [user?.id]);
+
+  // Stop handler for the overlay — exits screen control mode entirely
+  const handleScreenControlStop = useCallback(() => {
+    screenControlStopRef.current = true;
+    setScreenControlActive(false);
+    setScreenControlMode(false);
+    setScreenControlStatus('idle');
+    setScreenControlStep(0);
+    setScreenControlAction('');
+  }, []);
 
   return (
     <div className={`flex-1 flex overflow-hidden ${t.colors.bg}`}>
@@ -98,11 +122,32 @@ function AssistantSection() {
       {/* ── Main content area ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {activeView === 'chat' ? (
-          <AssistantChatArea plan={plan} onToggleAboutMe={() => setActiveView(activeView === 'chat' ? 'aboutme' : 'chat')} activeView={activeView} />
+          <AssistantChatArea
+            plan={plan}
+            onToggleAboutMe={() => setActiveView(activeView === 'chat' ? 'aboutme' : 'chat')}
+            activeView={activeView}
+            screenControlEnabled={screenControlEnabled}
+            screenControlMode={screenControlMode}
+            onScreenControlModeChange={(active) => { setScreenControlMode(active); setScreenControlActive(active); }}
+            onScreenControlStart={() => { screenControlStopRef.current = false; setScreenControlActive(true); }}
+            onScreenControlEnd={() => { setScreenControlActive(false); setScreenControlMode(false); setScreenControlStatus('idle'); setScreenControlStep(0); setScreenControlAction(''); }}
+            onScreenControlStatus={(status, step, action) => { setScreenControlStatus(status); if (step !== undefined) setScreenControlStep(step); if (action !== undefined) setScreenControlAction(action); }}
+            screenControlStopRef={screenControlStopRef}
+          />
         ) : (
           <AboutMePanel onClose={() => setActiveView('chat')} />
         )}
       </div>
+
+      {/* ── Screen control overlay (floating bar when in screen control mode) ── */}
+      {(screenControlActive || screenControlMode) && (
+        <ScreenControlOverlay
+          status={screenControlStatus}
+          stepCount={screenControlStep}
+          currentAction={screenControlAction}
+          onStop={handleScreenControlStop}
+        />
+      )}
 
       {/* ── Connect account modal ── */}
       {connectModalOpen && (

@@ -6,6 +6,7 @@ import { getConnectionsSummary, buildConnectionToolPrompt } from "./connectionTo
 import { useSettingsStore } from "../stores/settingsStore";
 import { useConnectionsStore } from "../stores/connectionsStore";
 import { useProjectStore } from "../stores/projectStore";
+import { loadScreenControlSettings } from "./screenControlService";
 import type { MessageImage } from "../stores/chatStore";
 
 interface Message {
@@ -295,6 +296,9 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
     prompt += `\n## Connected Services\n${connectionContext}\n`;
   }
 
+  // Add screen control instructions (only if enabled)
+  prompt += buildScreenControlPrompt();
+
   return prompt;
 }
 
@@ -356,9 +360,10 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
   const toolsPrompt = context ? buildToolsPrompt(hasConnections, includeWebSearch, connectedProviders) : "";
 
   // Combine static parts into one block and mark for caching
+  const screenControlPrompt = buildScreenControlPrompt();
   const staticText = toolsPrompt
-    ? `${staticInstructions}\n${toolsPrompt}`
-    : staticInstructions;
+    ? `${staticInstructions}\n${toolsPrompt}${screenControlPrompt}`
+    : `${staticInstructions}${screenControlPrompt}`;
 
   const blocks: Array<{ type: string; text: string; cache_control?: { type: string } }> = [
     {
@@ -407,6 +412,54 @@ export function flattenFileTree(entries: any[], prefix = ""): string {
     }
   }
   return result;
+}
+
+// ──── Screen Control System Prompt ────────────────────────────
+// Instructions for the AI when desktop app control is enabled.
+// Used by both the Projects chat and the Assistant chat.
+
+export function buildScreenControlPrompt(): string {
+  const settings = loadScreenControlSettings();
+  if (!settings.enabled) return "";
+
+  return `
+## Desktop App Control
+You can see and control the user's computer screen. You have access to screenshot capture, mouse, and keyboard simulation.
+
+### How it works:
+1. Take a screenshot to see the screen (screen_capture tool)
+2. Analyze what you see — describe it before acting
+3. Perform actions: click, type, press keys, scroll (screen_action tool)
+4. Take another screenshot to verify the result
+5. Repeat until the task is complete
+
+### Action format:
+When using the screen_action tool, specify the action type and parameters:
+- CLICK at coordinates: {"action": "CLICK", "x": 450, "y": 230}
+- DOUBLE_CLICK: {"action": "DOUBLE_CLICK", "x": 450, "y": 230}
+- RIGHT_CLICK: {"action": "RIGHT_CLICK", "x": 450, "y": 230}
+- TYPE text: {"action": "TYPE", "text": "hello world"}
+- KEY combo: {"action": "KEY", "combo": "ctrl+s"} (supports: ctrl, alt, shift, meta/cmd, enter, tab, escape, f1-f12, etc.)
+- SCROLL: {"action": "SCROLL", "direction": "down", "amount": 3}
+- DRAG: {"action": "DRAG", "x": 100, "y": 200, "x2": 400, "y2": 500}
+- WAIT: {"action": "WAIT", "seconds": 2}
+
+### Screen resolution:
+The screenshot dimensions are included in the tool result. Use these to calibrate your click coordinates.
+
+### Safety rules — CRITICAL:
+- ALWAYS describe what you see before performing any action
+- NEVER click send/submit/post buttons, enter password fields, or interact with payment screens without explicit user approval
+- If something unexpected appears (error dialog, popup, wrong app), stop and ask the user
+- When the task is complete, tell the user "Done" and summarize what you did
+- If you cannot complete the task, explain why
+
+### Efficiency tips:
+- Use screen_info first to check which app is active (cheaper than a screenshot)
+- When confident, batch 2-3 related actions from one screenshot (e.g. click field, type value, press tab)
+- Skip verification screenshots for simple, confident actions (typing into a field you just clicked)
+- Only take a new screenshot when navigating somewhere new, after a potentially state-changing action, or to verify completion
+`;
 }
 
 // ——— Format messages with images for each provider ——————————————
