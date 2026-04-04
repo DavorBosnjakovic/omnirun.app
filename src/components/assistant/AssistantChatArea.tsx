@@ -175,29 +175,60 @@ ACTION: [one action]
 
 Actions: CLICK x y | DOUBLE_CLICK x y | RIGHT_CLICK x y | TYPE text | KEY combo | SCROLL up/down amount | WAIT seconds | DONE | FAIL reason
 
-Rules:
+CRITICAL RULES:
 - Exactly two lines: OBSERVATION + ACTION. Nothing else.
 - No explanations, questions, or commentary.
 - Coordinates are screenshot pixel space.
-- One action per response.
-- If app icon is in taskbar, click it directly.
+- ONE action per response. Never combine multiple actions.
+
+CLICKING AND TYPING:
+- When you need to type in a text field: CLICK it ONCE, then in the NEXT step use TYPE.
+- NEVER click the same area more than twice. If two clicks didn't work, try a different approach (KEY tab, CLICK a different spot, etc).
+- If you clicked an input field and it looks focused (cursor visible or field highlighted), TYPE immediately. Do not click again.
+- After using TYPE, do NOT retype. Move to the next step of the task.
+
+MULTI-MONITOR:
+- Screenshots may show MULTIPLE monitors combined into one wide image.
+- The full image represents the entire virtual desktop across all screens.
+- Apps can appear on any part of the image — left side, right side, or spanning both.
+- Use coordinates relative to the full screenshot image.
+
+APP HANDLING:
+- We attempted to pre-launch the app for you. Check the screenshot to see if it's open.
+- If you can see the app window, click directly on the WINDOW. Do NOT click taskbar icons — they are tiny and you will misclick the wrong app.
+- If the app is not visible, use KEY alt+tab to cycle windows and find it.
+- Do NOT open Start menu, search, or try to launch any app yourself. We handle app launching.
 - After task is done: ACTION: DONE
-- NEVER click send/submit, enter passwords, or payment screens without approval.
+
+SAFETY:
+- You MAY click send/submit buttons for messages and chats.
+- NEVER enter passwords or interact with payment/banking screens.
 - If unexpected popup/error: ACTION: FAIL with reason.
-- Some apps may be pre-launched. Check screenshot first.
 
 Examples:
 
 OBSERVATION: Desktop with Notepad in taskbar at (450, 1060).
 ACTION: CLICK 450 1060
 
-OBSERVATION: Notepad open, empty document, cursor ready.
+OBSERVATION: Notepad is open with empty document and cursor blinking in the text area.
 ACTION: TYPE hello world
 
-OBSERVATION: Text typed successfully in Notepad.
+OBSERVATION: Text "hello world" has been typed in Notepad.
 ACTION: DONE
 
-OBSERVATION: Error dialog "App not responding" appeared.
+OBSERVATION: Viber chat with contact open. Message input field at bottom shows "Type a message..." placeholder.
+ACTION: CLICK 1800 674
+
+OBSERVATION: Message input field is now active with cursor blinking.
+ACTION: TYPE ovo ti omnirun salje bre
+
+OBSERVATION: Message "ovo ti omnirun salje bre" is typed in the input field. I can see the send button.
+ACTION: CLICK 400 674
+
+OBSERVATION: Message has been sent successfully. The chat shows the sent message.
+ACTION: DONE
+
+OBSERVATION: Error dialog "Application not responding" appeared.
 ACTION: FAIL Application not responding.`;
 
 async function sendScreenControlMessage(
@@ -493,6 +524,58 @@ function AssistantChatArea({
 
   // ── Screen Control Loop ─────────────────────────────────────
 
+  // ── Move window to apps monitor if it opened on the wrong one ──
+  // Uses Win+Shift+Arrow to move the active window between monitors.
+  const moveWindowToAppsMonitor = async (
+    mons: any[],
+    omniMonIndex: number,
+    log: (line: string) => void,
+  ) => {
+    try {
+      // Wait for the launched app to gain focus (retry up to 5 times)
+      let win = await getActiveWindow();
+      const omniNames = ['omnirun', 'omni-run', 'tauri'];
+      let attempts = 0;
+      while (omniNames.some(n => win.app_name.toLowerCase().includes(n) || win.title.toLowerCase().includes(n)) && attempts < 5) {
+        await new Promise((r) => setTimeout(r, 500));
+        win = await getActiveWindow();
+        attempts++;
+      }
+
+      // If still Omnirun is focused, don't move anything
+      if (omniNames.some(n => win.app_name.toLowerCase().includes(n) || win.title.toLowerCase().includes(n))) {
+        return;
+      }
+
+      const winCenterX = win.x + Math.round(win.width / 2);
+      const winCenterY = win.y + Math.round(win.height / 2);
+
+      // Find which monitor the window center is on
+      let windowMonitor = -1;
+      for (const mon of mons) {
+        if (winCenterX >= mon.x && winCenterX < mon.x + mon.width &&
+            winCenterY >= mon.y && winCenterY < mon.y + mon.height) {
+          windowMonitor = mon.index;
+          break;
+        }
+      }
+
+      // If window is on the Omnirun monitor, move it to apps monitor
+      if (windowMonitor === omniMonIndex) {
+        const omniMon = mons.find((m: any) => m.index === omniMonIndex);
+        const appsMon = mons.find((m: any) => m.index !== omniMonIndex);
+        if (omniMon && appsMon) {
+          const moveKey = appsMon.x < omniMon.x ? 'meta+shift+left' : 'meta+shift+right';
+          await executeScreenAction({ type: 'KEY', combo: moveKey });
+          log(`📺 Moved ${win.app_name} to apps monitor (monitor ${appsMon.index + 1}).`);
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+    } catch {
+      // Non-fatal
+    }
+  };
+
   const MAX_SCREEN_STEPS = 12;
 
   const runScreenControlLoop = useCallback(async (instruction: string) => {
@@ -560,9 +643,76 @@ function AssistantChatArea({
     if (fileMatch) {
       try {
         const fileArg = playlistPath || fileMatch.fileArg;
+        const appNameLower = fileMatch.name.toLowerCase();
+
+        // Check if the app is already running by checking active window first
+        let alreadyRunning = false;
+        try {
+          const currentWin = await getActiveWindow();
+          const winApp = currentWin.app_name.toLowerCase();
+          const winTitle = currentWin.title.toLowerCase();
+          if (winApp.includes(appNameLower) || winTitle.includes(appNameLower) ||
+              appNameLower.split(/[\s\-_()]+/).some(w => w.length >= 3 && (winApp.includes(w) || winTitle.includes(w)))) {
+            alreadyRunning = true;
+          }
+        } catch {}
+
+        // Launch the app (if already running, this usually brings it to focus)
         await launchApp(fileMatch.path, fileArg);
-        log(`🚀 Launched ${fileMatch.name}${fileArg ? ` with ${fileArg}` : ''}`);
-        await new Promise((r) => setTimeout(r, 2000));
+        log(`🚀 Launching ${fileMatch.name}...`);
+
+        // Verify the app is in focus — check active window up to 5 seconds
+        let appOpened = false;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          try {
+            const win = await getActiveWindow();
+            const winApp = win.app_name.toLowerCase();
+            const winTitle = win.title.toLowerCase();
+            if (winApp.includes(appNameLower) || winTitle.includes(appNameLower) ||
+                appNameLower.includes(winApp) || appNameLower.split(/[\s\-_()]+/).some(w => w.length >= 3 && (winApp.includes(w) || winTitle.includes(w)))) {
+              appOpened = true;
+              log(`✅ ${fileMatch.name} is open (${win.app_name}).`);
+              break;
+            }
+          } catch {}
+
+          // If not focused yet, try Alt+Tab to find it
+          if (attempt === 2) {
+            log('🔄 Trying Alt+Tab to find the app...');
+            try { await executeScreenAction({ type: 'KEY', combo: 'alt+tab' }); } catch {}
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        }
+
+        if (!appOpened) {
+          log(`⚠️ ${fileMatch.name} didn't focus. Retrying launch...`);
+          try {
+            await launchApp(fileMatch.path, fileArg);
+            await new Promise((r) => setTimeout(r, 3000));
+            const win = await getActiveWindow();
+            const winApp = win.app_name.toLowerCase();
+            const winTitle = win.title.toLowerCase();
+            if (winApp.includes(appNameLower) || winTitle.includes(appNameLower) ||
+                appNameLower.split(/[\s\-_()]+/).some(w => w.length >= 3 && (winApp.includes(w) || winTitle.includes(w)))) {
+              appOpened = true;
+              log(`✅ ${fileMatch.name} is open on retry.`);
+            }
+          } catch {}
+          if (!appOpened) {
+            log(`❌ ${fileMatch.name} failed to open. Check the shortcut in omni-files.`);
+          }
+        }
+
+        if (alreadyRunning) {
+          wasAlreadyRunning = true;
+          log(`ℹ️ ${fileMatch.name} was already running — may show a previous state.`);
+        }
+
+        // Move window to apps monitor if it opened on the wrong one
+        if (appOpened && !singleMon) {
+          await moveWindowToAppsMonitor(monitors, scSettings.omnirunMonitor, log);
+        }
       } catch (err: any) {
         log(`⚠️ Could not launch ${fileMatch.name}: ${err?.message || err}`);
       }
@@ -571,6 +721,9 @@ function AssistantChatArea({
         await launchApp(playlistPath);
         log('🚀 Opened playlist with default player');
         await new Promise((r) => setTimeout(r, 2000));
+        if (!singleMon) {
+          await moveWindowToAppsMonitor(monitors, scSettings.omnirunMonitor, log);
+        }
       } catch (err: any) {
         log(`⚠️ Could not open playlist: ${err?.message || err}`);
       }
@@ -590,6 +743,9 @@ function AssistantChatArea({
     const conversationHistory: { role: 'user' | 'assistant'; content: any }[] = [];
     let step = 0;
     let done = false;
+    let consecutiveClicks = 0; // Track repeated clicks without other actions
+    let hasTyped = false; // Track if TYPE action has been executed this session
+    let wasAlreadyRunning = false; // Track if app was already open before launch
 
     try {
       while (!done && step < MAX_SCREEN_STEPS) {
@@ -598,9 +754,11 @@ function AssistantChatArea({
         step++;
         onScreenControlStatus?.('capturing', step, 'Capturing...');
 
-        // Screenshot — on dual monitor, capture ALL monitors so AI sees everything
+        // Screenshot — always capture only the apps monitor
+        // We already moved the launched app there, and capturing both monitors
+        // causes the AI to see Omnirun's chat and get confused by old messages
         let screenshot;
-        const useCaptureAll = !singleMon;
+        const useCaptureAll = false;
         try {
           screenshot = await takeScreenshot(
             singleMon ? scSettings.cropToWindow : false,
@@ -629,9 +787,14 @@ function AssistantChatArea({
           }
         } catch {}
 
+        let repeatHint = '';
+        if (consecutiveClicks >= 2) {
+          repeatHint = ' WARNING: You have clicked multiple times without typing. If you need to type text, use ACTION: TYPE now. If a popup or emoji panel is blocking, press Escape first.';
+        }
+
         const textContent = step === 1
-          ? `Task: ${instruction}${fileMatch ? `. NOTE: I pre-launched "${fileMatch.name}" for you. Focus ONLY on that app window. Do NOT interact with any other similar apps.` : ''}${ctx}`
-          : `Screenshot after previous action.${ctx}`;
+          ? `Task: ${instruction}${fileMatch ? `. NOTE: We launched "${fileMatch.name}" for you.${wasAlreadyRunning ? ' The app was already running — it may be showing a previous chat or state. Navigate to the correct screen first.' : ''} Look for its WINDOW on screen. Do NOT click taskbar icons or open Start menu.` : ''}${ctx}`
+          : `Screenshot after previous action.${repeatHint}${ctx}`;
 
         conversationHistory.push({
           role: 'user' as const,
@@ -672,8 +835,45 @@ function AssistantChatArea({
           continue;
         }
 
-        if (action.type === 'DONE') { log('\n✅ Done.'); done = true; onScreenControlStatus?.('idle', step, 'Complete'); break; }
+        if (action.type === 'DONE') {
+          // If the task involves sending a message but AI never typed, reject DONE
+          const needsTyping = /\b(send|type|write|tell|message|say)\b/i.test(instruction);
+          if (needsTyping && !hasTyped) {
+            log('⚠️ AI said DONE but never typed the message. Continuing...');
+            conversationHistory.push({
+              role: 'user' as const,
+              content: 'You have NOT typed the message yet. You must use ACTION: TYPE to type the message text first, then click send.',
+            });
+            continue;
+          }
+          log('\n✅ Done.'); done = true; onScreenControlStatus?.('idle', step, 'Complete'); break;
+        }
         if (action.type === 'FAIL') { log(`\n❌ ${action.reason || 'Failed'}`); done = true; break; }
+
+        // ── Repeat-click detection ──
+        // If AI keeps clicking without typing, something is blocking (emoji panel, popup, etc).
+        // After 2 consecutive clicks: press Escape to close any overlay.
+        // After 3 consecutive clicks: force a KEY tab to move focus.
+        if (action.type === 'CLICK' || action.type === 'DOUBLE_CLICK' || action.type === 'RIGHT_CLICK') {
+          consecutiveClicks++;
+          if (consecutiveClicks === 3) {
+            log('🔧 Repeated clicks detected — pressing Escape to close any overlay.');
+            try { await executeScreenAction({ type: 'KEY', combo: 'escape' }); } catch {}
+            await new Promise((r) => setTimeout(r, 300));
+            continue; // Skip this click, retake screenshot
+          }
+          if (consecutiveClicks >= 4) {
+            log('🔧 Still clicking — trying Tab to move focus to input field.');
+            try { await executeScreenAction({ type: 'KEY', combo: 'tab' }); } catch {}
+            await new Promise((r) => setTimeout(r, 300));
+            consecutiveClicks = 0; // Reset and let AI try again
+            continue;
+          }
+        } else {
+          // Any non-click action (TYPE, KEY, SCROLL) resets the counter
+          consecutiveClicks = 0;
+          if (action.type === 'TYPE') hasTyped = true;
+        }
 
         // Scale coordinates from screenshot space to real screen space
         if (action.x !== undefined && action.y !== undefined) {

@@ -271,8 +271,8 @@ fn capture_all_monitors(quality: &str) -> Result<ScreenshotResult, String> {
 
     // Higher max width for combined screenshots (covers multiple monitors)
     let (target_w, target_h) = match quality {
-        "low" => scale_dimensions(total_w, total_h, 1920),
-        "medium" => scale_dimensions(total_w, total_h, 2560),
+        "low" => scale_dimensions(total_w, total_h, 2560),
+        "medium" => scale_dimensions(total_w, total_h, 3200),
         _ => (total_w, total_h),
     };
 
