@@ -210,8 +210,12 @@ export function parseAllScreenActions(aiResponse: string): ScreenAction[] {
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    const clean = line.replace(/\*\*/g, "").replace(/`/g, "").trim();
-    const actionLine = clean.replace(/^Action:\s*/i, "").trim();
+
+    // ONLY parse lines that start with "ACTION:" — skip OBSERVATION and everything else
+    const actionMatch = line.match(/^ACTION:\s*(.+)$/i);
+    if (!actionMatch) continue;
+
+    const actionLine = actionMatch[1].trim();
     const subActions = splitCompoundAction(actionLine);
 
     for (const sub of subActions) {
@@ -268,6 +272,10 @@ export async function executeScreenAction(action: ScreenAction): Promise<string>
       await screenRightClick(action.x!, action.y!);
       return `Right-clicked at (${action.x}, ${action.y})`;
     case "TYPE":
+      // Select all existing text first so TYPE replaces instead of appending
+      // This prevents doubled text if AI types multiple times
+      await screenKey("ctrl+a");
+      await new Promise((r) => setTimeout(r, 50));
       await screenType(action.text!);
       return `Typed: "${action.text!.slice(0, 50)}${action.text!.length > 50 ? "..." : ""}"`;
     case "KEY":
