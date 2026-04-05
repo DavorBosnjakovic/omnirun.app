@@ -116,13 +116,13 @@ function VoiceSettings() {
           </div>
 
           {/* Test microphone */}
-          <div className={`${t.colors.bgSecondary} ${t.borderRadius} p-4`}>
+          <div className={`p-4 ${t.borderRadius} ${t.colors.bgSecondary}`}>
             <h3 className="font-medium mb-2">Test Microphone</h3>
             <p className={`text-sm ${t.colors.textMuted} mb-3`}>
               Make sure your microphone is working correctly.
             </p>
             <button
-              className={`${t.colors.accent} ${t.colors.accentHover} ${theme === "highContrast" ? "text-black" : "text-white"} px-4 py-2 ${t.borderRadius}`}
+              className={`${t.colors.accent} text-white hover:opacity-80 transition-colors px-4 py-2 ${t.borderRadius}`}
             >
               Start Test
             </button>

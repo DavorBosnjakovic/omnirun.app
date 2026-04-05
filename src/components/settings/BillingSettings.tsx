@@ -137,15 +137,15 @@ function BillingSettings() {
     <div className={`${t.colors.text} max-w-6xl`}>
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold mb-1">Plans & Billing</h1>
-        <p className={`${t.colors.textMuted} text-sm`}>
+        <h1 className="text-2xl font-bold mb-2">Plans & Billing</h1>
+        <p className={`${t.colors.textMuted} mb-6`}>
           All plans are BYOK — you bring your own API keys and pay providers directly. No markup, full transparency.
         </p>
       </div>
 
       {/* Current plan status bar */}
       <div
-        className={`${t.colors.bgSecondary} ${t.borderRadius} p-4 mb-8 border ${t.colors.border}`}
+        className={`${t.colors.bgSecondary} ${t.borderRadius} p-4 mb-8`}
       >
         <div className="flex justify-between items-center">
           <div>
@@ -503,7 +503,7 @@ function BillingSettings() {
           Payment Method
         </h3>
         <div
-          className={`${t.colors.bgSecondary} ${t.borderRadius} p-4 flex justify-between items-center border ${t.colors.border}`}
+          className={`${t.colors.bgSecondary} ${t.borderRadius} p-4 flex justify-between items-center`}
         >
           <div>
             <p className="font-medium text-sm">•••• •••• •••• 4242</p>

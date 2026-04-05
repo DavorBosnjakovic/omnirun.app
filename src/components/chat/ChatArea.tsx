@@ -21,42 +21,16 @@ import { useConnectionsStore } from "../../stores/connectionsStore";
 import { getErrors, clearErrors, onErrorsChange } from "../../services/errorCapture";
 import { useDiffStore } from "../../stores/diffStore";
 import DiffViewer from "../diff/DiffViewer";
+import OmnirunSpinner from "./OmnirunSpinner";
 import type { MessageImage } from "../../stores/chatStore";
 
 const MAX_TOOL_ITERATIONS = 10;
 
-// ── Animated thinking indicator ───────────────────────────────
-function ThinkingDots({ color }: { color: string }) {
-  return (
-    <span className="inline-flex items-center gap-[3px]">
-      <span className={`text-sm ${color}`}>Thinking</span>
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className={color}
-          style={{
-            display: "inline-block",
-            width: 4,
-            height: 4,
-            borderRadius: "50%",
-            backgroundColor: "currentColor",
-            animation: `thinkingBounce 1.2s ease-in-out ${i * 0.2}s infinite`,
-          }}
-        />
-      ))}
-      <style>{`
-        @keyframes thinkingBounce {
-          0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
-          30% { opacity: 1; transform: translateY(-3px); }
-        }
-      `}</style>
-    </span>
-  );
-}
 
 // ── Collapsible tool action display ────────────────────────────
-// Shows a compact summary of what the AI is doing, with optional
-// expand for full details (Technical mode only).
+// Shows a compact one-liner per action (e.g. "Edited: styles.css").
+// Details like "(replaced 145 chars with 138 chars)" and stdout
+// are hidden behind a dropdown arrow to keep the chat clean.
 
 function ToolActionLine({ content, theme: t, themeKey, mode }: {
   content: string;
@@ -67,97 +41,124 @@ function ToolActionLine({ content, theme: t, themeKey, mode }: {
   const [expanded, setExpanded] = useState(false);
 
   const separatorIdx = content.indexOf("\n---\n");
-  const hasSeparator = separatorIdx !== -1;
-  const summary = hasSeparator ? content.slice(0, separatorIdx) : content;
-  const details = hasSeparator ? content.slice(separatorIdx + 5) : null;
+  const summary = separatorIdx !== -1 ? content.slice(0, separatorIdx) : content;
+  const technicalDetails = separatorIdx !== -1 ? content.slice(separatorIdx + 5) : null;
   const summaryLines = summary.split("\n").filter(l => l.trim());
 
-  // ── Simple mode: compact action lines with optional expand ──
-  if (mode === "simple") {
-    const actions = summaryLines.map((line) => {
-      const clean = line.replace(/^[\s🔧✏️✅❌⏭️🔍⚠️📁📂🗑️⏳]+/u, "").trim();
+  // Parse each line into a clean label + optional detail string
+  const parsed = summaryLines.map((line) => {
+    const clean = line.replace(/^[\s🔧✏️✅❌⏭️🔍⚠️📁📂🗑️⏳]+/u, "").trim();
 
-      const writeMatch = clean.match(/^Writ(?:ing|ten)\s+(.+?)(?:\s+\((.+)\))?$/i);
-      if (writeMatch) {
-        const done = /^written/i.test(clean);
-        return { label: `${done ? "Wrote" : "Writing"} ${writeMatch[1]}`, detail: writeMatch[2] || null };
-      }
-      const editMatch = clean.match(/^Edit(?:ing|ed)\s+(.+?)$/i);
-      if (editMatch) return { label: `Editing ${editMatch[1]}`, detail: null };
-      const readMatch = clean.match(/^Read(?:ing)?\s+(.+?)$/i);
-      if (readMatch) return { label: `Reading ${readMatch[1]}`, detail: null };
-      const deleteMatch = clean.match(/^Delet(?:ing|ed)\s+(.+?)$/i);
-      if (deleteMatch) return { label: `Deleting ${deleteMatch[1]}`, detail: null };
-      const listMatch = clean.match(/^List(?:ing|ed)?\s+(.+?)$/i);
-      if (listMatch) return { label: `Scanning ${listMatch[1]}`, detail: null };
-      const runMatch = clean.match(/^Running:\s*(.+)$/i);
-      if (runMatch) return { label: "Running command", detail: runMatch[1] };
-      const searchMatch = clean.match(/^Search(?:ing)?:\s*(.+)$/i);
-      if (searchMatch) return { label: "Searching the web", detail: searchMatch[1] };
-      const taskMatch = clean.match(/^Creating scheduled task:\s*(.+)$/i);
-      if (taskMatch) return { label: "Creating task", detail: taskMatch[1] };
-      if (clean.toLowerCase().includes("context")) return { label: "Saving context", detail: null };
-      if (clean.toLowerCase().includes("found")) return { label: clean, detail: null };
-      if (!clean || clean === "Done") return { label: "Done", detail: null };
-      return { label: clean.length > 50 ? clean.slice(0, 47) + "…" : clean, detail: null };
-    });
+    // "Written path/to/file.css (123 chars)" → label: "Written: file.css", detail: "(123 chars)"
+    const writeMatch = clean.match(/^(Writ(?:ing|ten))\s+(.+?)(\s+\(.+\))?$/i);
+    if (writeMatch) {
+      const verb = /^written/i.test(writeMatch[1]) ? "Written" : "Writing";
+      const file = writeMatch[2].split(/[/\\]/).pop() || writeMatch[2];
+      return { label: `${verb}: ${file}`, detail: writeMatch[3]?.trim() || null, raw: clean };
+    }
 
-    const deduped = actions.filter((a, i) => i === 0 || a.label !== actions[i - 1].label);
-    const hasDetails = deduped.some((a) => a.detail);
+    // "Edited styles.css (replaced 145 chars with 138 chars)" → label: "Edited: styles.css", detail: "(replaced...)"
+    const editMatch = clean.match(/^(Edit(?:ing|ed))[:\s]+(.+?)(\s+\(.+\))?$/i);
+    if (editMatch) {
+      const verb = /^edited/i.test(editMatch[1]) ? "Edited" : "Editing";
+      const file = editMatch[2].split(/[/\\]/).pop() || editMatch[2];
+      return { label: `${verb}: ${file}`, detail: editMatch[3]?.trim() || null, raw: clean };
+    }
 
-    return (
-      <div className="space-y-0.5">
-        {deduped.map((action, i) => (
-          <div key={i} className="leading-snug text-sm">{action.label}</div>
-        ))}
-        {hasDetails && (
-          <>
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className={`inline-flex items-center gap-1 mt-0.5 text-xs ${t.colors.textMuted} hover:${t.colors.text} transition-colors cursor-pointer`}
-            >
-              <ChevronDown
-                size={10}
-                className={`transition-transform duration-150 ${expanded ? "" : "-rotate-90"}`}
-              />
-              {expanded ? "Less" : "Details"}
-            </button>
-            {expanded && (
-              <div className={`mt-1 text-xs ${t.colors.textMuted} opacity-70 space-y-0.5`}>
-                {deduped.filter((a) => a.detail).map((a, i) => (
-                  <div key={i}>{a.label}: {a.detail}</div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    );
+    // "Reading path/to/file.css" → label: "Reading: file.css"
+    const readMatch = clean.match(/^(Read(?:ing)?)\s+(.+?)$/i);
+    if (readMatch) {
+      const file = readMatch[2].split(/[/\\]/).pop() || readMatch[2];
+      return { label: `Reading: ${file}`, detail: null, raw: clean };
+    }
+
+    // "Deleted path/to/file.css" → label: "Deleted: file.css"
+    const deleteMatch = clean.match(/^(Delet(?:ing|ed))\s+(.+?)$/i);
+    if (deleteMatch) {
+      const file = deleteMatch[2].split(/[/\\]/).pop() || deleteMatch[2];
+      return { label: `Deleted: ${file}`, detail: null, raw: clean };
+    }
+
+    // "Listed path/to/dir" → label: "Scanning: dir"
+    const listMatch = clean.match(/^(List(?:ing|ed)?)\s+(.+?)$/i);
+    if (listMatch) {
+      const dir = listMatch[2].split(/[/\\]/).pop() || listMatch[2];
+      return { label: `Scanning: ${dir}`, detail: null, raw: clean };
+    }
+
+    // "Created directory: path/to/dir" → label: "Created: dir"
+    const mkdirMatch = clean.match(/^Created\s+(?:directory:?\s+)?(.+?)$/i);
+    if (mkdirMatch) {
+      const dir = mkdirMatch[1].split(/[/\\]/).pop() || mkdirMatch[1];
+      return { label: `Created: ${dir}`, detail: null, raw: clean };
+    }
+
+    // "Running: npm install" → label: "Running command", detail: "npm install"
+    const runMatch = clean.match(/^Running:\s*(.+)$/i);
+    if (runMatch) return { label: "Running command", detail: runMatch[1], raw: clean };
+
+    // "Searching: query" → label: "Searching the web", detail: "query"
+    const searchMatch = clean.match(/^Search(?:ing)?:\s*(.+)$/i);
+    if (searchMatch) return { label: "Searching the web", detail: searchMatch[1], raw: clean };
+
+    // "Creating scheduled task: name" → label: "Creating task", detail: "name"
+    const taskMatch = clean.match(/^Creating scheduled task:\s*(.+)$/i);
+    if (taskMatch) return { label: "Creating task", detail: taskMatch[1], raw: clean };
+
+    // Context saves
+    if (clean.toLowerCase().includes("context")) return { label: "Saving context", detail: null, raw: clean };
+
+    // stdout/stderr lines → always detail
+    if (/^stdout:|^stderr:/i.test(clean)) return { label: null, detail: clean, raw: clean };
+
+    // "Found X results" etc.
+    if (clean.toLowerCase().includes("found")) return { label: clean, detail: null, raw: clean };
+
+    // Done
+    if (!clean || clean === "Done") return { label: "Done", detail: null, raw: clean };
+
+    // Fallback — show truncated
+    return { label: clean.length > 60 ? clean.slice(0, 57) + "…" : clean, detail: null, raw: clean };
+  });
+
+  // Deduplicate consecutive identical labels
+  const deduped = parsed.filter((a, i) => i === 0 || a.label !== parsed[i - 1]?.label);
+
+  // Collect all detail strings for the dropdown
+  const allDetails = deduped
+    .filter((a) => a.detail)
+    .map((a) => a.label ? `${a.label} ${a.detail}` : a.detail!);
+
+  // Also include technical details (after ---) if present
+  if (technicalDetails) {
+    allDetails.push(technicalDetails);
   }
 
-  // ── Technical mode: full details with expand toggle ──
-  const showExpandButton = details != null;
+  const hasDetails = allDetails.length > 0;
+
+  // Only show items that have a label (stdout-only lines go to details)
+  const visibleLines = deduped.filter((a) => a.label);
 
   return (
     <div className="space-y-0.5">
-      {summaryLines.map((line, i) => (
-        <div key={i} className="leading-snug">{line}</div>
+      {visibleLines.map((action, i) => (
+        <div key={i} className="leading-snug text-sm">{action.label}</div>
       ))}
-      {showExpandButton && (
+      {hasDetails && (
         <>
           <button
             onClick={() => setExpanded(!expanded)}
-            className={`inline-flex items-center gap-1 mt-1 text-xs ${t.colors.textMuted} hover:${t.colors.text} transition-colors cursor-pointer`}
+            className={`inline-flex items-center gap-1 mt-0.5 text-xs ${t.colors.textMuted} hover:${t.colors.text} transition-colors cursor-pointer`}
           >
             <ChevronDown
-              size={12}
+              size={10}
               className={`transition-transform duration-150 ${expanded ? "" : "-rotate-90"}`}
             />
-            {expanded ? "Hide details" : "Show details"}
+            {expanded ? "Less" : "Details"}
           </button>
           {expanded && (
             <pre className={`mt-1 text-xs ${t.colors.textMuted} whitespace-pre-wrap opacity-70 max-h-[200px] overflow-y-auto`}>
-              {details}
+              {allDetails.join("\n")}
             </pre>
           )}
         </>
@@ -643,7 +644,6 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
   const handleStop = () => {
     stoppedRef.current = true;
-    flushTypewriter(); // Show all buffered content immediately
     if (readerRef.current) {
       readerRef.current.cancel().catch(() => {});
       readerRef.current = null;
@@ -888,26 +888,26 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
         // Stream the AI response
         let fullResponse = "";
 
-        // Start typewriter for this message
-        startTypewriter(assistantId);
+        // Don't show streaming text — keep the message empty (spinner shows).
+        // Content is revealed all at once when streaming completes.
 
         setIsRouting(true);
         const result = await sendMessage(apiMessages, provider, (chunk) => {
           setIsRouting(false);
           if (stoppedRef.current) return;
           fullResponse += chunk;
-          const displayContent = getStreamingDisplay(fullResponse);
-          // Feed the typewriter instead of directly updating the message
-          updateTypewriterTarget(displayContent);
         }, projectContext, undefined, (reader) => { readerRef.current = reader; });
 
         setIsRouting(false);
         fullResponse = result.text;
 
-        // Flush typewriter — show all remaining content immediately
-        // so tool detection and subsequent logic see the final text
-        updateTypewriterTarget(getStreamingDisplay(fullResponse));
-        flushTypewriter();
+        // Reveal the full response at once (no typewriter)
+        const displayContent = getStreamingDisplay(fullResponse);
+        useChatStore.setState((state) => ({
+          messages: state.messages.map((m) =>
+            m.id === assistantId ? { ...m, content: displayContent } : m
+          ),
+        }));
 
         // Check if stopped during streaming
         if (stoppedRef.current) break;
@@ -1547,8 +1547,19 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
                           : message.role === "assistant" ? renderMessage(message.content) : message.content)
                         : message.images && message.images.length > 0 
                           ? null
-                          : <ThinkingDots color={t.colors.textMuted} />}
+                          : <div className="flex items-center gap-2">
+                              <OmnirunSpinner textClass={t.colors.textMuted} />
+                              {isLoading && message.id === messages[messages.length - 1]?.id && (
+                                <span className={`text-sm ${t.colors.textMuted}`}>Working on it...</span>
+                              )}
+                            </div>}
                     </div>
+                    {/* Streaming indicator — shows while AI is still generating and text has started */}
+                    {isLoading && message.role === "assistant" && message.content && message.id === messages[messages.length - 1]?.id && !isTool && !isSearch && (
+                      <div className="flex items-center gap-2 mt-2 pt-1.5 border-t border-current/5">
+                        <OmnirunSpinner size={16} showTimer={true} textClass={`${t.colors.textMuted} opacity-70`} />
+                      </div>
+                    )}
                     <div className={`text-[10px] mt-1 opacity-50 ${
                       message.role === "user" ? "text-right" : ""
                     }`}>

@@ -645,6 +645,136 @@ async fn resend_api(
     Ok(ProxyResponse { status, body: response_body })
 }
 
+// ── AI Streaming Proxy ────────────────────────────────────────
+// Bypasses tauri-plugin-http for AI API calls to avoid streaming
+// timeouts. Uses reqwest directly with no read/total timeout so
+// long-running SSE streams (Opus thinking pauses, large outputs)
+// never get killed mid-response.
+
+#[derive(Serialize, Clone)]
+struct StreamChunk {
+    stream_id: String,
+    data: String,
+    done: bool,
+    error: Option<String>,
+    status: Option<u16>,
+}
+
+/// Stream an AI API request through Rust, bypassing tauri-plugin-http.
+///
+/// The command returns immediately. Chunks are emitted as Tauri events
+/// named `ai-stream-{stream_id}`. The frontend listens for these events
+/// and processes SSE data as it arrives.
+///
+/// Timeouts:
+///   - connect_timeout: 300s (5 min) — covers Opus "thinking" delay
+///   - read_timeout:    NONE — no mid-stream timeout
+///   - total timeout:   NONE — stream can run indefinitely
+#[tauri::command]
+async fn stream_ai_request(
+    app: tauri::AppHandle,
+    url: String,
+    headers: std::collections::HashMap<String, String>,
+    body: String,
+    stream_id: String,
+) -> Result<(), String> {
+    use tauri::Emitter;
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(300))
+        // Intentionally NO .timeout() — allows indefinite streaming
+        // Intentionally NO .read_timeout() — pauses between chunks are expected
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let event_name = format!("ai-stream-{}", stream_id);
+
+    // Spawn the streaming work in a background task so invoke returns immediately
+    tauri::async_runtime::spawn(async move {
+        let mut request = client.post(&url);
+        for (key, value) in &headers {
+            request = request.header(key.as_str(), value.as_str());
+        }
+        request = request.body(body);
+
+        // Send the request
+        let response = match request.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = app.emit(&event_name, StreamChunk {
+                    stream_id,
+                    data: String::new(),
+                    done: true,
+                    error: Some(e.to_string()),
+                    status: None,
+                });
+                return;
+            }
+        };
+
+        let status = response.status().as_u16();
+
+        // For error responses, read the full body and send it back
+        if status >= 400 {
+            let error_body = response.text().await.unwrap_or_default();
+            let _ = app.emit(&event_name, StreamChunk {
+                stream_id,
+                data: error_body,
+                done: true,
+                error: Some(format!("HTTP {}", status)),
+                status: Some(status),
+            });
+            return;
+        }
+
+        // Stream the response body chunk by chunk.
+        // response.chunk() reads the next available bytes from the
+        // underlying TCP stream. It returns None when the server
+        // closes the connection (i.e., stream is complete).
+        // Crucially, it will WAIT INDEFINITELY for the next chunk —
+        // there is no read timeout that can kill it mid-stream.
+        let mut response = response;
+        loop {
+            match response.chunk().await {
+                Ok(Some(bytes)) => {
+                    let chunk_str = String::from_utf8_lossy(&bytes).to_string();
+                    let _ = app.emit(&event_name, StreamChunk {
+                        stream_id: stream_id.clone(),
+                        data: chunk_str,
+                        done: false,
+                        error: None,
+                        status: Some(status),
+                    });
+                }
+                Ok(None) => {
+                    // Stream complete — server closed the connection
+                    let _ = app.emit(&event_name, StreamChunk {
+                        stream_id: stream_id.clone(),
+                        data: String::new(),
+                        done: true,
+                        error: None,
+                        status: Some(status),
+                    });
+                    break;
+                }
+                Err(e) => {
+                    // Network error mid-stream
+                    let _ = app.emit(&event_name, StreamChunk {
+                        stream_id: stream_id.clone(),
+                        data: String::new(),
+                        done: true,
+                        error: Some(e.to_string()),
+                        status: Some(status),
+                    });
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
 // ── Scheduled Tasks IPC Commands ──────────────────────────────
 
 #[tauri::command]
@@ -718,6 +848,8 @@ pub fn run() {
             supabase_management_api,
             // Resend API proxy
             resend_api,
+            // AI streaming proxy (bypasses tauri-plugin-http timeout)
+            stream_ai_request,
             // Scheduled tasks
             create_task,
             update_task,

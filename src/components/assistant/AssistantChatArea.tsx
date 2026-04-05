@@ -39,6 +39,7 @@ import {
 } from '../../services/screenControlService';
 import type { ScreenControlStatus } from './ScreenControlOverlay';
 import MarkdownRenderer from '../chat/MarkdownRenderer';
+import OmnirunSpinner from '../chat/OmnirunSpinner';
 import elipseDark from '../../assets/elipse_transparent_dark.svg';
 import elipseLight from '../../assets/elipse_transparent_light.svg';
 
@@ -1093,9 +1094,15 @@ function AssistantChatArea({
                       ? message.role === 'assistant'
                         ? <MarkdownRenderer content={cleanAiResponse(message.content)} theme={t} themeKey={theme} projectPath={null} onSaveCodeBlock={() => {}} />
                         : message.content
-                      : <span className={`${t.colors.textMuted} italic`}>Thinking...</span>
+                      : <OmnirunSpinner textClass={t.colors.textMuted} />
                     }
                   </div>
+                  {/* Streaming indicator — shows while AI is still generating and text has started */}
+                  {isLoading && message.role === 'assistant' && message.content && message.id === messages[messages.length - 1]?.id && (
+                    <div className="flex items-center gap-2 mt-2 pt-1.5 border-t border-current/5">
+                      <OmnirunSpinner size={16} showTimer={true} textClass={`${t.colors.textMuted} opacity-70`} />
+                    </div>
+                  )}
                   <div className={`text-[10px] mt-1 opacity-50 ${message.role === 'user' ? 'text-right' : ''}`}>
                     {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: timeFormat === '12h' })}
                   </div>

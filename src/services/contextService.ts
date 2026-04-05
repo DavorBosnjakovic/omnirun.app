@@ -1,6 +1,11 @@
 import { readFile, writeFile, createDirectory, readDirectory, FileEntry } from "./fileService";
 import { invoke } from "@tauri-apps/api/core";
 
+/** Cross-platform path join — uses "/" which works on Windows, Mac, and Linux with Tauri */
+function joinPath(...parts: string[]): string {
+  return parts.join("/").replace(/\\/g, "/").replace(/\/+/g, "/");
+}
+
 /**
  * Context Service — Two-Pass AI-Summarized Project Knowledge
  * 
@@ -41,6 +46,8 @@ export interface ProjectContext {
   // ── Tier 1: Project DNA (rich, in system prompt every call) ──
   /** Product description — what it is, audience, flows, business rules */
   about: string[];
+  /** Comprehensive project brief — vision, flows, rules, design direction. Richer than about. */
+  brief: string[];
   /** Visual design system — colors, fonts, spacing, shadows, animations, layout patterns, responsive rules */
   styles: string[];
   /** Coding conventions — patterns, naming, imports, error handling */
@@ -64,15 +71,19 @@ export interface ProjectContext {
 
   // ── Tier 3: Recent Activity (rolling window) ──
   recentChanges: string[];
+
+  // ── Source-of-truth files (loaded fresh from disk, not stored in context.md) ──
+  /** Actual content of key project files: schema, tailwind config, .env.example, etc. */
+  sourceFiles: { relativePath: string; label: string; content: string }[];
 }
 
 /** Sections that use replace semantics (overwrite entire section) */
-const REPLACE_SECTIONS = ["about", "styles", "conventions", "routes", "schema", "progress"] as const;
+const REPLACE_SECTIONS = ["about", "brief", "styles", "conventions", "routes", "schema", "progress"] as const;
 /** Sections that use append semantics (add new entries, deduplicate) */
 const APPEND_SECTIONS = ["decisions", "preferences", "built"] as const;
 /** All valid write_context sections */
 export const VALID_SECTIONS = [
-  "about", "styles", "conventions", "routes", "schema",
+  "about", "brief", "styles", "conventions", "routes", "schema",
   "progress", "decisions", "preferences", "built",
 ] as const;
 export type ContextSection = typeof VALID_SECTIONS[number];
@@ -82,6 +93,7 @@ const SUMMARIES_DIR = ".omnirun/summaries";
 const CONTEXT_FILE = ".omnirun/context.md";
 const META_FILE = ".omnirun/meta.json";
 const MAX_RECENT_CHANGES = 10;
+const MAX_BUILT_ENTRIES = 15;
 const MAX_READ_PER_FILE = 12_000;  // 12KB per file sent to AI
 
 // ── Tech Stack Detection ─────────────────────────────────────
@@ -167,7 +179,7 @@ async function detectTechStack(folderPath: string, fileNames: string[]): Promise
   }
   if (fileNames.includes("package.json")) {
     try {
-      const pkg = JSON.parse(await readFile(`${folderPath}\\package.json`));
+      const pkg = JSON.parse(await readFile(joinPath(folderPath, "package.json")));
       const allDeps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
       for (const [dep, tech] of Object.entries(PACKAGE_JSON_FRAMEWORKS)) {
         if (dep in allDeps) detected.add(tech);
@@ -294,6 +306,111 @@ async function scanProject(projectPath: string): Promise<ScanResult> {
     allTech: [...new Set(allTech)],
     allKeyDeps: [...new Set(allKeyDeps)],
   };
+}
+
+// ── Source-of-Truth File Detection ──────────────────────────
+// Key project files whose ACTUAL CONTENT is included in every AI call.
+// These eliminate exploration turns — the AI knows the schema, config,
+// and structure without needing to read_file first.
+// Prompt caching makes calls 2+ nearly free (~90% off).
+
+const SOURCE_FILE_PATTERNS: { pattern: string; label: string; maxChars: number }[] = [
+  // Database schema
+  { pattern: "schema.prisma", label: "Database Schema", maxChars: 8000 },
+  { pattern: "prisma/schema.prisma", label: "Database Schema", maxChars: 8000 },
+  { pattern: "schema.sql", label: "Database Schema", maxChars: 8000 },
+  { pattern: "database.sql", label: "Database Schema", maxChars: 8000 },
+  { pattern: "supabase/schema.sql", label: "Database Schema", maxChars: 8000 },
+  { pattern: "drizzle/schema.ts", label: "Database Schema", maxChars: 8000 },
+  { pattern: "src/db/schema.ts", label: "Database Schema", maxChars: 8000 },
+  { pattern: "src/schema.ts", label: "Database Schema", maxChars: 8000 },
+  // Style / theme config
+  { pattern: "tailwind.config.ts", label: "Tailwind Config", maxChars: 4000 },
+  { pattern: "tailwind.config.js", label: "Tailwind Config", maxChars: 4000 },
+  { pattern: "src/styles/theme.ts", label: "Theme Config", maxChars: 4000 },
+  { pattern: "src/config/theme.ts", label: "Theme Config", maxChars: 4000 },
+  { pattern: "src/theme.ts", label: "Theme Config", maxChars: 4000 },
+  // Environment template (variable names only — no secrets)
+  { pattern: ".env.example", label: "Environment Template", maxChars: 2000 },
+  { pattern: ".env.local.example", label: "Environment Template", maxChars: 2000 },
+  // Project brief (AI-generated rich project document)
+  { pattern: ".omnirun/brief.md", label: "Project Brief", maxChars: 6000 },
+];
+
+/** Total char budget across all source files (~3000 tokens max) */
+const MAX_SOURCE_TOTAL_CHARS = 12000;
+
+/**
+ * Detect and read source-of-truth files from the project.
+ * Called on every project open. Files are read fresh from disk (not cached in context.md).
+ * Only the first match per label is included (e.g., only one "Database Schema").
+ * Also scans .omnirun/docs/ for any user-uploaded project knowledge files.
+ */
+async function loadSourceFiles(
+  projectPath: string
+): Promise<{ relativePath: string; label: string; content: string }[]> {
+  const results: { relativePath: string; label: string; content: string }[] = [];
+  const seenLabels = new Set<string>();
+  let totalChars = 0;
+
+  // ── Pass 1: Pattern-based detection (schema, config, brief, etc.) ──
+  for (const { pattern, label, maxChars } of SOURCE_FILE_PATTERNS) {
+    if (seenLabels.has(label)) continue;
+    if (totalChars >= MAX_SOURCE_TOTAL_CHARS) break;
+
+    try {
+      const fullPath = joinPath(projectPath, pattern);
+      const content = await readFile(fullPath);
+      const trimmed = content.slice(0, maxChars);
+
+      if (trimmed.trim().length > 0) {
+        results.push({ relativePath: pattern, label, content: trimmed });
+        seenLabels.add(label);
+        totalChars += trimmed.length;
+      }
+    } catch {
+      // File doesn't exist — skip silently
+    }
+  }
+
+  // ── Pass 2: Scan .omnirun/docs/ for user-uploaded project knowledge ──
+  if (totalChars < MAX_SOURCE_TOTAL_CHARS) {
+    try {
+      const docsPath = joinPath(projectPath, CONTEXT_DIR, "docs");
+      const entries = await readDirectory(docsPath, 1);
+      const docFiles = entries
+        .filter(e => !e.is_dir && (e.name.endsWith('.md') || e.name.endsWith('.txt') || e.name.endsWith('.sql')))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      for (const entry of docFiles) {
+        if (totalChars >= MAX_SOURCE_TOTAL_CHARS) break;
+
+        try {
+          const content = await readFile(entry.path);
+          const maxPerDoc = 6000;
+          const trimmed = content.slice(0, maxPerDoc);
+
+          if (trimmed.trim().length > 0) {
+            const relativePath = `.omnirun/docs/${entry.name}`;
+            // Derive a label from the filename: "my-spec.md" → "My Spec"
+            const label = entry.name
+              .replace(/\.[^.]+$/, "")
+              .replace(/[-_]/g, " ")
+              .replace(/\b\w/g, c => c.toUpperCase());
+
+            results.push({ relativePath, label, content: trimmed });
+            totalChars += trimmed.length;
+          }
+        } catch {
+          // Individual file read failed — skip
+        }
+      }
+    } catch {
+      // .omnirun/docs/ doesn't exist yet — that's fine
+    }
+  }
+
+  return results;
 }
 
 // ── AI Provider / Call Helpers ────────────────────────────────
@@ -468,7 +585,7 @@ async function pass1_summarizeFiles(
 
   // Ensure summaries directory exists
   try {
-    await createDirectory(`${projectPath}\\${SUMMARIES_DIR}`);
+    await createDirectory(joinPath(projectPath, SUMMARIES_DIR));
   } catch { /* exists */ }
 
   for (let i = 0; i < files.length; i++) {
@@ -476,7 +593,7 @@ async function pass1_summarizeFiles(
     onProgress?.(i + 1, files.length, file.name);
 
     try {
-      const fullPath = `${projectPath}\\${file.relativePath.replace(/\//g, "\\")}`;
+      const fullPath = joinPath(projectPath, file.relativePath);
       const content = await readFile(fullPath);
       const fileContent = content.slice(0, MAX_READ_PER_FILE);
 
@@ -492,7 +609,7 @@ async function pass1_summarizeFiles(
       // Write summary file
       const summaryFilename = toSummaryFilename(file.relativePath, allPaths);
       const summaryRelPath = `${SUMMARIES_DIR}/${summaryFilename}`;
-      const summaryFullPath = `${projectPath}\\${summaryRelPath.replace(/\//g, "\\")}`;
+      const summaryFullPath = joinPath(projectPath, summaryRelPath);
 
       const summaryContent = `# ${title}\n\nSource: \`${file.relativePath}\`\n\n${summary.trim()}\n`;
       await writeFile(summaryFullPath, summaryContent);
@@ -574,7 +691,7 @@ async function pass2_generateMaster(
   for (const sf of summarizedFiles) {
     if (!sf.summaryPath) continue;
     try {
-      const summaryFullPath = `${projectPath}\\${sf.summaryPath.replace(/\//g, "\\")}`;
+      const summaryFullPath = joinPath(projectPath, sf.summaryPath);
       const content = await readFile(summaryFullPath);
       prompt += `=== ${sf.summaryPath} (from ${sf.originalPath}) ===\n`;
       prompt += content + "\n\n";
@@ -621,7 +738,7 @@ async function pass2_generateMaster(
       for (const c of recentChanges) contextMd += `- ${c}\n`;
     }
 
-    await writeFile(`${projectPath}\\${CONTEXT_FILE}`, contextMd);
+    await writeFile(joinPath(projectPath, CONTEXT_FILE), contextMd);
     console.log("[context] Master overview saved to context.md");
   } catch (err) {
     console.error("[context] Master overview generation failed:", err);
@@ -678,7 +795,7 @@ async function writeFallbackContext(
     for (const c of recentChanges) md += `- ${c}\n`;
   }
 
-  await writeFile(`${projectPath}\\${CONTEXT_FILE}`, md);
+  await writeFile(joinPath(projectPath, CONTEXT_FILE), md);
 }
 
 // ── Basic Fallback (no AI provider) ──────────────────────────
@@ -688,7 +805,7 @@ async function basicFallbackSummaries(
   files: { relativePath: string; name: string }[]
 ): Promise<{ originalPath: string; summaryPath: string; title: string }[]> {
   try {
-    await createDirectory(`${projectPath}\\${SUMMARIES_DIR}`);
+    await createDirectory(joinPath(projectPath, SUMMARIES_DIR));
   } catch { /* exists */ }
 
   const results: { originalPath: string; summaryPath: string; title: string }[] = [];
@@ -696,7 +813,7 @@ async function basicFallbackSummaries(
 
   for (const file of files) {
     try {
-      const fullPath = `${projectPath}\\${file.relativePath.replace(/\//g, "\\")}`;
+      const fullPath = joinPath(projectPath, file.relativePath);
       const content = await readFile(fullPath);
 
       let title = file.name.replace(/\.[^.]+$/, "").replace(/^\d+-/, "").replace(/[-_]/g, " ");
@@ -716,7 +833,7 @@ async function basicFallbackSummaries(
 
       const summaryFilename = toSummaryFilename(file.relativePath, allPaths);
       const summaryRelPath = `${SUMMARIES_DIR}/${summaryFilename}`;
-      await writeFile(`${projectPath}\\${summaryRelPath.replace(/\//g, "\\")}`, summaryContent);
+      await writeFile(joinPath(projectPath, summaryRelPath), summaryContent);
 
       results.push({ originalPath: file.relativePath, summaryPath: summaryRelPath, title });
     } catch {
@@ -731,8 +848,11 @@ async function basicFallbackSummaries(
 
 export async function loadContext(projectPath: string): Promise<ProjectContext | null> {
   try {
-    const content = await readFile(`${projectPath}\\${CONTEXT_FILE}`);
-    return parseContextFile(content, projectPath);
+    const content = await readFile(joinPath(projectPath, CONTEXT_FILE));
+    const context = parseContextFile(content, projectPath);
+    // Load actual source-of-truth files (schema, config, brief, etc.)
+    context.sourceFiles = await loadSourceFiles(projectPath);
+    return context;
   } catch {
     return null;
   }
@@ -745,13 +865,14 @@ export async function saveContext(projectPath: string, context: ProjectContext):
   let content: string | null = null;
 
   try {
-    content = await readFile(`${projectPath}\\${CONTEXT_FILE}`);
+    content = await readFile(joinPath(projectPath, CONTEXT_FILE));
   } catch {
     // context.md doesn't exist yet — only create it if there's real content to save.
     // If all sections are empty, skip writing entirely. This prevents creating
     // empty/placeholder files that confuse the AI when it tries to read them.
     const hasRealContent =
       context.about.length > 0 ||
+      context.brief.length > 0 ||
       context.styles.length > 0 ||
       context.conventions.length > 0 ||
       context.routes.length > 0 ||
@@ -768,8 +889,8 @@ export async function saveContext(projectPath: string, context: ProjectContext):
     }
 
     try {
-      try { await createDirectory(`${projectPath}\\${CONTEXT_DIR}`); } catch { /* exists */ }
-      try { await createDirectory(`${projectPath}\\${SUMMARIES_DIR}`); } catch { /* exists */ }
+      try { await createDirectory(joinPath(projectPath, CONTEXT_DIR)); } catch { /* exists */ }
+      try { await createDirectory(joinPath(projectPath, SUMMARIES_DIR)); } catch { /* exists */ }
 
       await writeFallbackContext(
         projectPath,
@@ -787,7 +908,7 @@ export async function saveContext(projectPath: string, context: ProjectContext):
       await writeMeta(projectPath, context.summarizedFiles);
 
       // Read back the file we just created so we can update sections below
-      content = await readFile(`${projectPath}\\${CONTEXT_FILE}`);
+      content = await readFile(joinPath(projectPath, CONTEXT_FILE));
     } catch (createErr) {
       console.error("[context] Failed to create context.md:", createErr);
       return;
@@ -801,6 +922,10 @@ export async function saveContext(projectPath: string, context: ProjectContext):
     if (context.about.length > 0) {
       content = replaceSection(content, "About",
         context.about.map(a => a.startsWith("- ") ? a : a).join("\n"));
+    }
+    if (context.brief.length > 0) {
+      content = replaceSection(content, "Brief",
+        context.brief.join("\n"));
     }
     if (context.styles.length > 0) {
       content = replaceSection(content, "Styles & Design",
@@ -848,15 +973,22 @@ export async function saveContext(projectPath: string, context: ProjectContext):
         : "(none yet)"
     );
 
-    await writeFile(`${projectPath}\\${CONTEXT_FILE}`, content);
+    await writeFile(joinPath(projectPath, CONTEXT_FILE), content);
 }
 
 /** Insert or update a metadata comment in context.md */
 function upsertComment(content: string, key: string, value: string): string {
-  const regex = new RegExp(`<!-- ${key}: .+? -->`);
+  // .*? (not .+?) so empty values like "<!-- keyDeps:  -->" still match
+  const regex = new RegExp(`<!-- ${key}:.*?-->`, "g");
   const newComment = `<!-- ${key}: ${value} -->`;
-  if (regex.test(content)) {
-    return content.replace(regex, newComment);
+  const matches = content.match(regex);
+  if (matches && matches.length > 0) {
+    // Replace first match with new value, remove all duplicates
+    let replaced = false;
+    return content.replace(regex, () => {
+      if (!replaced) { replaced = true; return newComment; }
+      return ""; // remove duplicate
+    }).replace(/\n{3,}/g, "\n\n"); // collapse leftover blank lines
   }
   // Insert before first ## section if possible
   const metaInsert = content.indexOf("<!-- METADATA");
@@ -868,9 +1000,20 @@ function upsertComment(content: string, key: string, value: string): string {
 }
 
 function replaceSection(content: string, heading: string, newContent: string): string {
-  const regex = new RegExp(`(## ${heading}\\s*\\n)[\\s\\S]*?(?=\\n## |$)`);
+  // Escape regex special chars in heading — e.g. "Built (completed)" has literal parens
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(## ${escaped}\\s*\\n)[\\s\\S]*?(?=\\n## |$)`);
   if (regex.test(content)) {
-    return content.replace(regex, `$1${newContent}\n`);
+    // Replace first match with new content
+    let result = content.replace(regex, `$1${newContent}\n`);
+    // Remove any duplicate sections with the same heading (leftover from previous bug)
+    const dupeRegex = new RegExp(`\\n## ${escaped}\\s*\\n[\\s\\S]*?(?=\\n## |$)`, "g");
+    let first = true;
+    result = result.replace(dupeRegex, (match) => {
+      if (first) { first = false; return match; } // keep first (already updated above)
+      return ""; // remove duplicates
+    });
+    return result.replace(/\n{3,}/g, "\n\n");
   }
   // Section doesn't exist — append it
   return content + `\n## ${heading}\n${newContent}\n`;
@@ -928,12 +1071,16 @@ export async function initContext(
       structure: scan.structureLines.join("\n"),
       appRoot: primaryAppRoot,
       summarizedFiles,
-      about: [], styles: [], conventions: [],
+      about: [], brief: [], styles: [], conventions: [],
       keyDeps: scan.allKeyDeps,
       routes: [], schema: [],
       built: [], progress: [],
       decisions: [], preferences: [], recentChanges: [],
+      sourceFiles: [],
     };
+
+    // Load source-of-truth files (schema, config, brief, etc.)
+    context.sourceFiles = await loadSourceFiles(projectPath);
 
     return { context, isFirstScan: true };
 
@@ -944,10 +1091,11 @@ export async function initContext(
       projectName, projectPath,
       techStack: [], structure: "", appRoot: "",
       summarizedFiles: [],
-      about: [], styles: [], conventions: [], keyDeps: [],
+      about: [], brief: [], styles: [], conventions: [], keyDeps: [],
       routes: [], schema: [],
       built: [], progress: [],
       preferences: [], decisions: [], recentChanges: [],
+      sourceFiles: [],
     };
     return { context: fallback, isFirstScan: true };
   }
@@ -970,8 +1118,8 @@ export async function fullScan(
       : "";
 
     // Ensure .omnirun directory exists
-    try { await createDirectory(`${projectPath}\\${CONTEXT_DIR}`); } catch { /* exists */ }
-    try { await createDirectory(`${projectPath}\\${SUMMARIES_DIR}`); } catch { /* exists */ }
+    try { await createDirectory(joinPath(projectPath, CONTEXT_DIR)); } catch { /* exists */ }
+    try { await createDirectory(joinPath(projectPath, SUMMARIES_DIR)); } catch { /* exists */ }
 
     // Use externally-provided provider first, fall back to localStorage
     const provider = externalProvider || getActiveProvider();
@@ -1023,6 +1171,7 @@ export async function fullScan(
       appRoot: primaryAppRoot,
       summarizedFiles,
       about: [],
+      brief: [],
       styles: [],
       conventions: [],
       keyDeps: scan.allKeyDeps,
@@ -1033,6 +1182,7 @@ export async function fullScan(
       decisions: [],
       preferences: [],
       recentChanges: [],
+      sourceFiles: [],
     };
 
     // Write meta.json for tracking which files are summarized
@@ -1046,10 +1196,11 @@ export async function fullScan(
       projectName, projectPath,
       techStack: [], structure: "", appRoot: "",
       summarizedFiles: [],
-      about: [], styles: [], conventions: [], keyDeps: [],
+      about: [], brief: [], styles: [], conventions: [], keyDeps: [],
       routes: [], schema: [],
       built: [], progress: [],
       preferences: [], decisions: [], recentChanges: [],
+      sourceFiles: [],
     };
     // Do NOT write to disk on a fatal API error — writing triggers the file
     // watcher which would call initContext again, creating an infinite loop.
@@ -1074,14 +1225,14 @@ async function writeMeta(
 ): Promise<void> {
   const meta: MetaData = { summarizedFiles };
   await writeFile(
-    `${projectPath}\\${META_FILE.replace(/\//g, "\\")}`,
+    joinPath(projectPath, META_FILE),
     JSON.stringify(meta, null, 2)
   );
 }
 
 async function readMeta(projectPath: string): Promise<MetaData | null> {
   try {
-    const content = await readFile(`${projectPath}\\${META_FILE.replace(/\//g, "\\")}`);
+    const content = await readFile(joinPath(projectPath, META_FILE));
     return JSON.parse(content);
   } catch {
     return null;
@@ -1182,6 +1333,7 @@ export async function refreshContext(projectPath: string): Promise<ProjectContex
       appRoot: primaryAppRoot,
       summarizedFiles: allSummaries,
       about: existing.about,
+      brief: existing.brief,
       styles: existing.styles,
       conventions: existing.conventions,
       keyDeps: scan.allKeyDeps,
@@ -1192,6 +1344,7 @@ export async function refreshContext(projectPath: string): Promise<ProjectContex
       preferences: existing.preferences,
       decisions: existing.decisions,
       recentChanges: existing.recentChanges,
+      sourceFiles: await loadSourceFiles(projectPath),
     };
   } catch (err) {
     console.error("[context] Refresh failed:", err);
@@ -1211,6 +1364,7 @@ export async function rescanContext(projectPath: string): Promise<ProjectContext
   if (existing) {
     // Preserve all AI-written sections from previous context
     fresh.about = existing.about;
+    fresh.brief = existing.brief;
     fresh.styles = existing.styles;
     fresh.conventions = existing.conventions;
     fresh.routes = existing.routes;
@@ -1251,19 +1405,21 @@ export function updateContextFromAI(
   const existing = (context[section as keyof ProjectContext] as string[]) || [];
   const existingLower = new Set(existing.map(x => x.toLowerCase()));
   const newEntries = entries.filter(e => !existingLower.has(e.toLowerCase()));
-  return { ...context, [section]: [...existing, ...newEntries] };
+  let combined = [...existing, ...newEntries];
+
+  // Cap "built" to prevent unbounded growth
+  if (section === "built" && combined.length > MAX_BUILT_ENTRIES) {
+    combined = combined.slice(-MAX_BUILT_ENTRIES);
+  }
+
+  return { ...context, [section]: combined };
 }
 
 /**
  * Compress session state when chat ends (new chat / clear chat / project switch).
  * Moves "in progress" + "recent changes" into "built" as a compressed summary.
+ * Deduplicates entries and caps total built entries to MAX_BUILT_ENTRIES.
  * Clears progress and recent changes for the next session.
- * 
- * Example: 
- *   progress: ["Checkout page — Stripe integration started, PaymentForm created"]
- *   recent: ["Updated PaymentForm.tsx", "Edited checkout.ts", "Created stripe.ts"]
- *   → built: ["Checkout page progress: PaymentForm, checkout route, stripe utils"]
- *   → progress: [] , recent: []
  */
 export function compressSession(context: ProjectContext): ProjectContext {
   // Nothing to compress if no activity this session
@@ -1273,28 +1429,36 @@ export function compressSession(context: ProjectContext): ProjectContext {
 
   const newBuilt = [...context.built];
 
-  // Move progress entries to built
+  // Move progress entries to built (deduplicate against existing)
   if (context.progress.length > 0) {
+    const existingLower = new Set(newBuilt.map(b => b.toLowerCase()));
     for (const p of context.progress) {
-      newBuilt.push(p);
+      if (!existingLower.has(p.toLowerCase())) {
+        newBuilt.push(p);
+        existingLower.add(p.toLowerCase());
+      }
     }
   }
 
   // Compress recent file changes into a summary line if there's no progress to carry them
   if (context.recentChanges.length > 0 && context.progress.length === 0) {
-    // Group by action type
     const files = context.recentChanges
       .map(c => c.replace(/^(Updated|Edited|Deleted|Created)\s+/, ""))
-      .map(f => f.split(/[/\\]/).pop() || f);  // Just filenames for brevity
+      .map(f => f.split(/[/\\]/).pop() || f);
     const unique = [...new Set(files)];
     if (unique.length > 0) {
       newBuilt.push(`Session work: ${unique.slice(0, 8).join(", ")}${unique.length > 8 ? ` + ${unique.length - 8} more` : ""}`);
     }
   }
 
+  // Cap: keep only the most recent entries, drop oldest
+  const capped = newBuilt.length > MAX_BUILT_ENTRIES
+    ? newBuilt.slice(-MAX_BUILT_ENTRIES)
+    : newBuilt;
+
   return {
     ...context,
-    built: newBuilt,
+    built: capped,
     progress: [],
     recentChanges: [],
   };
@@ -1306,17 +1470,19 @@ export function compressSession(context: ProjectContext): ProjectContext {
  * Rich system prompt context. Sent on EVERY API call.
  * 
  * Tiers:
- *   1. Project DNA — product, stack, conventions, structure, routes, schema (~800-1800 tokens)
- *   2. Session State — built, progress, decisions, preferences (~200-400 tokens)
- *   3. Recent Activity — last 10 file operations (~50-80 tokens)
+ *   1. Project DNA — product, brief, stack, conventions, structure, routes, schema (~800-3000 tokens)
+ *   2. Source Files — actual content of key files: schema, config, brief (~1000-5000 tokens, prompt-cached)
+ *   3. Session State — built, progress, decisions, preferences (~200-400 tokens)
+ *   4. Recent Activity — last 10 file operations (~50-80 tokens)
  * 
- * Total: ~1,000-2,300 tokens depending on project size and richness.
+ * Total: ~2,000-8,000 tokens depending on project size and richness.
  * Saves 2-5 tool round-trips per session by eliminating blind exploration.
  */
 export function contextToPromptString(context: ProjectContext): string {
   // Defensive defaults — guard against older context objects missing newer fields
   if (!context) return "";
   context.about = context.about || [];
+  context.brief = context.brief || [];
   context.styles = context.styles || [];
   context.conventions = context.conventions || [];
   context.keyDeps = context.keyDeps || [];
@@ -1328,6 +1494,7 @@ export function contextToPromptString(context: ProjectContext): string {
   context.preferences = context.preferences || [];
   context.recentChanges = context.recentChanges || [];
   context.summarizedFiles = context.summarizedFiles || [];
+  context.sourceFiles = context.sourceFiles || [];
 
   const sections: string[] = [];
 
@@ -1347,13 +1514,34 @@ export function contextToPromptString(context: ProjectContext): string {
     for (const line of context.about) sections.push(line);
   }
 
-  // Stack & Key Dependencies
-  if (context.techStack.length > 0 || context.keyDeps.length > 0) {
+  // Brief (comprehensive project document — richer than About)
+  // Capped at ~2000 chars (~500 words / ~500 tokens) to prevent token bloat
+  if (context.brief.length > 0) {
     sections.push("");
-    sections.push(`Stack: ${context.techStack.join(", ") || "not detected"}`);
-    if (context.keyDeps.length > 0) {
-      sections.push(`Key deps: ${context.keyDeps.join(", ")}`);
+    sections.push("## Project Brief");
+    let briefChars = 0;
+    const MAX_BRIEF_CHARS = 2000;
+    for (const line of context.brief) {
+      if (briefChars + line.length > MAX_BRIEF_CHARS) {
+        // Truncate and note there's more
+        const remaining = MAX_BRIEF_CHARS - briefChars;
+        if (remaining > 50) sections.push(line.slice(0, remaining) + "…");
+        sections.push("(brief truncated — read .omnirun/context.md for full version)");
+        break;
+      }
+      sections.push(line);
+      briefChars += line.length;
     }
+  }
+
+  // Stack & Key Dependencies — only include lines that have actual content
+  if (context.techStack.length > 0) {
+    sections.push("");
+    sections.push(`Stack: ${context.techStack.join(", ")}`);
+  }
+  if (context.keyDeps.length > 0) {
+    if (context.techStack.length === 0) sections.push("");
+    sections.push(`Key deps: ${context.keyDeps.join(", ")}`);
   }
 
   // Styles & Design System
@@ -1401,6 +1589,20 @@ export function contextToPromptString(context: ProjectContext): string {
     }
   }
 
+  // ── Source-of-Truth Files (actual content, not summaries) ──
+  if (context.sourceFiles.length > 0) {
+    sections.push("");
+    sections.push("## Source Files (auto-included)");
+    sections.push("These are actual file contents — use them directly, no need to read_file for these:");
+    for (const sf of context.sourceFiles) {
+      sections.push("");
+      sections.push(`### ${sf.label} (\`${sf.relativePath}\`)`);
+      sections.push("```");
+      sections.push(sf.content);
+      sections.push("```");
+    }
+  }
+
   // ── Tier 2: Session State ──
 
   if (context.built.length > 0) {
@@ -1434,21 +1636,6 @@ export function contextToPromptString(context: ProjectContext): string {
     sections.push("## Recent Changes");
     for (const c of context.recentChanges.slice(0, 5)) sections.push(`- ${c}`);
   }
-
-  // ── write_context guidance ──
-  sections.push("");
-  sections.push("Use write_context to save project knowledge that persists across sessions:");
-  sections.push('- "about": what the project is, audience, user roles, user flows, key features, business rules, monetization, status');
-  sections.push('- "styles": colors (primary, secondary, accent, bg, text as hex), fonts (headings, body), spacing scale, border-radius, shadows, animations (library, transitions), layout patterns, responsive breakpoints, dark/light mode, component styling approach');
-  sections.push('- "conventions": coding patterns, naming, imports, error handling rules, file/folder naming');
-  sections.push('- "routes": API endpoints (method + path + description) and page routes');
-  sections.push('- "schema": database tables, columns, types, relationships, constraints');
-  sections.push('- "progress": what you\'re currently working on');
-  sections.push('- "decisions": architectural / product choices');
-  sections.push('- "preferences": user behavior / workflow preferences');
-  sections.push('- "built": completed features (compress finished work here)');
-  sections.push("");
-  sections.push("IMPORTANT: When any section above is empty and you learn relevant information from user messages or from your own code decisions, save it with write_context. Do NOT read knowledge files or summary files to fill empty sections — wait for the user to tell you what the project is.");
 
   return sections.join("\n");
 }
@@ -1485,6 +1672,7 @@ function parseContextFile(content: string, projectPath: string): ProjectContext 
 
   // Parse all sections
   const about = extractListSection(content, "About");
+  const brief = extractListSection(content, "Brief");
   const styles = extractListSection(content, "Styles & Design") || extractListSection(content, "Styles");
   const conventions = extractListSection(content, "Conventions");
   const routes = extractListSection(content, "Routes");
@@ -1503,6 +1691,7 @@ function parseContextFile(content: string, projectPath: string): ProjectContext 
     appRoot: appRoot === "(root)" ? "" : appRoot,
     summarizedFiles,
     about,
+    brief,
     styles,
     conventions,
     keyDeps,
@@ -1513,6 +1702,7 @@ function parseContextFile(content: string, projectPath: string): ProjectContext 
     decisions,
     preferences,
     recentChanges,
+    sourceFiles: [], // Populated separately by loadSourceFiles
   };
 }
 
@@ -1523,11 +1713,12 @@ function extractComment(content: string, key: string): string | null {
 }
 
 function extractListSection(content: string, heading: string): string[] {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Try exact heading match first, then case-insensitive
-  let regex = new RegExp(`## ${heading}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`);
+  let regex = new RegExp(`## ${escaped}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`);
   let match = content.match(regex);
   if (!match) {
-    regex = new RegExp(`## ${heading}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, "i");
+    regex = new RegExp(`## ${escaped}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, "i");
     match = content.match(regex);
   }
   if (!match) return [];
