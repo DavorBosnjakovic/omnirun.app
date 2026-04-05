@@ -8,6 +8,7 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useUsageStore } from "./stores/usageStore";
 import { useConnectionsStore } from "./stores/connectionsStore";
 import { useAuthStore } from "./stores/authStore";
+import { useTeamStore } from "./stores/teamStore";
 
 function App() {
   // Single atomic flag — nothing renders until the entire init sequence
@@ -60,6 +61,61 @@ function App() {
   const theme = useSettingsStore((s) => s.theme);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const hasTeam = useTeamStore((s) => s.hasTeam);
+
+  // ── Team lock subscription + app close cleanup ──────────────
+  useEffect(() => {
+    if (!appReady || !isAuthenticated) return;
+
+    const teamState = useTeamStore.getState();
+    const user = useAuthStore.getState().user;
+
+    // Fetch team data (triggers lock subscription if team exists)
+    if (user?.id) {
+      teamState.fetchTeam(user.id).then(() => {
+        const { hasTeam } = useTeamStore.getState();
+        if (hasTeam) {
+          useTeamStore.getState().fetchLocks();
+          useTeamStore.getState().subscribeToLocks();
+        }
+      });
+    }
+
+    // Global activity tracking for idle timer (keypress, mouse move)
+    const trackActivity = () => useTeamStore.getState().trackActivity();
+    window.addEventListener('keydown', trackActivity);
+    window.addEventListener('mousemove', trackActivity);
+    window.addEventListener('click', trackActivity);
+
+    // Unlock all locks on app close / refresh
+    const handleBeforeUnload = () => {
+      useTeamStore.getState().unlockAllMyLocks();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    // Tauri window close event (more reliable than beforeunload for desktop)
+    let unlistenClose: (() => void) | null = null;
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const appWindow = getCurrentWindow();
+        unlistenClose = await appWindow.onCloseRequested(async () => {
+          await useTeamStore.getState().unlockAllMyLocks();
+        }) as unknown as () => void;
+      } catch {
+        // Not in Tauri environment (e.g., dev browser) — beforeunload handles it
+      }
+    })();
+
+    return () => {
+      window.removeEventListener('keydown', trackActivity);
+      window.removeEventListener('mousemove', trackActivity);
+      window.removeEventListener('click', trackActivity);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      useTeamStore.getState().unsubscribeFromLocks();
+      if (unlistenClose) unlistenClose();
+    };
+  }, [appReady, isAuthenticated]);
 
   const fontMap: Record<string, string> = {
     omnirun: "'Sora', sans-serif",

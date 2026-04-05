@@ -2,11 +2,13 @@ import { useState, useRef, useEffect } from "react";
 import {
   PanelLeftClose, PanelLeft, FolderPlus, Folder, FileCode,
   MessageSquare, Settings, HelpCircle, MoreVertical, Trash2,
-  FolderOpen, RefreshCw, Home, Bot, Clock, LayoutGrid,
+  FolderOpen, RefreshCw, Home, Bot, Clock, LayoutGrid, Lock,
 } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProjectStore } from "../../stores/projectStore";
 import { useTaskStore, getTaskCounts } from "../../stores/taskStore";
+import { useTeamStore } from "../../stores/teamStore";
+import { useAuthStore } from "../../stores/authStore";
 import { themes } from "../../config/themes";
 import { readDirectory } from "../../services/fileService";
 import { generateManifest } from "../../services/manifestService";
@@ -50,6 +52,8 @@ function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionCh
     addProject, removeProject,
   } = useProjectStore();
   const { tasks } = useTaskStore();
+  const { hasTeam, projectLocks, isProjectLocked, isProjectLockedByMe, getLockedByName } = useTeamStore();
+  const { user } = useAuthStore();
   const t = themes[theme];
 
   // Badge counts
@@ -96,6 +100,12 @@ function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionCh
 
   const handleOpenProject = async (project: { id: string; name: string; path: string }) => {
     try {
+      // Unlock the previous project if switching (team feature)
+      const prevProject = currentProject;
+      if (hasTeam && prevProject && prevProject.id !== project.id) {
+        useTeamStore.getState().unlockProject(prevProject.name);
+      }
+
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("set_project_path", { path: project.path });
       setCurrentProject(project);
@@ -273,14 +283,24 @@ function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionCh
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {projects.map((project) => (
+                  {projects.map((project) => {
+                    const lockedByOther = hasTeam && user?.id
+                      ? isProjectLocked(project.name) && !isProjectLockedByMe(project.name, user.id)
+                      : false;
+                    const lockedByMe = hasTeam && user?.id
+                      ? isProjectLockedByMe(project.name, user.id)
+                      : false;
+                    const lockerName = lockedByOther ? getLockedByName(project.name) : null;
+
+                    return (
                     <div
                       key={project.id}
                       className={`relative flex items-center ${t.borderRadius} ${
                         currentProject?.id === project.id
                           ? `${t.colors.bgTertiary}`
                           : `hover:${t.colors.bgTertiary}`
-                      }`}
+                      } ${lockedByOther ? 'opacity-50' : ''}`}
+                      title={lockedByOther ? `${lockerName} is working on this` : undefined}
                     >
                       <button
                         onClick={() => handleOpenProject(project)}
@@ -290,9 +310,27 @@ function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionCh
                             : t.colors.textMuted
                         }`}
                       >
-                        <Folder size={16} />
+                        {lockedByOther ? (
+                          <Lock size={16} className="text-amber-500 flex-shrink-0" />
+                        ) : (
+                          <Folder size={16} className="flex-shrink-0" />
+                        )}
                         <span className="truncate">{project.name}</span>
+                        {lockedByMe && (
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0 ml-auto"
+                            style={{ backgroundColor: '#2DB87A' }}
+                            title="You're working on this"
+                          />
+                        )}
                       </button>
+
+                      {/* Lock info instead of menu for locked projects */}
+                      {lockedByOther ? (
+                        <span className={`pr-3 text-xs ${t.colors.textMuted} truncate max-w-[80px]`}>
+                          {lockerName?.split(' ')[0]}
+                        </span>
+                      ) : (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -302,6 +340,7 @@ function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionCh
                       >
                         <MoreVertical size={16} />
                       </button>
+                      )}
 
                       {/* Dropdown menu */}
                       {menuOpen === project.id && (
@@ -340,7 +379,8 @@ function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionCh
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

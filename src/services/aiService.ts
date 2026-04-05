@@ -7,6 +7,7 @@ import { getConnectionsSummary, buildConnectionToolPrompt } from "./connectionTo
 import { useSettingsStore } from "../stores/settingsStore";
 import { useConnectionsStore } from "../stores/connectionsStore";
 import { useProjectStore } from "../stores/projectStore";
+import { useTeamStore } from "../stores/teamStore";
 import { loadScreenControlSettings } from "./screenControlService";
 import type { MessageImage } from "../stores/chatStore";
 
@@ -697,6 +698,37 @@ export async function sendMessage(
   onReader?: (reader: ReadableStreamDefaultReader) => void
 ): Promise<{ text: string; usage: UsageData; model: string }> {
   let endpoint = provider.endpoint || ENDPOINTS[provider.id];
+
+  // ── Project locking (team feature) ─────────────────────────
+  // On first AI message in a project, auto-lock it for this user.
+  // If locked by someone else, block the send.
+  if (projectContext?.path) {
+    const teamState = useTeamStore.getState();
+    const projectName = useProjectStore.getState().currentProject?.name;
+
+    if (teamState.hasTeam && projectName) {
+      // Track activity (resets idle timer)
+      teamState.trackActivity();
+
+      // Check if locked by someone else
+      const { user } = await import('../stores/authStore').then(m => ({
+        user: m.useAuthStore.getState().user,
+      }));
+
+      if (user?.id && teamState.isProjectLocked(projectName) && !teamState.isProjectLockedByMe(projectName, user.id)) {
+        const lockedBy = teamState.getLockedByName(projectName);
+        throw new Error(`🔒 ${lockedBy} is currently working on this project. You'll be notified when it's available.`);
+      }
+
+      // Auto-lock on first AI message (upsert — safe to call repeatedly)
+      if (user?.id && !teamState.isProjectLockedByMe(projectName, user.id)) {
+        const { error } = await teamState.lockProject(projectName);
+        if (error) {
+          throw new Error(`🔒 ${error}`);
+        }
+      }
+    }
+  }
 
   // Trim consumed tool results, then limit to last 10 pairs
   const trimmedMessages = limitHistory(trimHistory(messages));

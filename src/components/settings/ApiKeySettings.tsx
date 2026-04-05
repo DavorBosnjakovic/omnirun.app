@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { Eye, EyeOff, CheckCircle, XCircle, Loader, Plus, Trash2, Star, X, RefreshCw, ChevronDown } from "lucide-react";
+import { Eye, EyeOff, CheckCircle, XCircle, Loader, Plus, Trash2, Star, X, RefreshCw, ChevronDown, Shield } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useTeamStore } from "../../stores/teamStore";
 import { themes } from "../../config/themes";
 import { fetch } from "@tauri-apps/plugin-http";
 
@@ -286,6 +287,10 @@ function ApiKeySettings() {
   const { theme, smartRouting, setSmartRouting } = useSettingsStore();
   const t = themes[theme];
 
+  // Team shared key state
+  const { hasTeam, team, isOwner } = useTeamStore();
+  const isSharedMember = hasTeam && team?.api_key_policy === "shared" && !isOwner;
+
   const [providers, setProviders] = useState<Provider[]>(DEFAULT_PROVIDERS);
   const [configuredProviders, setConfiguredProviders] = useState<ConfiguredProvider[]>(() => {
     try {
@@ -528,12 +533,66 @@ function ApiKeySettings() {
     return [{ id: provider.defaultModel, name: provider.defaultModel }];
   };
 
+  // ── Shared key: member sees read-only banner instead of the full page ──
+  if (isSharedMember) {
+    return (
+      <div className={`${t.colors.text}`}>
+        <h1 className="text-2xl font-bold mb-2">API Providers</h1>
+        <p className={`${t.colors.textMuted} mb-6`}>
+          Configure AI providers. Claude is recommended for best results.
+        </p>
+
+        <div
+          className={`${t.borderRadius} p-6`}
+          style={{
+            background: "rgba(45, 184, 122, 0.06)",
+            border: "1px solid rgba(45, 184, 122, 0.15)",
+          }}
+        >
+          <div className="flex items-center gap-3 mb-3">
+            <Shield size={20} style={{ color: "#2DB87A" }} />
+            <h3 className="font-semibold">Using team API key</h3>
+          </div>
+          <p className={`text-sm ${t.colors.textMuted} leading-relaxed`}>
+            Your team owner provides the API keys for the whole team.
+            You don't need to set up your own — all AI costs are covered
+            by the team owner's account.
+          </p>
+          <p className={`text-sm ${t.colors.textMuted} mt-3`}>
+            If this changes, your team owner will switch to individual keys
+            and you'll be prompted to set up your own.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`${t.colors.text}`}>
       <h1 className="text-2xl font-bold mb-2">API Providers</h1>
       <p className={`${t.colors.textMuted} mb-6`}>
         Configure AI providers. Claude is recommended for best results.
       </p>
+
+      {/* Shared key owner notice */}
+      {hasTeam && team?.api_key_policy === "shared" && isOwner && (
+        <div
+          className={`${t.borderRadius} p-4 mb-6`}
+          style={{
+            background: "rgba(45, 184, 122, 0.06)",
+            border: "1px solid rgba(45, 184, 122, 0.15)",
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <Shield size={16} style={{ color: "#2DB87A" }} />
+            <p className="text-sm font-medium">Your API keys are shared with your team</p>
+          </div>
+          <p className={`text-xs ${t.colors.textMuted} mt-1`}>
+            Changes you make here will be synced to all team members next time you save.
+            Manage sharing in Settings → Team.
+          </p>
+        </div>
+      )}
 
       {/* Active provider selector */}
       <div className="mb-6">
@@ -854,9 +913,30 @@ function ApiKeySettings() {
 
       {/* Save button */}
       <button
-        onClick={() => {
+        onClick={async () => {
           localStorage.setItem("ai-providers", JSON.stringify(configuredProviders));
           localStorage.setItem("ai-active-provider", activeProvider);
+
+          // If owner has shared key policy, re-encrypt and upload the updated keys
+          if (hasTeam && team?.api_key_policy === "shared" && isOwner) {
+            const { setApiKeyPolicy } = useTeamStore.getState();
+            const keysToShare = configuredProviders
+              .filter((p) => p.apiKey && p.apiKey.trim() !== "")
+              .map((p) => ({
+                providerId: p.providerId,
+                apiKey: p.apiKey,
+                selectedModel: p.selectedModel,
+              }));
+
+            if (keysToShare.length > 0) {
+              const { error } = await setApiKeyPolicy("shared", keysToShare);
+              if (error) {
+                alert("Settings saved locally, but failed to sync shared keys: " + error);
+                return;
+              }
+            }
+          }
+
           alert("Settings saved!");
         }}
         className={`mt-6 ${t.colors.accent} ${t.colors.accentHover} ${

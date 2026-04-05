@@ -541,8 +541,7 @@ function BillingSettings() {
         <p className="text-sm font-medium mb-1">Bring Your Own Keys (BYOK)</p>
         <p className={`text-xs ${t.colors.textMuted} leading-relaxed`}>
           Your subscription covers the omnirun app. AI usage is billed
-          separately by your provider (Anthropic, OpenAI, etc.) — typically
-          $5–20/month for most users. Set up your API keys in{" "}
+          separately by your provider (Anthropic, OpenAI, etc.) — Set up your API keys in{" "}
           <button
             className="text-blue-400 hover:underline"
             onClick={() => {
