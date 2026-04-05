@@ -12,7 +12,7 @@ function AboutSettings() {
 
   return (
     <div className={`${t.colors.text}`}>
-      <h1 className="text-2xl font-bold mb-6">About omnirun</h1>
+      <h1 className="text-2xl font-bold mb-6">About</h1>
 
       <div className={`${t.colors.bgSecondary} ${t.borderRadius} p-6 mb-6`}>
         <div className="flex flex-col items-center py-8">
@@ -41,7 +41,7 @@ function AboutSettings() {
           <ExternalLink size={18} />
           <span>Documentation</span>
         </a>
-        <a href="https://discord.gg/6nah2Kup4t" target="_blank" rel="noopener noreferrer" className={`${t.colors.bgSecondary} ${t.borderRadius} p-3 flex items-center gap-3 hover:opacity-80`}>
+        <a href="https://discord.gg/3RCcuS9WWC" target="_blank" rel="noopener noreferrer" className={`${t.colors.bgSecondary} ${t.borderRadius} p-3 flex items-center gap-3 hover:opacity-80`}>
           <MessageCircle size={18} />
           <span>Community Discord</span>
         </a>

@@ -128,12 +128,12 @@ function MemorySettings() {
   return (
     <div className={`${t.colors.text}`}>
       <h1 className="text-2xl font-bold mb-2">Memory</h1>
-      <p className={`text-sm mb-6 ${t.colors.textMuted}`}>
+      <p className={`${t.colors.textMuted} mb-6`}>
         Omnirun learns from your conversations to become more helpful over time. Everything is stored locally on your device.
       </p>
 
       {/* Stats */}
-      <div className={`flex items-center gap-4 mb-6 p-3 ${t.colors.bgSecondary} ${t.colors.border} border ${t.borderRadius}`}>
+      <div className={`flex items-center gap-4 mb-6 p-4 ${t.colors.bgSecondary} ${t.borderRadius}`}>
         <div>
           <div className={`text-xs ${t.colors.textMuted}`}>Observations</div>
           <div className="text-lg font-semibold">{observationCount}</div>
@@ -151,7 +151,7 @@ function MemorySettings() {
               <button
                 onClick={handleCompress}
                 disabled={compressing}
-                className={`px-3 py-1.5 text-sm ${t.borderRadius} ${t.colors.bgTertiary} ${t.colors.text} hover:bg-white/10 transition-colors flex items-center gap-1.5`}
+                className={`${t.colors.accent} ${t.colors.accentHover} ${theme === "highContrast" ? "text-black" : "text-white"} px-4 py-2 text-sm ${t.borderRadius} disabled:opacity-50 flex items-center gap-1.5`}
               >
                 {compressing ? <Loader2 size={14} className="animate-spin" /> : <Brain size={14} />}
                 {compressing ? 'Compressing...' : 'Compress now'}

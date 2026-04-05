@@ -501,7 +501,7 @@ function UsageSettings() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [dateFilter, setDateFilter] = useState("");
   const [timeframe, setTimeframe] = useState<Timeframe>("session");
-  const [chartType, setChartType] = useState<ChartType>("bar");
+  const [chartType, setChartType] = useState<ChartType>("line");
   const [graphMetric, setGraphMetric] = useState<GraphMetric>("cost");
   const [rangeHistory, setRangeHistory] = useState<SessionSummary[]>([]);
 
@@ -993,8 +993,8 @@ function UsageSettings() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className={`text-lg font-semibold ${t.colors.text}`}>Usage & Costs</h2>
-        <p className={`text-sm ${t.colors.textMuted} mt-1 mb-3`}>
+        <h1 className="text-2xl font-bold mb-2">Usage & Costs</h1>
+        <p className={`${t.colors.textMuted} mb-6`}>
           Track your API token usage and costs. All data stored locally on your device.
         </p>
         <SourceFilterDropdown
@@ -1037,7 +1037,7 @@ function UsageSettings() {
       </div>
 
       {/* ── Stats card + Chart ──────────────────────────────────────────────── */}
-      <div className={`p-4 ${t.borderRadius} border ${t.colors.border} ${t.colors.bgTertiary}`}>
+      <div className={`p-4 ${t.borderRadius} ${t.colors.bgSecondary}`}>
         {/* Header row */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -1168,7 +1168,7 @@ function UsageSettings() {
       </div>
 
       {/* ── Budget Section ──────────────────────────────────────────────────── */}
-      <div className={`p-4 ${t.borderRadius} border ${t.colors.border} ${t.colors.bgTertiary}`}>
+      <div className={`p-4 ${t.borderRadius} ${t.colors.bgSecondary}`}>
         <span className={`text-sm font-semibold ${t.colors.text}`}>Monthly Budget</span>
 
         <div className="flex items-center gap-3 mt-3 mb-3">
@@ -1246,7 +1246,7 @@ function UsageSettings() {
 
       {/* ── Recent Session API Calls ────────────────────────────────────────── */}
       {session.entries.length > 0 && (
-        <div className={`p-4 ${t.borderRadius} border ${t.colors.border} ${t.colors.bgTertiary}`}>
+        <div className={`p-4 ${t.borderRadius} ${t.colors.bgSecondary}`}>
           <span className={`text-sm font-semibold ${t.colors.text}`}>Session API Calls</span>
           <div className="space-y-2 mt-3 max-h-48 overflow-y-auto">
             {[...session.entries].reverse().map((entry) => (
@@ -1278,7 +1278,7 @@ function UsageSettings() {
       )}
 
       {/* ── Session History ─────────────────────────────────────────────────── */}
-      <div className={`p-4 ${t.borderRadius} border ${t.colors.border} ${t.colors.bgTertiary}`}>
+      <div className={`p-4 ${t.borderRadius} ${t.colors.bgSecondary}`}>
         <div className="flex items-center justify-between mb-3">
           <span className={`text-sm font-semibold ${t.colors.text}`}>Session History</span>
           {selectedSession && (

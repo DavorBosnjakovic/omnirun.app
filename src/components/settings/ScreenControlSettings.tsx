@@ -107,8 +107,8 @@ function ScreenControlSettings() {
 
   return (
     <div className="max-w-2xl">
-      <h2 className={`text-lg font-semibold mb-1 ${t.colors.text}`}>Screen Control</h2>
-      <p className={`text-sm mb-6 ${t.colors.textMuted}`}>
+      <h1 className="text-2xl font-bold mb-2">Screen Control</h1>
+      <p className={`${t.colors.textMuted} mb-6`}>
         Let AI see your screen and control desktop apps via mouse and keyboard simulation.
       </p>
 

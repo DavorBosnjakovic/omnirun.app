@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { fetch } from "@tauri-apps/plugin-http";
 import { ProjectManifest } from "./manifestService";
 import { buildToolsPrompt } from "./toolService";
@@ -65,9 +66,9 @@ const ANTHROPIC_MODELS = {
 type ModelTier = "haiku" | "sonnet" | "opus";
 
 const MAX_TOKENS_PER_TIER: Record<ModelTier, number> = {
-  haiku: 2048,
-  sonnet: 4096,
-  opus: 8192,
+  haiku: 4096,
+  sonnet: 8192,
+  opus: 16384,
 };
 
 // --- Conversation analysis helpers ---
@@ -193,35 +194,28 @@ export function buildSystemPrompt(context?: ProjectContext): string {
   if (!hasAbout) {
     prompt += `
 ## NEW PROJECT KICKOFF — READ THIS FIRST
-The project context has NO "About" section yet. This means you don't know what you're building. DO NOT write any code until you understand the project. Follow this flow:
+The project context has NO "About" section yet. This means you don't know what you're building.
 
-1. **Understand the request.** Read what the user asked for carefully. Extract every detail they already provided (project type, features, audience, style, tech preferences).
+MANDATORY RULE: Your FIRST tool calls in a new project MUST be write_context calls. You MUST save about, brief, styles, and conventions BEFORE your first write_file. No exceptions — even if the user gave you a complete spec.
 
-2. **Ask clarifying questions in ONE message.** Don't ask one question at a time — group them. Only ask about things the user HASN'T already specified. Cover these areas:
+**If the user's message is vague** (e.g. "build me a website"):
+1. Ask clarifying questions in ONE grouped message. Cover: tech stack (SUGGEST one), design direction, key features, audience. Only ask what they haven't already specified.
+2. After they answer, proceed to the MANDATORY saves below.
 
-   **Tech stack** — Based on what they described, SUGGEST the best stack and ask if they agree. For example:
-   - Simple landing page / portfolio → "I'd recommend a clean HTML/CSS/JS site with Tailwind for styling. Want me to go with that, or do you prefer React?"
-   - Web app with user accounts → "For this I'd suggest React + Tailwind + Supabase (auth + database). Sound good?"
-   - E-commerce → "React + Tailwind + Stripe + Supabase would be solid for this. Agree, or do you have preferences?"
-   Don't just ask "what stack?" — RECOMMEND one and let them confirm or change it.
+**If the user's message is a detailed spec** (tech stack, features, design, etc. are all clear):
+1. Skip questions — go directly to the MANDATORY saves below.
 
-   **Design direction** — Ask about the visual feel. Give options: "Are you thinking dark/modern, light/clean, colorful/playful, or something specific? Any brand colors?" If they already said "dark and modern," skip this.
+**MANDATORY SAVES (always, before ANY write_file):**
+- write_context("about", [...]) — one-liner: name, type, purpose, audience, status
+- write_context("brief", [...]) — COMPREHENSIVE project document: product vision, all user flows in detail, business rules, feature list with priorities, design direction, technical constraints, what's in scope vs out of scope. Make this thorough — it's your primary reference in every future session.
+- write_context("styles", [...]) — colors, fonts, spacing, layout patterns. If user didn't specify, SUGGEST good defaults and save them.
+- write_context("conventions", [...]) — coding patterns for the chosen stack
+- write_context("decisions", [...]) — tech choices made and why
+- ONLY THEN call write_file to start building
 
-   **Key features** — If they said "a website for my bakery" but didn't list features, ask: "Should it have online ordering, a menu page, contact form, hours/location, photo gallery? What's most important?"
+**When building, create a COMPLETE, polished foundation** — not a bare HTML dump. If using React: set up proper project structure with components, routing, styling. If using HTML: include real CSS with a proper color scheme, responsive layout, navigation, and real content sections. The first build should look like a real website, not a skeleton.
 
-   **Audience** — If not obvious, ask briefly: "Who's the main audience — local customers, online shoppers, businesses?"
-
-   Be conversational, not robotic. Adapt to what they already told you. If they gave a detailed brief, you may only need 1-2 quick confirmations. If they said "build me a website," you need more info.
-
-3. **After they answer, BEFORE writing any code:**
-   - Call write_context("about", [...]) with a RICH description: name, type, purpose, audience, tone, user flows, key features, design direction, status
-   - Call write_context("conventions", [...]) with the coding patterns for the chosen stack
-   - Call write_context("decisions", [...]) with tech choices made
-   - THEN start building
-
-4. **When building, create a COMPLETE, polished foundation** — not a bare HTML dump. If using React: set up proper project structure with components, routing, styling. If using HTML: include real CSS with a proper color scheme, responsive layout, navigation, and real content sections. The first build should look like a real website, not a skeleton.
-
-NEVER skip step 2 and jump straight to code. A $0.10 conversation saves a $2.00 rebuild.
+NEVER skip the mandatory saves. A $0.10 context save prevents a $2.00 rebuild.
 `;
   }
 
@@ -243,14 +237,11 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
 - SCOPE RULE: Only modify files directly related to what the user asked for. Do NOT touch, "improve," or refactor files the user didn't mention. If a change to another file is truly necessary, explain why BEFORE making it and wait for approval.
 - Do NOT run "npm install", "yarn install", "pnpm install", "npm run dev", "npm start", or any dev server commands. The app detects dependencies automatically and prompts the user to install them. The app also starts dev servers automatically. Just create the files and the app handles the rest.
 - After completing a task, use write_context to save project knowledge that persists across conversations.
-- IMPORTANT: On your FIRST interaction with a new project (when About and Styles sections are empty), you MUST:
-  1. ASK the user what the project is — name, purpose, audience, key features, business rules, status. Save to "about".
-  2. ASK the user about visual design — color palette (as hex), fonts, dark/light theme, border-radius style, animations, layout preferences. Save to "styles".
-  3. ASK about coding conventions — naming patterns, file structure, error handling approach. Save to "conventions".
-  Gather all this in ONE message with clear questions. Save each to its section. Never ask again once saved.
+- CRITICAL — NEW PROJECT RULE: On your FIRST interaction with a new project (when About and Styles sections are empty), your FIRST tool calls MUST be write_context — BEFORE any write_file. Save about, brief, styles, conventions. If the user gave a detailed spec, save immediately without asking. If vague, ask first, then save. NEVER write_file before write_context in a new project.
 - When you make design/code decisions during a task, PROACTIVELY save them to the right section without being asked.
 - write_context sections (REPLACE = overwrites, APPEND = adds):
   "about" (REPLACE): product brief — name, type, purpose, audience, tone/voice, user roles, core flows, key features, business rules, monetization, integrations, current status
+  "brief" (REPLACE): comprehensive project document — product vision, all user flows, business rules, feature list, design direction, technical constraints, scope. Written as rich prose. This is your primary reference for understanding the entire project.
   "styles" (REPLACE): colors (primary, secondary, accent, bg, text as hex), fonts (headings + body + mono), spacing scale, border-radius, shadows, animations (library + duration), layout (max-width, grid gap, container), responsive (breakpoints, mobile nav), dark/light mode, component patterns (card style, button variants, form inputs)
   "conventions" (REPLACE): coding patterns, naming rules, imports, error handling, file/folder structure
   "routes" (REPLACE): API endpoints (method + path + description) and page routes
@@ -260,6 +251,15 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
   "preferences" (APPEND): user workflow preferences
   "built" (APPEND): completed features — compress finished work here
 - When the user wants to automate something on a schedule (backups, deployments, cleanups, checks, etc.), use the create_scheduled_task tool. Do NOT write scheduling code — use the built-in task scheduler instead. Common cron patterns: "0 2 * * *" (daily 2am), "0 17 * * 5" (Fridays 5pm), "0 0 * * 0" (weekly Sunday midnight), "0 */6 * * *" (every 6 hours).
+- PROJECT KNOWLEDGE PERSISTENCE: When the user uploads or pastes a document containing project knowledge (specs, database schemas, design systems, business rules, API docs, requirements), save it proactively — don't ask, just do it:
+  - Database schema/SQL → write_context("schema", [...])
+  - Design specs/styles → write_context("styles", [...])
+  - Project description/requirements → write_context("brief", [...])
+  - API routes/endpoints → write_context("routes", [...])
+  - General reference docs that don't fit a specific section → save with write_file to .omnirun/docs/descriptive-name.md
+  - Briefly mention "💾 Saved to project knowledge" in your response
+  - If the same type of content was saved before, UPDATE it (replace, don't duplicate)
+  - Do NOT save ephemeral content (error logs, stack traces, screenshots for one-time fixes)
 `;
 
   // Get connection context early so we can use it for both tools prompt and services section
@@ -328,14 +328,11 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
 - SCOPE RULE: Only modify files directly related to what the user asked for. Do NOT touch, "improve," or refactor files the user didn't mention. If a change to another file is truly necessary, explain why BEFORE making it and wait for approval.
 - Do NOT run "npm install", "yarn install", "pnpm install", "npm run dev", "npm start", or any dev server commands. The app detects dependencies automatically and prompts the user to install them. The app also starts dev servers automatically. Just create the files and the app handles the rest.
 - After completing a task, use write_context to save project knowledge that persists across conversations.
-- IMPORTANT: On your FIRST interaction with a new project (when About and Styles sections are empty), you MUST:
-  1. ASK the user what the project is — name, purpose, audience, key features, business rules, status. Save to "about".
-  2. ASK the user about visual design — color palette (as hex), fonts, dark/light theme, border-radius style, animations, layout preferences. Save to "styles".
-  3. ASK about coding conventions — naming patterns, file structure, error handling approach. Save to "conventions".
-  Gather all this in ONE message with clear questions. Save each to its section. Never ask again once saved.
+- CRITICAL — NEW PROJECT RULE: On your FIRST interaction with a new project (when About and Styles sections are empty), your FIRST tool calls MUST be write_context — BEFORE any write_file. Save about, brief, styles, conventions. If the user gave a detailed spec, save immediately without asking. If vague, ask first, then save. NEVER write_file before write_context in a new project.
 - When you make design/code decisions during a task, PROACTIVELY save them to the right section without being asked.
 - write_context sections (REPLACE = overwrites, APPEND = adds):
   "about" (REPLACE): product brief — name, type, purpose, audience, tone/voice, user roles, core flows, key features, business rules, monetization, integrations, current status
+  "brief" (REPLACE): comprehensive project document — product vision, all user flows, business rules, feature list, design direction, technical constraints, scope. Written as rich prose. This is your primary reference for understanding the entire project.
   "styles" (REPLACE): colors (primary, secondary, accent, bg, text as hex), fonts (headings + body + mono), spacing scale, border-radius, shadows, animations (library + duration), layout (max-width, grid gap, container), responsive (breakpoints, mobile nav), dark/light mode, component patterns (card style, button variants, form inputs)
   "conventions" (REPLACE): coding patterns, naming rules, imports, error handling, file/folder structure
   "routes" (REPLACE): API endpoints (method + path + description) and page routes
@@ -344,7 +341,16 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
   "decisions" (APPEND): architectural / product choices
   "preferences" (APPEND): user workflow preferences
   "built" (APPEND): completed features — compress finished work here
-- When the user wants to automate something on a schedule (backups, deployments, cleanups, checks, etc.), use the create_scheduled_task tool. Do NOT write scheduling code — use the built-in task scheduler instead. Common cron patterns: "0 2 * * *" (daily 2am), "0 17 * * 5" (Fridays 5pm), "0 0 * * 0" (weekly Sunday midnight), "0 */6 * * *" (every 6 hours).`;
+- When the user wants to automate something on a schedule (backups, deployments, cleanups, checks, etc.), use the create_scheduled_task tool. Do NOT write scheduling code — use the built-in task scheduler instead. Common cron patterns: "0 2 * * *" (daily 2am), "0 17 * * 5" (Fridays 5pm), "0 0 * * 0" (weekly Sunday midnight), "0 */6 * * *" (every 6 hours).
+- PROJECT KNOWLEDGE PERSISTENCE: When the user uploads or pastes a document containing project knowledge (specs, database schemas, design systems, business rules, API docs, requirements), save it proactively — don't ask, just do it:
+  - Database schema/SQL → write_context("schema", [...])
+  - Design specs/styles → write_context("styles", [...])
+  - Project description/requirements → write_context("brief", [...])
+  - API routes/endpoints → write_context("routes", [...])
+  - General reference docs that don't fit a specific section → save with write_file to .omnirun/docs/descriptive-name.md
+  - Briefly mention "💾 Saved to project knowledge" in your response
+  - If the same type of content was saved before, UPDATE it (replace, don't duplicate)
+  - Do NOT save ephemeral content (error logs, stack traces, screenshots for one-time fixes)`;
 
   // ── Tools prompt (static per session — tool definitions don't change) ──
   const projectId = useProjectStore.getState().currentProject?.id;
@@ -701,6 +707,22 @@ export async function sendMessage(
     ? trimmedMessages
     : trimmedMessages.map((m) => ({ ...m, images: undefined }));
 
+  // Load user memory block for project chat (what the AI knows about this user).
+  // Uses dynamic import to avoid circular dependency (memoryService imports sendMessage).
+  // Only loads when there's a real project path (skips background memory/extraction calls).
+  // Timeout: 3 seconds max — never block the AI call for memory.
+  let memoryBlock = '';
+  if (projectContext?.path) {
+    try {
+      const memoryPromise = import('./memoryService').then(m => m.buildMemoryBlock());
+      const timeoutPromise = new Promise<string>((resolve) => setTimeout(() => resolve(''), 3000));
+      memoryBlock = await Promise.race([memoryPromise, timeoutPromise]);
+    } catch {
+      // Non-fatal — proceed without memory
+      console.warn('[aiService] Memory block loading failed (non-fatal)');
+    }
+  }
+
   if (provider.id === "ollama" && provider.apiKey) {
     const baseUrl = provider.apiKey.replace(/\/+$/, "");
     endpoint = `${baseUrl}/v1/chat/completions`;
@@ -709,7 +731,7 @@ export async function sendMessage(
   if (provider.id === "anthropic") {
     const { smartRouting } = useSettingsStore.getState();
     let model = provider.model;
-    let maxTokens = 4096;
+    let maxTokens = 16384;
 
     if (smartRouting) {
       const route = routeModel(trimmedMessages, projectContext);
@@ -719,12 +741,16 @@ export async function sendMessage(
 
     const routedProvider = { ...provider, model };
     const systemBlocks = buildSystemPromptBlocks(projectContext);
+    // Append user memory as a dynamic block (not cached — changes between sessions)
+    if (memoryBlock) {
+      systemBlocks.push({ type: "text", text: memoryBlock });
+    }
     const result = await sendAnthropicMessage(cleanMessages, routedProvider, systemBlocks, maxTokens, onStream, onReader);
     return { ...result, model };
   }
 
   // All other providers: plain string system prompt
-  const systemPrompt = buildSystemPrompt(projectContext);
+  const systemPrompt = buildSystemPrompt(projectContext) + memoryBlock;
 
   if (provider.id === "google") {
     const result = await sendGoogleMessage(cleanMessages, provider, systemPrompt);
@@ -745,48 +771,61 @@ async function sendAnthropicMessage(
 ): Promise<{ text: string; usage: UsageData }> {
   const formattedMessages = formatAnthropicMessages(messages);
 
-  const response = await fetch(ENDPOINTS.anthropic, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": provider.apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-beta": "token-efficient-tools-2025-02-19",
-      "anthropic-dangerous-direct-browser-access": "true",
-      "User-Agent": "Mozilla/5.0",
-    },
-    body: JSON.stringify({
-      model: provider.model,
-      max_tokens: maxTokens,
-      system: systemBlocks,
-      messages: formattedMessages,
-      stream: !!onStream,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`API Error: ${response.status} - ${error}`);
-  }
+  const requestBody = {
+    model: provider.model,
+    max_tokens: maxTokens,
+    system: systemBlocks,
+    messages: formattedMessages,
+    stream: !!onStream,
+  };
 
   const usage: UsageData = { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 };
 
-  if (onStream && response.body) {
-    const reader = response.body.getReader();
-    if (onReader) onReader(reader);
-    const decoder = new TextDecoder();
-    let fullContent = "";
+  // ── Streaming path: use Rust proxy (bypasses tauri-plugin-http timeout) ──
+  // The plugin's fetch() kills SSE streams when Opus pauses 10-30s to think.
+  // The Rust command uses reqwest with NO read timeout, so pauses are fine.
+  if (onStream) {
+    const streamId = crypto.randomUUID();
+    const eventName = `ai-stream-${streamId}`;
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+    return new Promise(async (resolve, reject) => {
+      let fullContent = "";
+      let stopped = false;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n").filter((line) => line.startsWith("data: "));
+      // Set up the event listener BEFORE invoking the command
+      const unlisten = await listen<{
+        stream_id: string;
+        data: string;
+        done: boolean;
+        error: string | null;
+        status: number | null;
+      }>(eventName, (event) => {
+        if (stopped) return;
+        const chunk = event.payload;
 
+        // Error from Rust (network error or HTTP error status)
+        if (chunk.error) {
+          unlisten();
+          reject(new Error(
+            chunk.status
+              ? `API Error: ${chunk.status} - ${chunk.data}`
+              : chunk.error
+          ));
+          return;
+        }
+
+        // Stream complete
+        if (chunk.done) {
+          unlisten();
+          resolve({ text: fullContent, usage });
+          return;
+        }
+
+        // Process SSE lines from this chunk
+        const lines = chunk.data.split("\n").filter((line: string) => line.startsWith("data: "));
         for (const line of lines) {
           const data = line.slice(6);
+          if (data === "[DONE]") continue;
           try {
             const parsed = JSON.parse(data);
 
@@ -811,16 +850,67 @@ async function sendAnthropicMessage(
               usage.outputTokens = parsed.usage.output_tokens || 0;
             }
           } catch {
-            // Skip invalid JSON
+            // Skip invalid JSON (partial chunks)
           }
         }
-      }
-    } catch (e: any) {
-      // Reader was cancelled (user hit stop) — return what we have
-      return { text: fullContent, usage };
-    }
+      });
 
-    return { text: fullContent, usage };
+      // Provide a fake "reader" so the stop button works.
+      // The caller calls reader.cancel() to abort — we just stop
+      // processing events and resolve with what we have so far.
+      if (onReader) {
+        const fakeReader = {
+          cancel: () => {
+            stopped = true;
+            unlisten();
+            resolve({ text: fullContent, usage });
+            return Promise.resolve();
+          },
+          read: () => Promise.resolve({ done: true, value: undefined }),
+          releaseLock: () => {},
+          closed: Promise.resolve(undefined),
+        } as unknown as ReadableStreamDefaultReader;
+        onReader(fakeReader);
+      }
+
+      // Fire the Rust command — returns immediately, chunks come via events
+      try {
+        await invoke("stream_ai_request", {
+          url: ENDPOINTS.anthropic,
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": provider.apiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "token-efficient-tools-2025-02-19",
+            "User-Agent": "Mozilla/5.0",
+          },
+          body: JSON.stringify(requestBody),
+          streamId,
+        });
+      } catch (e) {
+        unlisten();
+        reject(e);
+      }
+    });
+  }
+
+  // ── Non-streaming path: use plugin-http fetch (no timeout issue) ──
+  const response = await fetch(ENDPOINTS.anthropic, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": provider.apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "token-efficient-tools-2025-02-19",
+      "anthropic-dangerous-direct-browser-access": "true",
+      "User-Agent": "Mozilla/5.0",
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`API Error: ${response.status} - ${error}`);
   }
 
   const data = await response.json();
@@ -846,7 +936,7 @@ async function sendOpenAICompatibleMessage(
 ): Promise<{ text: string; usage: UsageData }> {
   const allMessages = formatOpenAIMessages(messages, systemPrompt);
 
-  const body: any = {
+  const requestBody: any = {
     model: provider.model,
     messages: allMessages,
     stream: !!onStream,
@@ -854,44 +944,50 @@ async function sendOpenAICompatibleMessage(
 
   // Ask for usage data in streaming mode (OpenAI & Groq support this)
   if (onStream) {
-    body.stream_options = { include_usage: true };
-  }
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${provider.apiKey}`,
-      "User-Agent": "Mozilla/5.0",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`API Error: ${response.status} - ${error}`);
+    requestBody.stream_options = { include_usage: true };
   }
 
   const usage: UsageData = { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 };
 
-  if (onStream && response.body) {
-    const reader = response.body.getReader();
-    if (onReader) onReader(reader);
-    const decoder = new TextDecoder();
-    let fullContent = "";
+  // ── Streaming path: use Rust proxy (bypasses tauri-plugin-http timeout) ──
+  if (onStream) {
+    const streamId = crypto.randomUUID();
+    const eventName = `ai-stream-${streamId}`;
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+    return new Promise(async (resolve, reject) => {
+      let fullContent = "";
+      let stopped = false;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n").filter((line) => line.startsWith("data: "));
+      const unlisten = await listen<{
+        stream_id: string;
+        data: string;
+        done: boolean;
+        error: string | null;
+        status: number | null;
+      }>(eventName, (event) => {
+        if (stopped) return;
+        const chunk = event.payload;
 
+        if (chunk.error) {
+          unlisten();
+          reject(new Error(
+            chunk.status
+              ? `API Error: ${chunk.status} - ${chunk.data}`
+              : chunk.error
+          ));
+          return;
+        }
+
+        if (chunk.done) {
+          unlisten();
+          resolve({ text: fullContent, usage });
+          return;
+        }
+
+        const lines = chunk.data.split("\n").filter((line: string) => line.startsWith("data: "));
         for (const line of lines) {
           const data = line.slice(6);
           if (data === "[DONE]") continue;
-
           try {
             const parsed = JSON.parse(data);
             const content = parsed.choices?.[0]?.delta?.content || "";
@@ -909,13 +1005,56 @@ async function sendOpenAICompatibleMessage(
             // Skip invalid JSON
           }
         }
-      }
-    } catch (e: any) {
-      // Reader was cancelled (user hit stop) — return what we have
-      return { text: fullContent, usage };
-    }
+      });
 
-    return { text: fullContent, usage };
+      // Stop button support
+      if (onReader) {
+        const fakeReader = {
+          cancel: () => {
+            stopped = true;
+            unlisten();
+            resolve({ text: fullContent, usage });
+            return Promise.resolve();
+          },
+          read: () => Promise.resolve({ done: true, value: undefined }),
+          releaseLock: () => {},
+          closed: Promise.resolve(undefined),
+        } as unknown as ReadableStreamDefaultReader;
+        onReader(fakeReader);
+      }
+
+      try {
+        await invoke("stream_ai_request", {
+          url: endpoint,
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${provider.apiKey}`,
+            "User-Agent": "Mozilla/5.0",
+          },
+          body: JSON.stringify(requestBody),
+          streamId,
+        });
+      } catch (e) {
+        unlisten();
+        reject(e);
+      }
+    });
+  }
+
+  // ── Non-streaming path: use plugin-http fetch ──
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${provider.apiKey}`,
+      "User-Agent": "Mozilla/5.0",
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`API Error: ${response.status} - ${error}`);
   }
 
   const data = await response.json();

@@ -574,8 +574,8 @@ export default function ConnectionsSettings() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-lg font-semibold">Project Connections</h2>
-        <p className="text-sm opacity-60 mt-1">
+        <h1 className="text-2xl font-bold mb-2">Project Connections</h1>
+        <p className={`${t.colors.textMuted} mb-6`}>
           Connect your project accounts to deploy, manage databases, process payments, and more — all without leaving Omnirun.
         </p>
       </div>
