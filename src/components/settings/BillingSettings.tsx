@@ -6,7 +6,17 @@ function BillingSettings() {
   const { theme } = useSettingsStore();
   const t = themes[theme];
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
-  const [planTab, setPlanTab] = useState<"solo" | "teams">("solo");
+
+  // Allow other pages (e.g. HomePage) to deep-link to the Teams tab
+  const initialPlanTab = (() => {
+    const stored = sessionStorage.getItem("billing_plan_tab");
+    if (stored === "teams" || stored === "solo") {
+      sessionStorage.removeItem("billing_plan_tab");
+      return stored;
+    }
+    return "solo";
+  })();
+  const [planTab, setPlanTab] = useState<"solo" | "teams">(initialPlanTab);
 
   // TODO: Replace with real plan status from license/auth system
   const currentPlan = "starter";

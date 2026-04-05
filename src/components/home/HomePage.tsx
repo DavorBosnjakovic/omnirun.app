@@ -681,14 +681,17 @@ export default function HomePage({ onNavigate, onSettingsClick }: HomePageProps)
             <div className="flex flex-col items-center justify-center py-3 gap-2 text-center">
               <Lock size={16} className={t.colors.textMuted} />
               <p className={`text-xs ${t.colors.textMuted} leading-relaxed`}>
-                Collaborate with your team on Business plan.
+                Collaborate with your team on Team plan.
               </p>
               <button
-                onClick={() => onSettingsClick('billing')}
+                onClick={() => {
+                  sessionStorage.setItem('billing_plan_tab', 'teams');
+                  onSettingsClick('billing');
+                }}
                 className="text-xs px-3 py-1.5 rounded-md font-medium transition-opacity hover:opacity-80"
                 style={{ background: '#2DB87A', color: 'white' }}
               >
-                Upgrade to Business
+                Upgrade to Team
               </button>
             </div>
           ) : (
