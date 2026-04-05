@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Settings, Key, BarChart3, Plug, Mic, CreditCard, Info, X, Brain, Monitor } from "lucide-react";
+import { Settings, Key, BarChart3, Plug, Mic, CreditCard, Info, X, Brain, Monitor, Users } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { themes } from "../../config/themes";
 import GeneralSettings from "./GeneralSettings";
@@ -11,8 +11,9 @@ import BillingSettings from "./BillingSettings";
 import AboutSettings from "./AboutSettings";
 import MemorySettings from "./MemorySettings";
 import ScreenControlSettings from "./ScreenControlSettings";
+import TeamSettings from "./TeamSettings";
 
-type SettingsTab = "general" | "apikey" | "usage" | "connections" | "voice" | "memory" | "screencontrol" | "billing" | "about";
+type SettingsTab = "general" | "apikey" | "usage" | "connections" | "voice" | "memory" | "screencontrol" | "team" | "billing" | "about";
 
 interface SettingsLayoutProps {
   onClose: () => void;
@@ -36,6 +37,7 @@ function SettingsLayout({ onClose, initialTab = "general" }: SettingsLayoutProps
     { id: "voice", label: "Voice", icon: Mic },
     { id: "memory", label: "Memory", icon: Brain },
     { id: "screencontrol", label: "Screen Control", icon: Monitor },
+    { id: "team", label: "Team", icon: Users },
     { id: "billing", label: "Billing", icon: CreditCard },
     { id: "about", label: "About", icon: Info },
   ] as const;
@@ -49,6 +51,7 @@ function SettingsLayout({ onClose, initialTab = "general" }: SettingsLayoutProps
       case "voice": return <VoiceSettings />;
       case "memory": return <MemorySettings />;
       case "screencontrol": return <ScreenControlSettings />;
+      case "team": return <TeamSettings onNavigateTab={(tab: string) => setActiveTab(tab as SettingsTab)} />;
       case "billing": return <BillingSettings />;
       case "about": return <AboutSettings />;
     }
