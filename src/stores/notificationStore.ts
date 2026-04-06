@@ -255,6 +255,7 @@ export function getSourceLabel(source: string): string {
     website_watcher: 'Website',
     notion: 'Notion',
     todoist: 'Todoist',
+    team: 'Team',
   };
   return labels[source] ?? source;
 }
