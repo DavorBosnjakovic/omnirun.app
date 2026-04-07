@@ -22,6 +22,7 @@ interface ElementSelectionState {
   selectedElements: SelectedElement[];
   pendingChatInput: string | null;
   pendingImage: { base64: string; mimeType: string } | null;
+  pendingElementContext: string | null;
 
   setSelectMode: (on: boolean) => void;
   setSelectedElements: (elements: SelectedElement[]) => void;
@@ -29,6 +30,7 @@ interface ElementSelectionState {
   clearSelection: () => void;
   setPendingChatInput: (message: string | null) => void;
   setPendingImage: (img: { base64: string; mimeType: string } | null) => void;
+  setPendingElementContext: (ctx: string | null) => void;
 }
 
 export const useElementSelectionStore = create<ElementSelectionState>((set) => ({
@@ -36,12 +38,14 @@ export const useElementSelectionStore = create<ElementSelectionState>((set) => (
   selectedElements: [],
   pendingChatInput: null,
   pendingImage: null,
+  pendingElementContext: null,
 
-  setSelectMode: (on) => set({ selectMode: on, selectedElements: [], pendingChatInput: null, pendingImage: null }),
+  setSelectMode: (on) => set({ selectMode: on, selectedElements: [], pendingChatInput: null, pendingImage: null, pendingElementContext: null }),
   setSelectedElements: (elements) => set({ selectedElements: elements }),
   addSelectedElement: (element) =>
     set((state) => ({ selectedElements: [...state.selectedElements, element] })),
-  clearSelection: () => set({ selectedElements: [], pendingChatInput: null, pendingImage: null }),
+  clearSelection: () => set({ selectedElements: [], pendingChatInput: null, pendingImage: null, pendingElementContext: null }),
   setPendingChatInput: (message) => set({ pendingChatInput: message }),
   setPendingImage: (img) => set({ pendingImage: img }),
+  setPendingElementContext: (ctx) => set({ pendingElementContext: ctx }),
 }));

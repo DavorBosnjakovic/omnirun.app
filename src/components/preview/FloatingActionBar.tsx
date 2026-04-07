@@ -13,7 +13,7 @@ const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp
 function FloatingActionBar({ iframeRect }: FloatingActionBarProps) {
   const { theme } = useSettingsStore();
   const t = themes[theme];
-  const { selectedElements, clearSelection, setPendingChatInput, setPendingImage } = useElementSelectionStore();
+  const { selectedElements, clearSelection, setPendingChatInput, setPendingImage, setPendingElementContext } = useElementSelectionStore();
   const [customInput, setCustomInput] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -43,17 +43,20 @@ function FloatingActionBar({ iframeRect }: FloatingActionBarProps) {
     return `[ELEMENT SELECTED]\nSelector: ${primary.selector}\nTag: <${primary.tagName}>\nText: "${primary.textContent}"\nCurrent styles: color=${primary.computedStyles.color}, bg=${primary.computedStyles.backgroundColor}, font=${primary.computedStyles.fontFamily}, size=${primary.computedStyles.fontSize}, weight=${primary.computedStyles.fontWeight}, padding=${primary.computedStyles.padding}, border-radius=${primary.computedStyles.borderRadius}\n[/ELEMENT SELECTED]`;
   }
 
+  // Save context separately (hidden from user), put only instruction in chat input
   function handleAction(instruction: string) {
     const context = describeSelection();
     clearSelection();
-    setPendingChatInput(`${context}\n\n${instruction}`);
+    setPendingElementContext(context);
+    setPendingChatInput(instruction);
   }
 
   function sendWithImage(base64: string, mimeType: string) {
     const context = describeSelection();
     clearSelection();
+    setPendingElementContext(context);
     setPendingImage({ base64, mimeType });
-    setPendingChatInput(`${context}\n\nMake this element match the STYLE of the attached reference image — colors, fonts, spacing, borders, shadows, and overall visual treatment. Keep the existing text content unchanged.`);
+    setPendingChatInput("Match the style of the reference image. Keep the text content unchanged.");
   }
 
   function handleCustomSend() {
@@ -84,6 +87,7 @@ function FloatingActionBar({ iframeRect }: FloatingActionBarProps) {
       for (let i = 0; i < items.length; i++) {
         if (items[i].type.startsWith("image/")) {
           e.preventDefault();
+          e.stopImmediatePropagation();
           const blob = items[i].getAsFile();
           if (!blob) continue;
           const mimeType = items[i].type;
@@ -98,8 +102,8 @@ function FloatingActionBar({ iframeRect }: FloatingActionBarProps) {
         }
       }
     }
-    window.addEventListener("paste", handlePaste);
-    return () => window.removeEventListener("paste", handlePaste);
+    window.addEventListener("paste", handlePaste, true);
+    return () => window.removeEventListener("paste", handlePaste, true);
   });
 
   const elementLabel = isMulti

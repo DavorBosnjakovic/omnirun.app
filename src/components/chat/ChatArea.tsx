@@ -229,19 +229,34 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
     setAvatarError(false);
   }, [profile?.avatar_url]);
 
-  // ── Element selection: auto-send to AI (with optional reference image) ──
-  const { pendingChatInput, setPendingChatInput, pendingImage, setPendingImage } = useElementSelectionStore();
-  const elementMsgRef = useRef<string | null>(null);
-  const elementImgRef = useRef<{ base64: string; mimeType: string } | null>(null);
-  const [elementSendTrigger, setElementSendTrigger] = useState(0);
+  // ── Element selection: populate chat input + show image in chat ──
+  const { pendingChatInput, setPendingChatInput, pendingImage, setPendingImage, pendingElementContext, setPendingElementContext } = useElementSelectionStore();
+  const elementContextRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (pendingChatInput) {
-      elementMsgRef.current = pendingChatInput;
-      elementImgRef.current = pendingImage || null;
+      // Put editable instruction in input
+      setInput(pendingChatInput);
       setPendingChatInput(null);
-      setPendingImage(null);
-      setElementSendTrigger((n) => n + 1);
+
+      // If there's a reference image, add it as pending attachment (shows in chat)
+      if (pendingImage) {
+        setPendingImages((prev) => [...prev, {
+          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          base64: pendingImage.base64,
+          mimeType: pendingImage.mimeType,
+          name: "reference.png",
+        }]);
+        setPendingImage(null);
+      }
+
+      // Store element context — will be prepended automatically when user sends
+      if (pendingElementContext) {
+        elementContextRef.current = pendingElementContext;
+        setPendingElementContext(null);
+      }
+
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [pendingChatInput]);
 
@@ -823,7 +838,10 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
     const textFileAppend = pendingTextFiles.length > 0
       ? "\n\n" + pendingTextFiles.map((f) => `**${f.name}:**\n\`\`\`\n${f.content}\n\`\`\``).join("\n\n")
       : "";
-    const userMessage = (messageText || "") + textFileAppend;
+    // Prepend hidden element context if set (from element selection)
+    const elementPrefix = elementContextRef.current ? elementContextRef.current + "\n\n" : "";
+    elementContextRef.current = null;
+    const userMessage = elementPrefix + (messageText || "") + textFileAppend;
     const userImages = pendingImages.length > 0 ? [...pendingImages] : undefined;
     setInput("");
     setPendingImages([]);
@@ -1171,29 +1189,6 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
       }
     }
   };
-
-  // ── Element selection: fire handleSend once trigger increments ──
-  useEffect(() => {
-    if (elementSendTrigger > 0 && elementMsgRef.current) {
-      const msg = elementMsgRef.current;
-      const img = elementImgRef.current;
-      elementMsgRef.current = null;
-      elementImgRef.current = null;
-
-      // If there's a reference image, add it to pendingImages before sending
-      if (img) {
-        setPendingImages([{
-          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          base64: img.base64,
-          mimeType: img.mimeType,
-          name: "reference.png",
-        }]);
-      }
-
-      // Small delay to let React batch the pendingImages state update
-      setTimeout(() => handleSend(msg), 50);
-    }
-  }, [elementSendTrigger]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
