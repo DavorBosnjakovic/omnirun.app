@@ -1,4 +1,4 @@
-import { ExternalLink, PanelRightClose, FileCode, Copy, Check, Globe, RefreshCw, Pencil, Save, X, Download, Terminal, AlertCircle, Loader, Monitor, Tablet, Smartphone, Play, Square } from "lucide-react";
+import { ExternalLink, PanelRightClose, FileCode, Copy, Check, Globe, RefreshCw, Pencil, Save, X, Download, Terminal, AlertCircle, Loader, Monitor, Tablet, Smartphone, Play, Square, MousePointer } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProjectStore } from "../../stores/projectStore";
@@ -10,6 +10,8 @@ import { detectProjectType, ProjectDetection } from "../../services/projectDetec
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { useElementSelectionStore } from "../../stores/elementSelectionStore";
+import FloatingActionBar from "./FloatingActionBar";
 
 interface PreviewAreaProps {
   onClose: () => void;
@@ -81,6 +83,12 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   // Resolved path: may differ from projectPath if the app lives in a subdirectory
   const activePath = detection?.resolvedPath || projectPath;
 
+  // Element selection
+  const { selectMode, setSelectMode, selectedElements, setSelectedElements, addSelectedElement, clearSelection } = useElementSelectionStore();
+  const [iframeRect, setIframeRect] = useState<DOMRect | null>(null);
+  const [devServerPort, setDevServerPort] = useState<number | null>(null); // Direct dev server port (for non-select mode)
+  const proxyServerPortRef = useRef<number | null>(null); // Our proxy server port (for select mode with dev servers)
+
   const isImageFile = selectedFile ? IMAGE_EXTENSIONS.some(ext =>
     selectedFile.name.toLowerCase().endsWith(ext)
   ) : false;
@@ -98,6 +106,8 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
     const initPreview = async () => {
       setPreviewStatus("detecting");
       setServerPort(null);
+      setDevServerPort(null);
+      proxyServerPortRef.current = null;
       setStatusMessage("");
       setInstallOutput("");
       setError(null);
@@ -315,6 +325,60 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
     setExternalFileChange(null);
   }, [externalFileChange]);
 
+  // ── Element selection: toggle server-side injection + switch iframe URL ──
+  useEffect(() => {
+    invoke("set_selection_mode", { enabled: selectMode }).catch(() => {});
+
+    if (selectMode) {
+      // For dev server projects: switch iframe to our proxy (which injects the script)
+      if (devServerPort && proxyServerPortRef.current) {
+        setServerPort(proxyServerPortRef.current);
+      }
+      // For static projects: same server, refresh injects the script
+      setRefreshKey((k) => k + 1);
+    } else {
+      // Exiting select mode — try to tell iframe to clean up via postMessage
+      try {
+        iframeRef.current?.contentWindow?.postMessage(
+          { type: "__omnirun-disable-selection" }, "*"
+        );
+      } catch { /* cross-origin, will refresh instead */ }
+      // For dev server projects: switch iframe back to direct dev server (HMR works)
+      if (devServerPort) {
+        setServerPort(devServerPort);
+      }
+      // Refresh to get clean HTML without the overlay script
+      setRefreshKey((k) => k + 1);
+    }
+  }, [selectMode]);
+
+  // ── Element selection: listen for postMessage from iframe ──
+  useEffect(() => {
+    function handleMessage(e: MessageEvent) {
+      if (!e.data || e.data.type !== "__omnirun-element-selected") return;
+      const { element, multiSelect } = e.data;
+      if (multiSelect) {
+        addSelectedElement(element);
+      } else {
+        setSelectedElements([element]);
+      }
+      // Update iframe rect for FloatingActionBar positioning
+      if (iframeRef.current) {
+        setIframeRect(iframeRef.current.getBoundingClientRect());
+      }
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
+  // ── Turn off select mode when switching away from live preview or AI starts ──
+  useEffect(() => {
+    if (previewMode !== "live" || aiIsLoading) {
+      setSelectMode(false);
+    }
+  }, [previewMode, aiIsLoading]);
+
   // ── Dev server management ─────────────────────────────────
 
   const startDevServer = async (det: ProjectDetection, oldPort: number | null = null, version: number = 0) => {
@@ -383,7 +447,20 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
       await new Promise((r) => setTimeout(r, 3000));
       if (isStale()) return;
 
-      // 7. Show the preview
+      // 7. Set up proxy server for element selection support
+      console.log("[preview] Setting up proxy server for dev server on port", port);
+      setDevServerPort(port);
+      await invoke("set_preview_proxy", { targetPort: port }).catch(() => {});
+      try {
+        const proxyPort = await invoke<number>("start_preview_server", { path: devPath });
+        proxyServerPortRef.current = proxyPort;
+        console.log("[preview] Proxy server ready on port", proxyPort);
+      } catch (proxyErr) {
+        console.warn("[preview] Proxy server failed to start (element selection won't work):", proxyErr);
+        proxyServerPortRef.current = null;
+      }
+
+      // 8. Show the preview — iframe points directly to dev server (HMR works)
       console.log("[preview] Showing iframe on port", port);
       setServerPort(port);
       setPreviewStatus("dev-running");
@@ -949,6 +1026,31 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
           {/* ── Live mode buttons ── */}
           {previewMode === "live" && serverPort && (
             <>
+              {/* Element select mode toggle */}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    const next = !selectMode;
+                    setSelectMode(next);
+                    if (!next) clearSelection();
+                  }}
+                  onMouseEnter={() => setTooltip("select")}
+                  onMouseLeave={() => setTooltip(null)}
+                  className={`p-2 ${t.borderRadius} transition-colors ${
+                    selectMode
+                      ? "bg-[#2DB87A] text-white"
+                      : `${t.colors.bgTertiary} ${t.colors.text} hover:opacity-80`
+                  }`}
+                >
+                  <MousePointer size={15} />
+                </button>
+                {tooltip === "select" && (
+                  <div className={`absolute left-1/2 -translate-x-1/2 top-full mt-1 px-2 py-1 text-xs whitespace-nowrap ${t.colors.bgTertiary} ${t.colors.text} ${t.borderRadius} shadow-lg z-50`}>
+                    {selectMode ? "Exit select mode" : "Select an element"}
+                  </div>
+                )}
+              </div>
+
               {/* Viewport size switcher */}
               <div className={`flex items-center ${t.borderRadius} overflow-hidden border ${t.colors.border}`}>
                 {(Object.entries(VIEWPORT_PRESETS) as [ViewportSize, typeof VIEWPORT_PRESETS[ViewportSize]][]).map(([key, preset]) => {
@@ -1389,6 +1491,11 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
           </>
         )}
       </div>
+
+      {/* Element selection floating action bar */}
+      {selectMode && selectedElements.length > 0 && (
+        <FloatingActionBar iframeRect={iframeRect} />
+      )}
     </div>
   );
 }

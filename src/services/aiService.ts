@@ -351,7 +351,8 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
   - General reference docs that don't fit a specific section → save with write_file to .omnirun/docs/descriptive-name.md
   - Briefly mention "💾 Saved to project knowledge" in your response
   - If the same type of content was saved before, UPDATE it (replace, don't duplicate)
-  - Do NOT save ephemeral content (error logs, stack traces, screenshots for one-time fixes)`;
+  - Do NOT save ephemeral content (error logs, stack traces, screenshots for one-time fixes)
+- ELEMENT SELECTION: When the user's message contains [ELEMENT SELECTED] or [ELEMENTS SELECTED] blocks, the user clicked a specific element in the live preview. The block contains the CSS selector, tag name, text content, and current computed styles. Use this to make precise, targeted changes to ONLY that element. Do not modify unrelated elements. When multiple elements are selected, apply changes consistently across all of them. Always use the selector path to locate the element in the source code.`;
 
   // ── Tools prompt (static per session — tool definitions don't change) ──
   const projectId = useProjectStore.getState().currentProject?.id;

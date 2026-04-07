@@ -310,6 +310,16 @@ fn get_preview_port() -> Option<u16> {
     server::get_port()
 }
 
+#[tauri::command]
+fn set_selection_mode(enabled: bool) {
+    server::set_selection_mode(enabled);
+}
+
+#[tauri::command]
+fn set_preview_proxy(target_port: Option<u16>) {
+    server::set_proxy_target(target_port);
+}
+
 // ── Dev Server Commands (for framework projects) ────────────────
 
 /// Helper to build a hidden shell command.
@@ -840,6 +850,8 @@ pub fn run() {
             resolve_path,
             start_preview_server,
             stop_preview_server,
+            set_selection_mode,
+            set_preview_proxy,
             get_preview_port,
             start_dev_server,
             stop_dev_server,

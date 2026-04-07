@@ -20,6 +20,7 @@ import { useAuthStore } from "../../stores/authStore";
 import { useConnectionsStore } from "../../stores/connectionsStore";
 import { getErrors, clearErrors, onErrorsChange } from "../../services/errorCapture";
 import { useDiffStore } from "../../stores/diffStore";
+import { useElementSelectionStore } from "../../stores/elementSelectionStore";
 import DiffViewer from "../diff/DiffViewer";
 import OmnirunSpinner from "./OmnirunSpinner";
 import type { MessageImage } from "../../stores/chatStore";
@@ -227,6 +228,22 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
   useEffect(() => {
     setAvatarError(false);
   }, [profile?.avatar_url]);
+
+  // ── Element selection: auto-send to AI (with optional reference image) ──
+  const { pendingChatInput, setPendingChatInput, pendingImage, setPendingImage } = useElementSelectionStore();
+  const elementMsgRef = useRef<string | null>(null);
+  const elementImgRef = useRef<{ base64: string; mimeType: string } | null>(null);
+  const [elementSendTrigger, setElementSendTrigger] = useState(0);
+
+  useEffect(() => {
+    if (pendingChatInput) {
+      elementMsgRef.current = pendingChatInput;
+      elementImgRef.current = pendingImage || null;
+      setPendingChatInput(null);
+      setPendingImage(null);
+      setElementSendTrigger((n) => n + 1);
+    }
+  }, [pendingChatInput]);
 
   const getInitials = () => {
     const name = user?.displayName || profile?.display_name || user?.email || '';
@@ -1154,6 +1171,29 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
       }
     }
   };
+
+  // ── Element selection: fire handleSend once trigger increments ──
+  useEffect(() => {
+    if (elementSendTrigger > 0 && elementMsgRef.current) {
+      const msg = elementMsgRef.current;
+      const img = elementImgRef.current;
+      elementMsgRef.current = null;
+      elementImgRef.current = null;
+
+      // If there's a reference image, add it to pendingImages before sending
+      if (img) {
+        setPendingImages([{
+          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          base64: img.base64,
+          mimeType: img.mimeType,
+          name: "reference.png",
+        }]);
+      }
+
+      // Small delay to let React batch the pendingImages state update
+      setTimeout(() => handleSend(msg), 50);
+    }
+  }, [elementSendTrigger]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
