@@ -988,6 +988,8 @@ interface UsageAggregateRow {
   total_output_tokens: number;
   total_input_cost: number;
   total_output_cost: number;
+  total_cache_read_tokens: number;
+  total_cache_creation_tokens: number;
 }
 
 async function getMonthlyUsage(filter?: UsageFilter): Promise<{
@@ -997,6 +999,8 @@ async function getMonthlyUsage(filter?: UsageFilter): Promise<{
   outputTokens: number;
   inputCost: number;
   outputCost: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
 }> {
   const d = getDb();
   const now = new Date();
@@ -1012,7 +1016,9 @@ async function getMonthlyUsage(filter?: UsageFilter): Promise<{
        COALESCE(SUM(input_tokens), 0) as total_input_tokens,
        COALESCE(SUM(output_tokens), 0) as total_output_tokens,
        COALESCE(SUM(input_cost), 0) as total_input_cost,
-       COALESCE(SUM(output_cost), 0) as total_output_cost
+       COALESCE(SUM(output_cost), 0) as total_output_cost,
+       COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+       COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens
      FROM usage
      WHERE timestamp >= ?${clause}`,
     params
@@ -1026,6 +1032,8 @@ async function getMonthlyUsage(filter?: UsageFilter): Promise<{
     outputTokens: r.total_output_tokens,
     inputCost: r.total_input_cost,
     outputCost: r.total_output_cost,
+    cacheReadTokens: r.total_cache_read_tokens,
+    cacheCreationTokens: r.total_cache_creation_tokens,
   };
 }
 
@@ -1036,6 +1044,8 @@ async function getAllTimeUsage(filter?: UsageFilter): Promise<{
   outputTokens: number;
   inputCost: number;
   outputCost: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
 }> {
   const d = getDb();
 
@@ -1049,7 +1059,9 @@ async function getAllTimeUsage(filter?: UsageFilter): Promise<{
        COALESCE(SUM(input_tokens), 0) as total_input_tokens,
        COALESCE(SUM(output_tokens), 0) as total_output_tokens,
        COALESCE(SUM(input_cost), 0) as total_input_cost,
-       COALESCE(SUM(output_cost), 0) as total_output_cost
+       COALESCE(SUM(output_cost), 0) as total_output_cost,
+       COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+       COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens
      FROM usage ${whereClause}`,
     params
   );
@@ -1062,6 +1074,8 @@ async function getAllTimeUsage(filter?: UsageFilter): Promise<{
     outputTokens: r.total_output_tokens,
     inputCost: r.total_input_cost,
     outputCost: r.total_output_cost,
+    cacheReadTokens: r.total_cache_read_tokens,
+    cacheCreationTokens: r.total_cache_creation_tokens,
   };
 }
 
@@ -1079,6 +1093,8 @@ async function getUsageInRange(options?: {
   outputTokens: number;
   inputCost: number;
   outputCost: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
 }> {
   const d = getDb();
   const params: any[] = [];
@@ -1112,7 +1128,9 @@ async function getUsageInRange(options?: {
        COALESCE(SUM(input_tokens), 0) as total_input_tokens,
        COALESCE(SUM(output_tokens), 0) as total_output_tokens,
        COALESCE(SUM(input_cost), 0) as total_input_cost,
-       COALESCE(SUM(output_cost), 0) as total_output_cost
+       COALESCE(SUM(output_cost), 0) as total_output_cost,
+       COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+       COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens
      FROM usage ${where}`,
     params
   );
@@ -1125,6 +1143,8 @@ async function getUsageInRange(options?: {
     outputTokens: r.total_output_tokens,
     inputCost: r.total_input_cost,
     outputCost: r.total_output_cost,
+    cacheReadTokens: r.total_cache_read_tokens,
+    cacheCreationTokens: r.total_cache_creation_tokens,
   };
 }
 
@@ -1222,6 +1242,8 @@ async function saveUsageSession(session: {
   totalOutputTokens: number;
   totalInputCost: number;
   totalOutputCost: number;
+  totalCacheReadTokens?: number;
+  totalCacheCreationTokens?: number;
   entryCount: number;
   models: string[];
   providers: string[];
@@ -1261,6 +1283,8 @@ interface DerivedSessionRow {
   total_output_tokens: number;
   total_input_cost: number;
   total_output_cost: number;
+  total_cache_read_tokens: number;
+  total_cache_creation_tokens: number;
   entry_count: number;
   models_csv: string;
   providers_csv: string;
@@ -1280,6 +1304,8 @@ async function getSessionHistory(options?: {
   totalOutputTokens: number;
   totalInputCost: number;
   totalOutputCost: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
   entryCount: number;
   models: string[];
   providers: string[];
@@ -1319,6 +1345,8 @@ async function getSessionHistory(options?: {
        COALESCE(SUM(output_tokens), 0) as total_output_tokens,
        COALESCE(SUM(input_cost), 0) as total_input_cost,
        COALESCE(SUM(output_cost), 0) as total_output_cost,
+       COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+       COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
        COUNT(*) as entry_count,
        GROUP_CONCAT(DISTINCT model) as models_csv,
        GROUP_CONCAT(DISTINCT provider) as providers_csv
@@ -1340,6 +1368,8 @@ async function getSessionHistory(options?: {
     totalOutputTokens: r.total_output_tokens,
     totalInputCost: r.total_input_cost,
     totalOutputCost: r.total_output_cost,
+    totalCacheReadTokens: r.total_cache_read_tokens,
+    totalCacheCreationTokens: r.total_cache_creation_tokens,
     entryCount: r.entry_count,
     models: r.models_csv ? r.models_csv.split(',') : [],
     providers: r.providers_csv ? r.providers_csv.split(',') : [],
@@ -1357,6 +1387,8 @@ async function getSessionDetail(groupKey: string): Promise<{
     totalOutputTokens: number;
     totalInputCost: number;
     totalOutputCost: number;
+    totalCacheReadTokens: number;
+    totalCacheCreationTokens: number;
     entryCount: number;
     models: string[];
     providers: string[];
@@ -1425,6 +1457,8 @@ async function getSessionDetail(groupKey: string): Promise<{
     totalOutputTokens: entries.reduce((s, e) => s + e.outputTokens, 0),
     totalInputCost: entries.reduce((s, e) => s + e.inputCost, 0),
     totalOutputCost: entries.reduce((s, e) => s + e.outputCost, 0),
+    totalCacheReadTokens: entries.reduce((s, e) => s + e.cacheReadTokens, 0),
+    totalCacheCreationTokens: entries.reduce((s, e) => s + e.cacheCreationTokens, 0),
     entryCount: entries.length,
     models,
     providers,

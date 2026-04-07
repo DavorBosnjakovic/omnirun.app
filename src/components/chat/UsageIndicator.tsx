@@ -1,10 +1,10 @@
-import { useState } from "react";
-import { Coins, ChevronDown, ChevronUp, Zap, Calendar, TrendingUp, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Coins, ChevronDown, ChevronUp, Zap, Sun, Calendar, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { useUsageStore } from "../../stores/usageStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { themes } from "../../config/themes";
 
-type Timeframe = "session" | "month" | "alltime";
+type Timeframe = "session" | "today" | "month";
 
 function UsageIndicator() {
   const [expanded, setExpanded] = useState(false);
@@ -12,12 +12,15 @@ function UsageIndicator() {
   const { theme } = useSettingsStore();
   const {
     session,
+    todayTokens, todayInputTokens, todayOutputTokens, todayInputCost, todayOutputCost,
+    todayCacheReadTokens, todayCacheCreationTokens,
     monthlyTokens, monthlyCost, monthlyInputTokens, monthlyOutputTokens, monthlyInputCost, monthlyOutputCost,
-    allTimeTokens, allTimeCost, allTimeInputTokens, allTimeOutputTokens, allTimeInputCost, allTimeOutputCost,
+    monthlyCacheReadTokens, monthlyCacheCreationTokens,
   } = useUsageStore();
   const t = themes[theme];
 
   const formatCost = (cost: number) => {
+    if (cost <= 0) return "$0.00";
     if (cost < 0.01) return "<$0.01";
     if (cost < 1) return `$${cost.toFixed(3)}`;
     return `$${cost.toFixed(2)}`;
@@ -29,19 +32,50 @@ function UsageIndicator() {
     return `${(tokens / 1_000_000).toFixed(2)}M`;
   };
 
+  // Compute cache tokens from session entries
+  const sessionCacheRead = useMemo(
+    () => session.entries.reduce((sum, e) => sum + (e.cacheReadTokens ?? 0), 0),
+    [session.entries]
+  );
+  const sessionCacheCreation = useMemo(
+    () => session.entries.reduce((sum, e) => sum + (e.cacheCreationTokens ?? 0), 0),
+    [session.entries]
+  );
+
   const getData = () => {
     switch (timeframe) {
-      case "session":
+      case "session": {
+        const inputCost = session.totalInputCost;
+        const outputCost = session.totalOutputCost;
         return {
           totalTokens: session.totalTokens,
-          totalCost: session.totalCost,
+          totalCost: inputCost + outputCost,
           inputTokens: session.totalInputTokens,
           outputTokens: session.totalOutputTokens,
-          inputCost: session.totalInputCost,
-          outputCost: session.totalOutputCost,
+          inputCost,
+          outputCost,
+          cacheReadTokens: sessionCacheRead,
+          cacheCreationTokens: sessionCacheCreation,
           callCount: session.entries.length,
         };
+      }
+      case "today": {
+        const inputCost = todayInputCost + session.totalInputCost;
+        const outputCost = todayOutputCost + session.totalOutputCost;
+        return {
+          totalTokens: todayTokens + session.totalTokens,
+          totalCost: inputCost + outputCost,
+          inputTokens: todayInputTokens + session.totalInputTokens,
+          outputTokens: todayOutputTokens + session.totalOutputTokens,
+          inputCost,
+          outputCost,
+          cacheReadTokens: todayCacheReadTokens + sessionCacheRead,
+          cacheCreationTokens: todayCacheCreationTokens + sessionCacheCreation,
+          callCount: null,
+        };
+      }
       case "month":
+      default:
         return {
           totalTokens: monthlyTokens,
           totalCost: monthlyCost,
@@ -49,24 +83,20 @@ function UsageIndicator() {
           outputTokens: monthlyOutputTokens,
           inputCost: monthlyInputCost,
           outputCost: monthlyOutputCost,
-          callCount: null,
-        };
-      case "alltime":
-        return {
-          totalTokens: allTimeTokens,
-          totalCost: allTimeCost,
-          inputTokens: allTimeInputTokens,
-          outputTokens: allTimeOutputTokens,
-          inputCost: allTimeInputCost,
-          outputCost: allTimeOutputCost,
+          cacheReadTokens: monthlyCacheReadTokens,
+          cacheCreationTokens: monthlyCacheCreationTokens,
           callCount: null,
         };
     }
   };
 
   const data = getData();
+  const totalCached = data.cacheReadTokens + data.cacheCreationTokens;
 
-  const tabBase = `px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer`;
+  // Derive the topbar button cost from input+output so it always matches the dropdown
+  const sessionDisplayCost = session.totalInputCost + session.totalOutputCost;
+
+  const tabBase = `px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer`;
   const tabActive = theme === "light"
     ? "bg-blue-500 text-white"
     : theme === "sepia"
@@ -89,7 +119,7 @@ function UsageIndicator() {
       >
         <Coins size={16} className="text-amber-500" />
         <span className="font-medium">
-          {formatCost(session.totalCost)}
+          {formatCost(sessionDisplayCost)}
         </span>
         {expanded ? (
           <ChevronUp size={14} className={t.colors.textMuted} />
@@ -120,16 +150,16 @@ function UsageIndicator() {
                 <span className="flex items-center gap-1"><Zap size={10} /> Session</span>
               </button>
               <button
+                onClick={() => setTimeframe("today")}
+                className={`${tabBase} ${timeframe === "today" ? tabActive : tabInactive}`}
+              >
+                <span className="flex items-center gap-1"><Sun size={10} /> Today</span>
+              </button>
+              <button
                 onClick={() => setTimeframe("month")}
                 className={`${tabBase} ${timeframe === "month" ? tabActive : tabInactive}`}
               >
                 <span className="flex items-center gap-1"><Calendar size={10} /> Month</span>
-              </button>
-              <button
-                onClick={() => setTimeframe("alltime")}
-                className={`${tabBase} ${timeframe === "alltime" ? tabActive : tabInactive}`}
-              >
-                <span className="flex items-center gap-1"><TrendingUp size={10} /> All Time</span>
               </button>
             </div>
 
@@ -179,6 +209,29 @@ function UsageIndicator() {
                   </span>
                 </div>
               </div>
+
+              {totalCached > 0 && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-amber-400">
+                      <path d="M2 3C2 2 4 1 6 1s4 1 4 2-2 2-4 2S2 4 2 3z" fill="currentColor" opacity="0.5" />
+                      <path d="M2 3v2c0 1 2 2 4 2s4-1 4-2V3" stroke="currentColor" strokeWidth="1" />
+                      <path d="M2 7v2c0 1 2 2 4 2s4-1 4-2V7" stroke="currentColor" strokeWidth="1" />
+                    </svg>
+                    <span className={`text-xs ${t.colors.textMuted}`}>Cached</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-xs ${t.colors.textMuted}`}>
+                      {formatTokens(totalCached)}
+                    </span>
+                    <span className={`text-xs font-medium text-amber-400 w-16 text-right`}>
+                      {data.cacheReadTokens > 0
+                        ? `${formatTokens(data.cacheReadTokens)} read`
+                        : "write"}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {session.entries.length > 0 && (

@@ -43,6 +43,8 @@ export interface SessionSummary {
   totalOutputTokens: number;
   totalInputCost: number;
   totalOutputCost: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
   entryCount: number;
   models: string[];       // Unique models used in this session
   providers: string[];    // Unique providers used
@@ -58,18 +60,29 @@ interface UsageState {
   session: SessionData;
 
   // Computed aggregates
+  todayTokens: number;
+  todayInputTokens: number;
+  todayOutputTokens: number;
+  todayInputCost: number;
+  todayOutputCost: number;
+  todayCacheReadTokens: number;
+  todayCacheCreationTokens: number;
   monthlyTokens: number;
   monthlyCost: number;
   monthlyInputTokens: number;
   monthlyOutputTokens: number;
   monthlyInputCost: number;
   monthlyOutputCost: number;
+  monthlyCacheReadTokens: number;
+  monthlyCacheCreationTokens: number;
   allTimeTokens: number;
   allTimeCost: number;
   allTimeInputTokens: number;
   allTimeOutputTokens: number;
   allTimeInputCost: number;
   allTimeOutputCost: number;
+  allTimeCacheReadTokens: number;
+  allTimeCacheCreationTokens: number;
 
   // Budget
   monthlyBudget: number | null;
@@ -205,7 +218,8 @@ function calculateCost(
   const pricing = getPricing(model, provider);
 
   // Anthropic's input_tokens INCLUDES cache_read tokens, so subtract them to get regular-only.
-  const regularInputCost = ((inputTokens - cacheReadTokens) / 1_000_000) * pricing.input;
+  // Clamp to 0 — the API can occasionally report cacheReadTokens > inputTokens.
+  const regularInputCost = (Math.max(0, inputTokens - cacheReadTokens) / 1_000_000) * pricing.input;
 
   // Cache read tokens: charged at the discounted cache_read rate
   const cacheReadCost = pricing.cacheRead
@@ -251,18 +265,29 @@ function createSession(): SessionData {
 
 export const useUsageStore = create<UsageState>((set, get) => ({
   session: createSession(),
+  todayTokens: 0,
+  todayInputTokens: 0,
+  todayOutputTokens: 0,
+  todayInputCost: 0,
+  todayOutputCost: 0,
+  todayCacheReadTokens: 0,
+  todayCacheCreationTokens: 0,
   monthlyTokens: 0,
   monthlyCost: 0,
   monthlyInputTokens: 0,
   monthlyOutputTokens: 0,
   monthlyInputCost: 0,
   monthlyOutputCost: 0,
+  monthlyCacheReadTokens: 0,
+  monthlyCacheCreationTokens: 0,
   allTimeTokens: 0,
   allTimeCost: 0,
   allTimeInputTokens: 0,
   allTimeOutputTokens: 0,
   allTimeInputCost: 0,
   allTimeOutputCost: 0,
+  allTimeCacheReadTokens: 0,
+  allTimeCacheCreationTokens: 0,
   monthlyBudget: null,
   budgetAlertEnabled: true,
   budgetAlertThreshold: 80,
@@ -272,19 +297,21 @@ export const useUsageStore = create<UsageState>((set, get) => ({
   trackAPICall: ({ model, provider, inputTokens, outputTokens, cacheCreationTokens = 0, cacheReadTokens = 0, taskLabel, source = 'project', projectName = null }) => {
     const costBreakdown = calculateCost(model, provider, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens);
 
-    // Total input = regular input (which already includes cache reads) + cache creation (separate)
-    const fullInputTokens = inputTokens + cacheCreationTokens;
+    // Store token counts exactly as the API returns them.
+    // inputTokens already includes cache reads (per Anthropic docs).
+    // cacheCreationTokens are separate and tracked independently.
+    // Do NOT add cacheCreationTokens to inputTokens — Anthropic's dashboard doesn't.
 
     const entry: UsageEntry = {
       id: `entry_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: Date.now(),
       model,
       provider,
-      inputTokens: fullInputTokens,
+      inputTokens,
       outputTokens,
       cacheCreationTokens,
       cacheReadTokens,
-      totalTokens: fullInputTokens + outputTokens,
+      totalTokens: inputTokens + outputTokens,
       cost: costBreakdown.total,
       inputCost: costBreakdown.inputCost,
       outputCost: costBreakdown.outputCost,
@@ -294,29 +321,43 @@ export const useUsageStore = create<UsageState>((set, get) => ({
     const sessionId = get().session.id;
 
     set((state) => {
+      const newSessionInputCost = state.session.totalInputCost + entry.inputCost;
+      const newSessionOutputCost = state.session.totalOutputCost + entry.outputCost;
       const newSession: SessionData = {
         ...state.session,
         entries: [...state.session.entries, entry],
         totalTokens: state.session.totalTokens + entry.totalTokens,
-        totalCost: state.session.totalCost + entry.cost,
+        totalCost: newSessionInputCost + newSessionOutputCost,
         totalInputTokens: state.session.totalInputTokens + entry.inputTokens,
         totalOutputTokens: state.session.totalOutputTokens + entry.outputTokens,
-        totalInputCost: state.session.totalInputCost + entry.inputCost,
-        totalOutputCost: state.session.totalOutputCost + entry.outputCost,
+        totalInputCost: newSessionInputCost,
+        totalOutputCost: newSessionOutputCost,
       };
 
-      const newMonthlyTokens = state.monthlyTokens + entry.totalTokens;
-      const newMonthlyCost = state.monthlyCost + entry.cost;
-      const newMonthlyInputTokens = state.monthlyInputTokens + entry.inputTokens;
-      const newMonthlyOutputTokens = state.monthlyOutputTokens + entry.outputTokens;
+      const newTodayInputCost = state.todayInputCost + entry.inputCost;
+      const newTodayOutputCost = state.todayOutputCost + entry.outputCost;
+      const newTodayTokens = state.todayTokens + entry.totalTokens;
+      const newTodayInputTokens = state.todayInputTokens + entry.inputTokens;
+      const newTodayOutputTokens = state.todayOutputTokens + entry.outputTokens;
+      const newTodayCacheRead = state.todayCacheReadTokens + entry.cacheReadTokens;
+      const newTodayCacheCreation = state.todayCacheCreationTokens + entry.cacheCreationTokens;
+
       const newMonthlyInputCost = state.monthlyInputCost + entry.inputCost;
       const newMonthlyOutputCost = state.monthlyOutputCost + entry.outputCost;
-      const newAllTimeTokens = state.allTimeTokens + entry.totalTokens;
-      const newAllTimeCost = state.allTimeCost + entry.cost;
-      const newAllTimeInputTokens = state.allTimeInputTokens + entry.inputTokens;
-      const newAllTimeOutputTokens = state.allTimeOutputTokens + entry.outputTokens;
+      const newMonthlyTokens = state.monthlyTokens + entry.totalTokens;
+      const newMonthlyCost = newMonthlyInputCost + newMonthlyOutputCost;
+      const newMonthlyInputTokens = state.monthlyInputTokens + entry.inputTokens;
+      const newMonthlyOutputTokens = state.monthlyOutputTokens + entry.outputTokens;
+      const newMonthlyCacheRead = state.monthlyCacheReadTokens + entry.cacheReadTokens;
+      const newMonthlyCacheCreation = state.monthlyCacheCreationTokens + entry.cacheCreationTokens;
       const newAllTimeInputCost = state.allTimeInputCost + entry.inputCost;
       const newAllTimeOutputCost = state.allTimeOutputCost + entry.outputCost;
+      const newAllTimeTokens = state.allTimeTokens + entry.totalTokens;
+      const newAllTimeCost = newAllTimeInputCost + newAllTimeOutputCost;
+      const newAllTimeInputTokens = state.allTimeInputTokens + entry.inputTokens;
+      const newAllTimeOutputTokens = state.allTimeOutputTokens + entry.outputTokens;
+      const newAllTimeCacheRead = state.allTimeCacheReadTokens + entry.cacheReadTokens;
+      const newAllTimeCacheCreation = state.allTimeCacheCreationTokens + entry.cacheCreationTokens;
 
       // Persist to SQLite (fire-and-forget) — include session_id for history
       dbService.recordUsage({
@@ -354,18 +395,29 @@ export const useUsageStore = create<UsageState>((set, get) => ({
 
       return {
         session: newSession,
+        todayTokens: newTodayTokens,
+        todayInputTokens: newTodayInputTokens,
+        todayOutputTokens: newTodayOutputTokens,
+        todayInputCost: newTodayInputCost,
+        todayOutputCost: newTodayOutputCost,
+        todayCacheReadTokens: newTodayCacheRead,
+        todayCacheCreationTokens: newTodayCacheCreation,
         monthlyTokens: newMonthlyTokens,
         monthlyCost: newMonthlyCost,
         monthlyInputTokens: newMonthlyInputTokens,
         monthlyOutputTokens: newMonthlyOutputTokens,
         monthlyInputCost: newMonthlyInputCost,
         monthlyOutputCost: newMonthlyOutputCost,
+        monthlyCacheReadTokens: newMonthlyCacheRead,
+        monthlyCacheCreationTokens: newMonthlyCacheCreation,
         allTimeTokens: newAllTimeTokens,
         allTimeCost: newAllTimeCost,
         allTimeInputTokens: newAllTimeInputTokens,
         allTimeOutputTokens: newAllTimeOutputTokens,
         allTimeInputCost: newAllTimeInputCost,
         allTimeOutputCost: newAllTimeOutputCost,
+        allTimeCacheReadTokens: newAllTimeCacheRead,
+        allTimeCacheCreationTokens: newAllTimeCacheCreation,
       };
     });
 
@@ -400,6 +452,8 @@ export const useUsageStore = create<UsageState>((set, get) => ({
     const state = get();
     // Save current session summary to SQLite before resetting
     if (state.session.entries.length > 0) {
+      const totalCacheRead = state.session.entries.reduce((sum, e) => sum + (e.cacheReadTokens ?? 0), 0);
+      const totalCacheCreation = state.session.entries.reduce((sum, e) => sum + (e.cacheCreationTokens ?? 0), 0);
       dbService.saveUsageSession({
         id: state.session.id,
         startTime: state.session.startTime,
@@ -410,6 +464,8 @@ export const useUsageStore = create<UsageState>((set, get) => ({
         totalOutputTokens: state.session.totalOutputTokens,
         totalInputCost: state.session.totalInputCost,
         totalOutputCost: state.session.totalOutputCost,
+        totalCacheReadTokens: totalCacheRead,
+        totalCacheCreationTokens: totalCacheCreation,
         entryCount: state.session.entries.length,
         models: [...new Set(state.session.entries.map(e => e.model))],
         providers: [...new Set(state.session.entries.map(e => e.provider))],
@@ -426,18 +482,29 @@ export const useUsageStore = create<UsageState>((set, get) => ({
     });
     set({
       session: createSession(),
+      todayTokens: 0,
+      todayInputTokens: 0,
+      todayOutputTokens: 0,
+      todayInputCost: 0,
+      todayOutputCost: 0,
+      todayCacheReadTokens: 0,
+      todayCacheCreationTokens: 0,
       monthlyTokens: 0,
       monthlyCost: 0,
       monthlyInputTokens: 0,
       monthlyOutputTokens: 0,
       monthlyInputCost: 0,
       monthlyOutputCost: 0,
+      monthlyCacheReadTokens: 0,
+      monthlyCacheCreationTokens: 0,
       allTimeTokens: 0,
       allTimeCost: 0,
       allTimeInputTokens: 0,
       allTimeOutputTokens: 0,
       allTimeInputCost: 0,
       allTimeOutputCost: 0,
+      allTimeCacheReadTokens: 0,
+      allTimeCacheCreationTokens: 0,
       monthlyBudget: null,
       budgetAlertEnabled: true,
       budgetAlertThreshold: 80,
@@ -448,31 +515,84 @@ export const useUsageStore = create<UsageState>((set, get) => ({
 
   // Load aggregates and budget from SQLite on app startup
   loadFromDB: async () => {
-    try {
-      const [monthly, allTime, budgetSettings] = await Promise.all([
-        dbService.getMonthlyUsage(),
-        dbService.getAllTimeUsage(),
-        dbService.getBudgetSettings(),
-      ]);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
 
-      set({
-        monthlyTokens: monthly.tokens,
-        monthlyCost: monthly.cost,
-        monthlyInputTokens: monthly.inputTokens,
-        monthlyOutputTokens: monthly.outputTokens,
-        monthlyInputCost: monthly.inputCost,
-        monthlyOutputCost: monthly.outputCost,
-        allTimeTokens: allTime.tokens,
-        allTimeCost: allTime.cost,
-        allTimeInputTokens: allTime.inputTokens,
-        allTimeOutputTokens: allTime.outputTokens,
-        allTimeInputCost: allTime.inputCost,
-        allTimeOutputCost: allTime.outputCost,
-        ...budgetSettings,
-      });
-    } catch (e) {
-      console.error("Failed to load usage from DB:", e);
+    // Run each query independently so one failure doesn't zero out everything
+    const [monthly, allTime, budgetSettings, todaySessions] = await Promise.all([
+      dbService.getMonthlyUsage().catch((e) => {
+        console.error("Failed to load monthly usage:", e);
+        return null;
+      }),
+      dbService.getAllTimeUsage().catch((e) => {
+        console.error("Failed to load all-time usage:", e);
+        return null;
+      }),
+      dbService.getBudgetSettings().catch((e) => {
+        console.error("Failed to load budget settings:", e);
+        return null;
+      }),
+      dbService.getSessionHistory({ fromDate: todayStart.getTime(), toDate: Date.now() }).catch((e) => {
+        console.error("Failed to load today sessions:", e);
+        return [] as Awaited<ReturnType<typeof dbService.getSessionHistory>>;
+      }),
+    ]);
+
+    // Sum today's sessions from DB
+    const today = todaySessions.reduce(
+      (acc, s) => ({
+        tokens: acc.tokens + s.totalTokens,
+        inputTokens: acc.inputTokens + (s.totalInputTokens ?? 0),
+        outputTokens: acc.outputTokens + (s.totalOutputTokens ?? 0),
+        inputCost: acc.inputCost + (s.totalInputCost ?? 0),
+        outputCost: acc.outputCost + (s.totalOutputCost ?? 0),
+        cacheReadTokens: acc.cacheReadTokens + (s.totalCacheReadTokens ?? 0),
+        cacheCreationTokens: acc.cacheCreationTokens + (s.totalCacheCreationTokens ?? 0),
+      }),
+      { tokens: 0, inputTokens: 0, outputTokens: 0, inputCost: 0, outputCost: 0, cacheReadTokens: 0, cacheCreationTokens: 0 }
+    );
+
+    const updates: Record<string, any> = {};
+
+    // Today (from session history)
+    updates.todayTokens = today.tokens;
+    updates.todayInputTokens = today.inputTokens;
+    updates.todayOutputTokens = today.outputTokens;
+    updates.todayInputCost = today.inputCost;
+    updates.todayOutputCost = today.outputCost;
+    updates.todayCacheReadTokens = today.cacheReadTokens;
+    updates.todayCacheCreationTokens = today.cacheCreationTokens;
+
+    // Monthly (only if query succeeded)
+    if (monthly) {
+      updates.monthlyTokens = monthly.tokens;
+      updates.monthlyCost = monthly.cost;
+      updates.monthlyInputTokens = monthly.inputTokens;
+      updates.monthlyOutputTokens = monthly.outputTokens;
+      updates.monthlyInputCost = monthly.inputCost;
+      updates.monthlyOutputCost = monthly.outputCost;
+      updates.monthlyCacheReadTokens = monthly.cacheReadTokens ?? 0;
+      updates.monthlyCacheCreationTokens = monthly.cacheCreationTokens ?? 0;
     }
+
+    // All time (only if query succeeded)
+    if (allTime) {
+      updates.allTimeTokens = allTime.tokens;
+      updates.allTimeCost = allTime.cost;
+      updates.allTimeInputTokens = allTime.inputTokens;
+      updates.allTimeOutputTokens = allTime.outputTokens;
+      updates.allTimeInputCost = allTime.inputCost;
+      updates.allTimeOutputCost = allTime.outputCost;
+      updates.allTimeCacheReadTokens = allTime.cacheReadTokens ?? 0;
+      updates.allTimeCacheCreationTokens = allTime.cacheCreationTokens ?? 0;
+    }
+
+    // Budget settings
+    if (budgetSettings) {
+      Object.assign(updates, budgetSettings);
+    }
+
+    set(updates);
   },
 
   // ─── Session History ─────────────────────────────────────────────

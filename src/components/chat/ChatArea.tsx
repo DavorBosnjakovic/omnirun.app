@@ -904,6 +904,10 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
       // ── Tool execution loop ──────────────────────────────
       let iterations = 0;
       let currentManifest = manifest;
+      // Single grouped tool-status message for all iterations
+      const toolGroupId = `tool-group-${Date.now()}`;
+      let toolGroupCreated = false;
+      let toolGroupLines: string[] = [];
 
       while (iterations < MAX_TOOL_ITERATIONS) {
         iterations++;
@@ -1009,18 +1013,31 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
         // ── Execute tool calls ──────────────────────────────
 
         const hasSearch = parsed.toolCalls.some((tc) => tc.name === "web_search");
-        const actionSummaries = parsed.toolCalls
+
+        // Add/update the grouped tool execution status message
+        const currentLines = parsed.toolCalls
           .map((tc) => `${hasSearch && tc.name === "web_search" ? "🔍" : "✏️"} ${generateToolSummary(tc)}`)
           .join("\n");
+        toolGroupLines.push(currentLines);
+        const groupedContent = hasSearch
+          ? `🔍 ${toolGroupLines.join("\n")}`
+          : `🔧 ${toolGroupLines.join("\n")}`;
 
-        // Add a tool execution status message
-        const toolStatusId = (Date.now() + iterations + 1000).toString();
-        addMessage({
-          id: toolStatusId,
-          role: "assistant",
-          content: hasSearch ? `🔍 ${actionSummaries}` : `🔧 ${actionSummaries}`,
-          timestamp: new Date(),
-        });
+        if (!toolGroupCreated) {
+          addMessage({
+            id: toolGroupId,
+            role: "assistant",
+            content: groupedContent,
+            timestamp: new Date(),
+          });
+          toolGroupCreated = true;
+        } else {
+          useChatStore.setState((state) => ({
+            messages: state.messages.map((m) =>
+              m.id === toolGroupId ? { ...m, content: groupedContent } : m
+            ),
+          }));
+        }
 
         // Check if stopped before executing tools
         if (stoppedRef.current) break;
@@ -1105,17 +1122,17 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           .map((r) => `[${r.tool}] ${r.result.split("\n").slice(0, 5).join("\n")}`)
           .join("\n\n");
 
-        // Use 🔍 prefix if any search results, 🔧 otherwise
-        // The prefix MUST be preserved so isToolMessage() keeps detecting this
-        // as a tool bubble — without it the content renders as raw markdown.
         const hasSearchResult = results.some((r) => r.tool === "web_search");
-        const contentWithDetails = hasSearchResult
-          ? `🔍 ${resultSummaries}`
-          : `🔧 ${resultSummaries}\n---\n${fullDetails}`;
+
+        // Update the grouped tool message with results
+        toolGroupLines[toolGroupLines.length - 1] = resultSummaries;
+        const updatedGroupContent = hasSearchResult
+          ? `🔍 ${toolGroupLines.join("\n")}`
+          : `🔧 ${toolGroupLines.join("\n")}\n---\n${fullDetails}`;
 
         useChatStore.setState((state) => ({
           messages: state.messages.map((m) =>
-            m.id === toolStatusId ? { ...m, content: contentWithDetails } : m
+            m.id === toolGroupId ? { ...m, content: updatedGroupContent } : m
           ),
         }));
 

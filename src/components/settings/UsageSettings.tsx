@@ -474,12 +474,16 @@ function UsageSettings() {
     monthlyTokens,
     monthlyInputTokens,
     monthlyOutputTokens,
+    monthlyCacheReadTokens,
+    monthlyCacheCreationTokens,
     allTimeCost,
     allTimeInputCost,
     allTimeOutputCost,
     allTimeTokens,
     allTimeInputTokens,
     allTimeOutputTokens,
+    allTimeCacheReadTokens,
+    allTimeCacheCreationTokens,
     monthlyBudget,
     budgetAlertEnabled,
     budgetAlertThreshold,
@@ -515,6 +519,7 @@ function UsageSettings() {
   const [filteredStats, setFilteredStats] = useState<{
     cost: number; inputCost: number; outputCost: number;
     tokens: number; inputTokens: number; outputTokens: number;
+    cacheReadTokens: number; cacheCreationTokens: number;
   } | null>(null);
 
   // Read project names from projectStore (already loaded at app start).
@@ -561,6 +566,7 @@ function UsageSettings() {
       .then((s) => setFilteredStats({
         cost: s.cost, inputCost: s.inputCost, outputCost: s.outputCost,
         tokens: s.tokens, inputTokens: s.inputTokens, outputTokens: s.outputTokens,
+        cacheReadTokens: s.cacheReadTokens ?? 0, cacheCreationTokens: s.cacheCreationTokens ?? 0,
       }))
       .catch(() => {});
   }, [filterSource, filterProjectName, timeframe]);
@@ -660,7 +666,7 @@ function UsageSettings() {
         buckets[h].tokens += s.totalTokens;
         buckets[h].inputTokens += s.totalInputTokens ?? 0;
         buckets[h].outputTokens += s.totalOutputTokens ?? 0;
-        buckets[h].cacheTokens += (s as any).totalCacheReadTokens ?? 0;
+        buckets[h].cacheTokens += s.totalCacheReadTokens ?? 0;
       });
       if (sessionInRange) {
         session.entries.forEach((e) => {
@@ -685,7 +691,7 @@ function UsageSettings() {
         buckets[dow].tokens += s.totalTokens;
         buckets[dow].inputTokens += s.totalInputTokens ?? 0;
         buckets[dow].outputTokens += s.totalOutputTokens ?? 0;
-        buckets[dow].cacheTokens += (s as any).totalCacheReadTokens ?? 0;
+        buckets[dow].cacheTokens += s.totalCacheReadTokens ?? 0;
       });
       if (sessionInRange) {
         session.entries.forEach((e) => {
@@ -712,7 +718,7 @@ function UsageSettings() {
           buckets[day].tokens += s.totalTokens;
           buckets[day].inputTokens += s.totalInputTokens ?? 0;
           buckets[day].outputTokens += s.totalOutputTokens ?? 0;
-          buckets[day].cacheTokens += (s as any).totalCacheReadTokens ?? 0;
+          buckets[day].cacheTokens += s.totalCacheReadTokens ?? 0;
         }
       });
       if (sessionInRange) {
@@ -739,7 +745,7 @@ function UsageSettings() {
         buckets[m].tokens += s.totalTokens;
         buckets[m].inputTokens += s.totalInputTokens ?? 0;
         buckets[m].outputTokens += s.totalOutputTokens ?? 0;
-        buckets[m].cacheTokens += (s as any).totalCacheReadTokens ?? 0;
+        buckets[m].cacheTokens += s.totalCacheReadTokens ?? 0;
       });
       if (sessionInRange) {
         session.entries.forEach((e) => {
@@ -765,7 +771,7 @@ function UsageSettings() {
           tokens: prev.tokens + s.totalTokens,
           inputTokens: prev.inputTokens + (s.totalInputTokens ?? 0),
           outputTokens: prev.outputTokens + (s.totalOutputTokens ?? 0),
-          cacheTokens: prev.cacheTokens + ((s as any).totalCacheReadTokens ?? 0),
+          cacheTokens: prev.cacheTokens + (s.totalCacheReadTokens ?? 0),
         });
       });
       session.entries.forEach((e) => {
@@ -817,8 +823,8 @@ function UsageSettings() {
         tokens: acc.tokens + s.totalTokens,
         inputTokens: acc.inputTokens + (s.totalInputTokens ?? 0),
         outputTokens: acc.outputTokens + (s.totalOutputTokens ?? 0),
-        cacheReadTokens: acc.cacheReadTokens + ((s as any).totalCacheReadTokens ?? 0),
-        cacheCreationTokens: acc.cacheCreationTokens + ((s as any).totalCacheCreationTokens ?? 0),
+        cacheReadTokens: acc.cacheReadTokens + (s.totalCacheReadTokens ?? 0),
+        cacheCreationTokens: acc.cacheCreationTokens + (s.totalCacheCreationTokens ?? 0),
         calls: acc.calls + s.entryCount,
       }),
       {
@@ -830,7 +836,6 @@ function UsageSettings() {
     );
     // Merge live (unsaved) session data when the session falls inside this range
     if (sessionInRange) {
-      base.cost += session.totalCost;
       base.inputCost += session.totalInputCost ?? 0;
       base.outputCost += session.totalOutputCost ?? 0;
       base.tokens += session.totalTokens;
@@ -840,6 +845,8 @@ function UsageSettings() {
       base.cacheCreationTokens += sessionCacheCreationTokens;
       base.calls += session.entries.length;
     }
+    // Always derive cost from input+output so they can never drift
+    base.cost = base.inputCost + base.outputCost;
     return base;
   }, [
     rangeHistory, sessionInRange,
@@ -851,14 +858,14 @@ function UsageSettings() {
     // every tab except session (session is in-memory with no source breakdown).
     if (filterSource !== "all" && filteredStats && timeframe !== "session") {
       return {
-        cost: filteredStats.cost,
+        cost: (filteredStats.inputCost ?? 0) + (filteredStats.outputCost ?? 0),
         inputCost: filteredStats.inputCost,
         outputCost: filteredStats.outputCost,
         tokens: filteredStats.tokens,
         inputTokens: filteredStats.inputTokens,
         outputTokens: filteredStats.outputTokens,
-        cacheReadTokens: 0,
-        cacheCreationTokens: 0,
+        cacheReadTokens: filteredStats.cacheReadTokens ?? 0,
+        cacheCreationTokens: filteredStats.cacheCreationTokens ?? 0,
         calls: null,
       };
     }
@@ -866,7 +873,7 @@ function UsageSettings() {
     switch (timeframe) {
       case "session":
         return {
-          cost: session.totalCost,
+          cost: (session.totalInputCost ?? 0) + (session.totalOutputCost ?? 0),
           inputCost: session.totalInputCost ?? 0,
           outputCost: session.totalOutputCost ?? 0,
           tokens: session.totalTokens,
@@ -877,40 +884,32 @@ function UsageSettings() {
           calls: session.entries.length,
         };
       case "month": {
-        const now = new Date();
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-        const historyCacheRead = sessionHistory
-          .filter((s) => s.startTime >= monthStart)
-          .reduce((sum, s) => sum + ((s as any).totalCacheReadTokens ?? 0), 0);
-        const historyCacheCreate = sessionHistory
-          .filter((s) => s.startTime >= monthStart)
-          .reduce((sum, s) => sum + ((s as any).totalCacheCreationTokens ?? 0), 0);
+        const mInputCost = (monthlyInputCost ?? 0) + (session.totalInputCost ?? 0);
+        const mOutputCost = (monthlyOutputCost ?? 0) + (session.totalOutputCost ?? 0);
         return {
-          cost: monthlyCost + session.totalCost,
-          inputCost: (monthlyInputCost ?? 0) + (session.totalInputCost ?? 0),
-          outputCost: (monthlyOutputCost ?? 0) + (session.totalOutputCost ?? 0),
+          cost: mInputCost + mOutputCost,
+          inputCost: mInputCost,
+          outputCost: mOutputCost,
           tokens: monthlyTokens + session.totalTokens,
           inputTokens: (monthlyInputTokens ?? 0) + (session.totalInputTokens ?? 0),
           outputTokens: (monthlyOutputTokens ?? 0) + (session.totalOutputTokens ?? 0),
-          cacheReadTokens: historyCacheRead + sessionCacheReadTokens,
-          cacheCreationTokens: historyCacheCreate + sessionCacheCreationTokens,
+          cacheReadTokens: (monthlyCacheReadTokens ?? 0) + sessionCacheReadTokens,
+          cacheCreationTokens: (monthlyCacheCreationTokens ?? 0) + sessionCacheCreationTokens,
           calls: null,
         };
       }
       case "alltime": {
-        const historyCacheRead = sessionHistory
-          .reduce((sum, s) => sum + ((s as any).totalCacheReadTokens ?? 0), 0);
-        const historyCacheCreate = sessionHistory
-          .reduce((sum, s) => sum + ((s as any).totalCacheCreationTokens ?? 0), 0);
+        const aInputCost = (allTimeInputCost ?? 0) + (session.totalInputCost ?? 0);
+        const aOutputCost = (allTimeOutputCost ?? 0) + (session.totalOutputCost ?? 0);
         return {
-          cost: allTimeCost + session.totalCost,
-          inputCost: (allTimeInputCost ?? 0) + (session.totalInputCost ?? 0),
-          outputCost: (allTimeOutputCost ?? 0) + (session.totalOutputCost ?? 0),
+          cost: aInputCost + aOutputCost,
+          inputCost: aInputCost,
+          outputCost: aOutputCost,
           tokens: allTimeTokens + session.totalTokens,
           inputTokens: (allTimeInputTokens ?? 0) + (session.totalInputTokens ?? 0),
           outputTokens: (allTimeOutputTokens ?? 0) + (session.totalOutputTokens ?? 0),
-          cacheReadTokens: historyCacheRead + sessionCacheReadTokens,
-          cacheCreationTokens: historyCacheCreate + sessionCacheCreationTokens,
+          cacheReadTokens: (allTimeCacheReadTokens ?? 0) + sessionCacheReadTokens,
+          cacheCreationTokens: (allTimeCacheCreationTokens ?? 0) + sessionCacheCreationTokens,
           calls: null,
         };
       }
@@ -921,14 +920,17 @@ function UsageSettings() {
     timeframe, session, sessionCacheReadTokens, sessionCacheCreationTokens,
     monthlyCost, monthlyInputCost, monthlyOutputCost,
     monthlyTokens, monthlyInputTokens, monthlyOutputTokens,
+    monthlyCacheReadTokens, monthlyCacheCreationTokens,
     allTimeCost, allTimeInputCost, allTimeOutputCost,
     allTimeTokens, allTimeInputTokens, allTimeOutputTokens,
+    allTimeCacheReadTokens, allTimeCacheCreationTokens,
     rangeStats, sessionHistory,
     filterSource, filteredStats,
   ]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const formatCost = (cost: number) => {
+    if (cost <= 0) return "$0.00";
     if (cost < 0.01) return "<$0.01";
     if (cost < 1) return `$${cost.toFixed(3)}`;
     return `$${cost.toFixed(2)}`;
