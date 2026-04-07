@@ -1,11 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useAuthStore } from "../../stores/authStore";
 import { themes } from "../../config/themes";
+import { refreshSession } from "../../services/authService";
 
 function BillingSettings() {
   const { theme } = useSettingsStore();
   const t = themes[theme];
   const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [checkoutPending, setCheckoutPending] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Allow other pages (e.g. HomePage) to deep-link to the Teams tab
   const initialPlanTab = (() => {
@@ -18,9 +25,179 @@ function BillingSettings() {
   })();
   const [planTab, setPlanTab] = useState<"solo" | "teams">(initialPlanTab);
 
-  // TODO: Replace with real plan status from license/auth system
-  const currentPlan = "starter";
-  const trialDaysLeft = 0; // 0 = not on trial
+  const { profile, user, session, fetchProfile } = useAuthStore();
+  const currentPlan = profile?.plan || "starter";
+  const subscriptionStatus = profile?.subscription_status || "incomplete";
+  const isSubscribed = subscriptionStatus === "active" || subscriptionStatus === "trialing";
+  const trialDaysLeft = 0; // TODO: Calculate from subscription trial_end
+
+  // ─── Poll for plan changes after checkout ──────────────────
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
+
+  const startPolling = (expectedPlan: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    setCheckoutPending(true);
+
+    let attempts = 0;
+    pollingRef.current = setInterval(async () => {
+      attempts++;
+      await fetchProfile();
+
+      const updatedPlan = useAuthStore.getState().profile?.plan;
+      const updatedStatus = useAuthStore.getState().profile?.subscription_status;
+
+      if (
+        updatedPlan === expectedPlan &&
+        (updatedStatus === "active" || updatedStatus === "trialing")
+      ) {
+        // Plan updated successfully
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        pollingRef.current = null;
+        setCheckoutPending(false);
+      }
+
+      // Stop after 2 minutes (24 attempts × 5 seconds)
+      if (attempts >= 24) {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        pollingRef.current = null;
+        setCheckoutPending(false);
+      }
+    }, 5000);
+  };
+
+  // ─── Get a fresh access token ──────────────────────────────
+  const getFreshToken = async (): Promise<string | null> => {
+    try {
+      const freshSession = await refreshSession();
+      if (freshSession?.access_token) {
+        return freshSession.access_token;
+      }
+    } catch (e) {
+      console.warn("Token refresh failed:", e);
+    }
+
+    // Fallback to existing token if refresh failed
+    return session?.access_token || null;
+  };
+
+  // ─── Stripe Checkout ────────────────────────────────────────
+
+  const handleCheckout = async (planId: string) => {
+    if (!user) return;
+    setCheckoutLoading(planId);
+    setError(null);
+
+    try {
+      const interval = billingCycle === "annual" ? "yearly" : "monthly";
+
+      const token = await getFreshToken();
+      if (!token) {
+        setError("Please log in to subscribe.");
+        setCheckoutLoading(null);
+        return;
+      }
+
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-create-checkout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ plan: planId, interval }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || `Checkout failed (${res.status})`);
+        setCheckoutLoading(null);
+        return;
+      }
+
+      // Open Stripe Checkout in the default browser
+      if (data?.url) {
+        try {
+          const opener = await import("@tauri-apps/plugin-opener");
+          const openFn = opener.openUrl || opener.open || opener.default;
+          if (openFn) {
+            await openFn(data.url);
+          } else {
+            throw new Error("No open function found");
+          }
+        } catch (e) {
+          navigator.clipboard.writeText(data.url);
+          setError("Checkout URL copied to clipboard — paste it in your browser.");
+        }
+
+        // Start polling for plan changes
+        startPolling(planId);
+      } else {
+        setError("No checkout URL returned");
+      }
+    } catch (err: any) {
+      setError(err.message || "Something went wrong");
+    }
+
+    setCheckoutLoading(null);
+  };
+
+  // ─── Stripe Customer Portal ─────────────────────────────────
+
+  const handleManageBilling = async () => {
+    if (!user) return;
+    setPortalLoading(true);
+    setError(null);
+
+    try {
+      const token = await getFreshToken();
+      if (!token) {
+        setError("Please log in first.");
+        setPortalLoading(false);
+        return;
+      }
+
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-create-portal`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({}),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || `Portal failed (${res.status})`);
+        setPortalLoading(false);
+        return;
+      }
+
+      if (data?.url) {
+        try {
+          const opener = await import("@tauri-apps/plugin-opener");
+          const openFn = opener.openUrl || opener.open || opener.default;
+          if (openFn) await openFn(data.url);
+          else throw new Error("No open function");
+        } catch (e) {
+          navigator.clipboard.writeText(data.url);
+          setError("Portal URL copied to clipboard — paste it in your browser.");
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || "Something went wrong");
+    }
+
+    setPortalLoading(false);
+  };
+
+  // ─── Plan data ──────────────────────────────────────────────
 
   const soloPlans = [
     {
@@ -153,6 +330,27 @@ function BillingSettings() {
         </p>
       </div>
 
+      {/* Error banner */}
+      {error && (
+        <div
+          className={`${t.borderRadius} p-3 mb-4 text-sm`}
+          style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)", color: "#F87171" }}
+        >
+          {error}
+          <button onClick={() => setError(null)} className="ml-2 opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
+
+      {/* Checkout pending banner */}
+      {checkoutPending && (
+        <div
+          className={`${t.borderRadius} p-3 mb-4 text-sm`}
+          style={{ background: "rgba(45, 184, 122, 0.1)", border: "1px solid rgba(45, 184, 122, 0.2)", color: "#5DE8A0" }}
+        >
+          Waiting for checkout to complete… Your plan will update automatically.
+        </div>
+      )}
+
       {/* Current plan status bar */}
       <div
         className={`${t.colors.bgSecondary} ${t.borderRadius} p-4 mb-8`}
@@ -161,33 +359,48 @@ function BillingSettings() {
           <div>
             <div className="flex items-center gap-2">
               <p className="font-semibold capitalize">{currentPlan} Plan</p>
-              {trialDaysLeft > 0 && (
+              {subscriptionStatus === "trialing" && (
                 <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-medium">
-                  {trialDaysLeft} days left in trial
+                  Trial
+                </span>
+              )}
+              {subscriptionStatus === "past_due" && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-medium">
+                  Payment overdue
                 </span>
               )}
             </div>
             <p className={`text-xs ${t.colors.textMuted} mt-0.5`}>
-              Billed monthly · Renews March 4, 2026
+              {isSubscribed
+                ? `Billed ${billingCycle === "annual" ? "annually" : "monthly"}`
+                : "No active subscription"}
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              className={`text-xs ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
-              title="Cancel subscription"
-            >
-              Cancel plan
-            </button>
-            <button
-              className={`px-3 py-1.5 ${t.borderRadius} text-sm font-medium`}
-              style={{
-                background: "rgba(45, 184, 122, 0.15)",
-                color: "#5DE8A0",
-                border: "1px solid rgba(45, 184, 122, 0.3)",
-              }}
-            >
-              Manage billing
-            </button>
+            {isSubscribed && (
+              <>
+                <button
+                  onClick={handleManageBilling}
+                  disabled={portalLoading}
+                  className={`text-xs ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
+                  title="Cancel subscription"
+                >
+                  Cancel plan
+                </button>
+                <button
+                  onClick={handleManageBilling}
+                  disabled={portalLoading}
+                  className={`px-3 py-1.5 ${t.borderRadius} text-sm font-medium disabled:opacity-50`}
+                  style={{
+                    background: "rgba(45, 184, 122, 0.15)",
+                    color: "#5DE8A0",
+                    border: "1px solid rgba(45, 184, 122, 0.3)",
+                  }}
+                >
+                  {portalLoading ? "Opening..." : "Manage billing"}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -267,6 +480,7 @@ function BillingSettings() {
           const isCurrent = currentPlan === plan.id;
           const isPopular = plan.badge === "Most Popular";
           const isUpgrade = planIndex(plan.id) > planIndex(currentPlan);
+          const isLoading = checkoutLoading === plan.id;
 
           return (
             <div
@@ -310,17 +524,17 @@ function BillingSettings() {
               <div className="mb-4">
                 <div className="flex items-baseline gap-1">
                   <span className="text-3xl font-bold">
-                    ${getMonthlyEquivalent(plan)}
+                    €{getMonthlyEquivalent(plan)}
                   </span>
                   <span className={`text-sm ${t.colors.textMuted}`}>/mo</span>
                 </div>
                 {billingCycle === "annual" ? (
                   <div className="flex items-center gap-2 mt-1">
-                    <span className={`text-xs ${t.colors.textMuted}`}>
-                      ${getPrice(plan)}/year
+                    <span className={`text-sm font-medium ${t.colors.text}`}>
+                      €{getPrice(plan)}/year
                     </span>
                     <span className="text-xs text-green-400 font-medium">
-                      Save ${getAnnualSavings(plan)}
+                      Save €{getAnnualSavings(plan)}
                     </span>
                   </div>
                 ) : (
@@ -373,7 +587,15 @@ function BillingSettings() {
                 </div>
               ) : (
                 <button
-                  className={`w-full py-2 ${t.borderRadius} text-sm font-medium transition-all duration-150`}
+                  onClick={() => {
+                    if (isSubscribed) {
+                      handleManageBilling();
+                    } else {
+                      handleCheckout(plan.id);
+                    }
+                  }}
+                  disabled={isLoading || portalLoading || checkoutPending}
+                  className={`w-full py-2 ${t.borderRadius} text-sm font-medium transition-all duration-150 disabled:opacity-50`}
                   style={
                     isPopular
                       ? { background: "#2DB87A", color: "#FFFFFF" }
@@ -406,7 +628,7 @@ function BillingSettings() {
                     }
                   }}
                 >
-                  {isUpgrade ? plan.cta : "Downgrade"}
+                  {isLoading ? "Opening checkout..." : isUpgrade ? plan.cta : "Downgrade"}
                 </button>
               )}
             </div>
@@ -503,31 +725,6 @@ function BillingSettings() {
             </button>
           </div>
         )}
-      </div>
-
-      {/* Payment method */}
-      <div className="mb-8">
-        <h3
-          className={`text-sm font-medium mb-3 ${t.colors.textMuted} uppercase tracking-wider`}
-        >
-          Payment Method
-        </h3>
-        <div
-          className={`${t.colors.bgSecondary} ${t.borderRadius} p-4 flex justify-between items-center`}
-        >
-          <div>
-            <p className="font-medium text-sm">•••• •••• •••• 4242</p>
-            <p className={`text-xs ${t.colors.textMuted} mt-0.5`}>
-              Visa · Expires 12/28
-            </p>
-          </div>
-          <button
-            className={`px-3 py-1.5 ${t.borderRadius} text-xs font-medium transition-colors`}
-            style={{ border: "1px solid #2A2A2A", color: "#888888" }}
-          >
-            Update
-          </button>
-        </div>
       </div>
 
       {/* BYOK notice */}

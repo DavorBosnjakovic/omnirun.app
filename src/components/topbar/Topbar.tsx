@@ -180,6 +180,20 @@ function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsCli
   };
   const badgeColor = accentColorMap[theme] ?? '#2DB87A';
 
+  // ── Handle notification click based on source ──────────────
+  const handleNotificationClick = (n: typeof topNotifications[0]) => {
+    markAsRead(n.id);
+    setUserMenuOpen(false);
+
+    if (n.source === 'team') {
+      // Navigate to Settings → Team tab
+      sessionStorage.setItem('settings_tab', 'team');
+      onSettingsClick?.();
+    } else {
+      onAssistantClick?.();
+    }
+  };
+
   return (
     <div
       data-tauri-drag-region
@@ -262,7 +276,7 @@ function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsCli
             {/* Avatar button with notification badge dot */}
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="relative w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white transition-all hover:ring-2 hover:ring-white/30 overflow-hidden"
+              className="relative w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white transition-all hover:ring-2 hover:ring-white/30"
               style={{ background: showAvatar ? 'transparent' : 'var(--action, #7C3AED)' }}
               title={user.displayName || user.email}
             >
@@ -280,12 +294,10 @@ function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsCli
               {/* Badge dot — visible when there are unread notifications */}
               {unreadCount > 0 && (
                 <span
-                  className="absolute top-0 right-0 w-3 h-3 rounded-full border-2"
+                  className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full border-2 z-10"
                   style={{
                     backgroundColor: badgeColor,
-                    borderColor: t.colors.bgSecondary.replace('bg-[', '').replace(']', '').startsWith('#')
-                      ? t.colors.bgSecondary.replace('bg-[', '').replace(']', '')
-                      : undefined,
+                    borderColor: '#2F3238',
                   }}
                 />
               )}
@@ -312,11 +324,7 @@ function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsCli
                     {topNotifications.map((n) => (
                       <button
                         key={n.id}
-                        onClick={() => {
-                          markAsRead(n.id);
-                          setUserMenuOpen(false);
-                          onAssistantClick?.();
-                        }}
+                        onClick={() => handleNotificationClick(n)}
                         className={`w-full px-3 py-2 text-left flex items-start gap-2.5 hover:bg-white/10 transition-colors`}
                       >
                         <span

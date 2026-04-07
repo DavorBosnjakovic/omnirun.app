@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Users, Crown, X, Send, Clock, RefreshCw, Trash2, Shield, AlertTriangle } from "lucide-react";
+import { Users, Crown, X, Send, Clock, RefreshCw, Trash2, Shield, AlertTriangle, Mail, CheckCircle } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useTeamStore } from "../../stores/teamStore";
+import { getSupabase } from "../../services/supabaseClient";
 import { themes } from "../../config/themes";
 import type { SharedProviderConfig } from "../../stores/teamStore";
 
@@ -58,6 +59,16 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
+// ─── Types ───────────────────────────────────────────────────
+
+interface PendingInvitation {
+  id: string;
+  token: string;
+  teamId: string;
+  teamName: string;
+  expiresAt: string;
+}
+
 // ─── Component ───────────────────────────────────────────────
 
 interface TeamSettingsProps {
@@ -104,6 +115,13 @@ function TeamSettings({ onNavigateTab }: TeamSettingsProps) {
   const [policyLoading, setPolicyLoading] = useState(false);
   const [policyError, setPolicyError] = useState<string | null>(null);
 
+  // Pending invitation state (for invitees who don't have a team yet)
+  const [pendingInvitation, setPendingInvitation] = useState<PendingInvitation | null>(null);
+  const [loadingInvitation, setLoadingInvitation] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+  const [declining, setDeclining] = useState(false);
+  const [invitationError, setInvitationError] = useState<string | null>(null);
+
   // Load team data on mount
   useEffect(() => {
     if (user?.id) {
@@ -118,6 +136,54 @@ function TeamSettings({ onNavigateTab }: TeamSettingsProps) {
       setTeamNameDirty(false);
     }
   }, [team?.name]);
+
+  // Check for pending invitations when user has no team
+  useEffect(() => {
+    if (!user?.email || hasTeam || isLoading) return;
+
+    const fetchPendingInvitation = async () => {
+      setLoadingInvitation(true);
+      try {
+        // Query invitations for this user's email
+        const { data: invData, error: invError } = await getSupabase()
+          .from("team_invitations")
+          .select("id, token, expires_at, team_id")
+          .eq("email", user.email)
+          .eq("status", "pending")
+          .gt("expires_at", new Date().toISOString())
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (invError || !invData || invData.length === 0) {
+          setPendingInvitation(null);
+          setLoadingInvitation(false);
+          return;
+        }
+
+        const inv = invData[0];
+
+        // Get team name (RLS allows invitees to read their invited team)
+        const { data: teamData } = await getSupabase()
+          .from("teams")
+          .select("name")
+          .eq("id", inv.team_id)
+          .single();
+
+        setPendingInvitation({
+          id: inv.id,
+          token: inv.token,
+          teamId: inv.team_id,
+          teamName: teamData?.name || "a team",
+          expiresAt: inv.expires_at,
+        });
+      } catch (err) {
+        console.error("[TeamSettings] Failed to fetch pending invitation:", err);
+      }
+      setLoadingInvitation(false);
+    };
+
+    fetchPendingInvitation();
+  }, [user?.email, hasTeam, isLoading]);
 
   // ─── Handlers ────────────────────────────────────────────
 
@@ -215,6 +281,59 @@ function TeamSettings({ onNavigateTab }: TeamSettingsProps) {
     setPolicyLoading(false);
   };
 
+  const handleAcceptInvitation = async () => {
+    if (!pendingInvitation || !user?.id) return;
+    setAccepting(true);
+    setInvitationError(null);
+
+    try {
+      const { data, error } = await getSupabase().rpc("accept_invitation", {
+        p_token: pendingInvitation.token,
+      });
+
+      if (error) throw error;
+
+      if (data && !data.success) {
+        const errorMessages: Record<string, string> = {
+          not_authenticated: "You need to be logged in.",
+          invitation_not_found: "Invitation not found.",
+          invitation_accepted: "This invitation was already accepted.",
+          invitation_expired: "This invitation has expired. Ask the team owner to resend it.",
+          email_mismatch: "This invitation was sent to a different email address.",
+          already_on_team: "You're already on a team. You can only be on one team at a time.",
+        };
+        setInvitationError(errorMessages[data.error] || data.error);
+      } else {
+        // Success — clear invitation and reload team data
+        setPendingInvitation(null);
+        fetchTeam(user.id);
+      }
+    } catch (err: any) {
+      setInvitationError(err.message || "Failed to accept invitation");
+    }
+
+    setAccepting(false);
+  };
+
+  const handleDeclineInvitation = async () => {
+    if (!pendingInvitation) return;
+    setDeclining(true);
+    setInvitationError(null);
+
+    try {
+      await getSupabase()
+        .from("team_invitations")
+        .update({ status: "declined" })
+        .eq("id", pendingInvitation.id);
+
+      setPendingInvitation(null);
+    } catch (err: any) {
+      setInvitationError(err.message || "Failed to decline invitation");
+    }
+
+    setDeclining(false);
+  };
+
   // ─── Group activity log by day ────────────────────────────
 
   const groupedActivity: Record<string, typeof activityLog> = {};
@@ -230,7 +349,7 @@ function TeamSettings({ onNavigateTab }: TeamSettingsProps) {
 
   // ─── Loading & No Team states ─────────────────────────────
 
-  if (isLoading) {
+  if (isLoading || loadingInvitation) {
     return (
       <div className={`${t.colors.text} flex items-center justify-center py-20`}>
         <RefreshCw size={20} className="animate-spin mr-3" />
@@ -238,6 +357,117 @@ function TeamSettings({ onNavigateTab }: TeamSettingsProps) {
       </div>
     );
   }
+
+  // ─── Pending Invitation View (invitee hasn't joined yet) ──
+
+  if (!hasTeam && pendingInvitation) {
+    return (
+      <div className={`${t.colors.text}`}>
+        <h1 className="text-2xl font-bold mb-2">Team</h1>
+        <p className={`${t.colors.textMuted} mb-6`}>
+          You've been invited to join a team.
+        </p>
+
+        <div className={`${t.colors.bgSecondary} ${t.borderRadius} p-6 mb-6`}>
+          <div className="flex items-start gap-4">
+            <div
+              className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ background: "rgba(45, 184, 122, 0.1)" }}
+            >
+              <Mail size={22} style={{ color: "#2DB87A" }} />
+            </div>
+
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold mb-1">
+                Join {pendingInvitation.teamName}
+              </h3>
+              <p className={`text-sm ${t.colors.textMuted} mb-1`}>
+                You've been invited to collaborate on projects with this team.
+                One person works on a project at a time — no merge conflicts, no chaos.
+              </p>
+              <p className={`text-xs ${t.colors.textMuted}`}>
+                Expires {new Date(pendingInvitation.expiresAt).toLocaleDateString("en-US", {
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </p>
+
+              {invitationError && (
+                <div className="flex items-start gap-2 text-sm text-red-500 mt-3">
+                  <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+                  <span>{invitationError}</span>
+                </div>
+              )}
+
+              <div className="flex gap-3 mt-4">
+                <button
+                  onClick={handleAcceptInvitation}
+                  disabled={accepting}
+                  className={`${t.colors.accent} ${t.colors.accentHover} ${
+                    theme === "highContrast" ? "text-black" : "text-white"
+                  } px-5 py-2 ${t.borderRadius} flex items-center gap-2 disabled:opacity-50`}
+                >
+                  {accepting ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" />
+                      Joining...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle size={16} />
+                      Accept Invitation
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={handleDeclineInvitation}
+                  disabled={declining}
+                  className={`${t.colors.bgTertiary} hover:opacity-80 px-5 py-2 ${t.borderRadius} disabled:opacity-50`}
+                >
+                  {declining ? "Declining..." : "Decline"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Still show the "How it works" cards */}
+        <h3 className={`text-sm font-medium mb-3 ${t.colors.textMuted}`}>How it works</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+          {[
+            {
+              title: "Invite members",
+              desc: "Add people by email. They download the app, accept the invite, and they're in.",
+            },
+            {
+              title: "Project locking",
+              desc: "When someone opens a project, it locks to them. Others see who's working and get notified when it's free.",
+            },
+            {
+              title: "Shared or individual API keys",
+              desc: "Share one API key with everyone, or let each member bring their own. If you share, your key is encrypted and stored on Omnirun's servers so members can use it — it's no longer stored only on your device. You can switch back at any time.",
+            },
+            {
+              title: "Activity log",
+              desc: "See who worked on what, who deployed, and who joined — all in one simple timeline.",
+            },
+          ].map((item) => (
+            <div
+              key={item.title}
+              className={`${t.colors.bgSecondary} ${t.borderRadius} p-4`}
+            >
+              <p className="text-sm font-medium mb-1">{item.title}</p>
+              <p className={`text-xs ${t.colors.textMuted} leading-relaxed`}>{item.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── No Team (no invitation either) ───────────────────────
 
   if (!hasTeam) {
     return (

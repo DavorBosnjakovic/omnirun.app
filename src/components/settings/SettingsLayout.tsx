@@ -21,12 +21,29 @@ interface SettingsLayoutProps {
 }
 
 function SettingsLayout({ onClose, initialTab = "general" }: SettingsLayoutProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab as SettingsTab);
+  // Check for sessionStorage override (e.g., from notification click → Team tab)
+  const resolvedInitialTab = (() => {
+    const stored = sessionStorage.getItem("settings_tab");
+    if (stored) {
+      sessionStorage.removeItem("settings_tab");
+      return stored;
+    }
+    return initialTab;
+  })();
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>(resolvedInitialTab as SettingsTab);
   const { theme } = useSettingsStore();
   const t = themes[theme];
 
   useEffect(() => {
-    setActiveTab(initialTab as SettingsTab);
+    // Check sessionStorage again in case it was set after mount (e.g., re-opening settings)
+    const stored = sessionStorage.getItem("settings_tab");
+    if (stored) {
+      sessionStorage.removeItem("settings_tab");
+      setActiveTab(stored as SettingsTab);
+    } else {
+      setActiveTab(initialTab as SettingsTab);
+    }
   }, [initialTab]);
 
   const tabs = [

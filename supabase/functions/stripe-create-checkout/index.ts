@@ -1,22 +1,36 @@
-import Stripe from "https://esm.sh/stripe@14.14.0?target=deno";
 import { getUser, supabaseAdmin } from "../_shared/supabase.ts";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
-  apiVersion: "2023-10-16",
-  httpClient: Stripe.createFetchHttpClient(),
-});
+const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 
 // ─── Price ID mapping ─────────────────────────────────────────
-// REPLACE these values with your real Stripe price_xxx IDs
 const PRICE_IDS: Record<string, string> = {
-  starter_monthly:  "price_starter_monthly",
-  starter_yearly:   "price_starter_yearly",
-  pro_monthly:      "price_pro_monthly",
-  pro_yearly:       "price_pro_yearly",
-  business_monthly: "price_business_monthly",
-  business_yearly:  "price_business_yearly",
+  starter_monthly:  "price_1TJAtz2N9rEm3shKxAmAgVho",
+  starter_yearly:   "price_1TJAvS2N9rEm3shKVcZZNBW8",
+  pro_monthly:      "price_1TJAvq2N9rEm3shKfpcz3uBh",
+  pro_yearly:       "price_1TJAwD2N9rEm3shKb7FVlKP6",
+  studio_monthly:   "price_1TJAwe2N9rEm3shKT8hOZcJi",
+  studio_yearly:    "price_1TJAwz2N9rEm3shKAJMBXgkf",
+  team_monthly:     "price_1TJAxL2N9rEm3shK2Biepabj",
+  team_yearly:      "price_1TJAxd2N9rEm3shKNSXT2BdO",
+  business_monthly: "price_1TJAy42N9rEm3shKAtV4CmI3",
+  business_yearly:  "price_1TJAyP2N9rEm3shKTsz1rKnV",
 };
+
+// ─── Stripe REST helper ──────────────────────────────────────
+async function stripePost(endpoint: string, params: Record<string, string>) {
+  const res = await fetch(`https://api.stripe.com/v1${endpoint}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams(params).toString(),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || "Stripe API error");
+  return data;
+}
 
 Deno.serve(async (req: Request) => {
   const corsResponse = handleCors(req);
@@ -26,13 +40,11 @@ Deno.serve(async (req: Request) => {
     return errorResponse("Method not allowed", 405);
   }
 
-  // Authenticate
   const user = await getUser(req);
   if (!user) {
-    return errorResponse("Unauthorized", 401);
+    return errorResponse("Not authenticated", 401);
   }
 
-  // Parse request body
   const { plan, interval } = await req.json();
   if (!plan || !interval) {
     return errorResponse("Missing plan or interval");
@@ -55,9 +67,9 @@ Deno.serve(async (req: Request) => {
     let customerId = profile?.stripe_customer_id;
 
     if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: profile?.email ?? user.email,
-        metadata: { user_id: user.id },
+      const customer = await stripePost("/customers", {
+        email: profile?.email ?? user.email ?? "",
+        "metadata[user_id]": user.id,
       });
       customerId = customer.id;
 
@@ -82,24 +94,24 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Create Checkout Session with 7-day trial
-    const session = await stripe.checkout.sessions.create({
-      customer: customerId,
+    // Static pages hosted in Supabase Storage (public bucket: static)
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const successUrl = "https://omnirun.app/checkout/success";
+    const cancelUrl = "https://omnirun.app/checkout/cancel";
+
+    // Create Checkout Session
+    const session = await stripePost("/checkout/sessions", {
+      customer: customerId!,
       mode: "subscription",
       payment_method_collection: "always",
-      line_items: [{ price: priceId, quantity: 1 }],
-      subscription_data: {
-        trial_period_days: 7,
-        metadata: { user_id: user.id },
-      },
-      metadata: { user_id: user.id },
-      success_url: `${
-        Deno.env.get("APP_URL") ?? "omnirun://"
-      }subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${
-        Deno.env.get("APP_URL") ?? "omnirun://"
-      }subscription/cancel`,
-      allow_promotion_codes: true,
+      "line_items[0][price]": priceId,
+      "line_items[0][quantity]": "1",
+      "subscription_data[trial_period_days]": "7",
+      "subscription_data[metadata][user_id]": user.id,
+      "metadata[user_id]": user.id,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      allow_promotion_codes: "true",
     });
 
     return jsonResponse({ url: session.url, sessionId: session.id });

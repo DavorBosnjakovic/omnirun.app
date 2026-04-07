@@ -15,14 +15,27 @@ export function supabaseClient(authHeader: string) {
   );
 }
 
-// Extract authenticated user from request
+// Extract authenticated user from request.
+// Uses the service-role admin client to validate the JWT directly.
+// This avoids "Auth session missing" errors that happen when a
+// user-scoped client has no active session in the Edge Runtime.
 export async function getUser(req: Request) {
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return null;
+  if (!authHeader) {
+    console.log("[getUser] No Authorization header");
+    return null;
+  }
 
-  const client = supabaseClient(authHeader);
-  const { data: { user }, error } = await client.auth.getUser();
-  if (error || !user) return null;
+  const token = authHeader.replace("Bearer ", "");
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (error) {
+    console.log("[getUser] Error:", error.message);
+    return null;
+  }
+  if (!user) {
+    console.log("[getUser] No user returned");
+    return null;
+  }
   return user;
 }
 

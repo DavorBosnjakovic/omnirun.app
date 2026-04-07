@@ -1,11 +1,7 @@
-import Stripe from "https://esm.sh/stripe@14.14.0?target=deno";
 import { getUser, supabaseAdmin } from "../_shared/supabase.ts";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
-  apiVersion: "2023-10-16",
-  httpClient: Stripe.createFetchHttpClient(),
-});
+const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 
 Deno.serve(async (req: Request) => {
   const corsResponse = handleCors(req);
@@ -34,12 +30,25 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const session = await stripe.billingPortal.sessions.create({
-      customer: profile.stripe_customer_id,
-      return_url: `${
-        Deno.env.get("APP_URL") ?? "omnirun://"
-      }settings/subscription`,
+    const appUrl = Deno.env.get("APP_URL") ?? "omnirun://";
+
+    const res = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        customer: profile.stripe_customer_id,
+        return_url: `${appUrl}settings/subscription`,
+      }).toString(),
     });
+
+    const session = await res.json();
+
+    if (!res.ok) {
+      throw new Error(session.error?.message || "Stripe API error");
+    }
 
     return jsonResponse({ url: session.url });
   } catch (err) {
