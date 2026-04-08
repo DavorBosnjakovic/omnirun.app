@@ -9,6 +9,7 @@ import { useNotificationStore, selectTopNotifications, getSourceLabel } from "..
 import { themes, ThemeKey } from "../../config/themes";
 import UsageIndicator from "../chat/UsageIndicator";
 import ToolsDropdown from "./ToolsDropdown";
+import VoiceIndicator from "../voice/VoiceIndicator";
 import elipseDark from "../../assets/elipse_transparent_dark.svg";
 import elipseLight from "../../assets/elipse_transparent_light.svg";
 
@@ -232,6 +233,7 @@ function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsCli
       <div className="flex items-center gap-2">
         <ToolsDropdown onNavigate={onToolsNavigate} />
         <UsageIndicator />
+        <VoiceIndicator />
 
         <button
           onClick={toggleMode}

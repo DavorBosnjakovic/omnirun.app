@@ -2,6 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
+use tauri::Emitter;
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -45,6 +47,9 @@ static DEV_SERVER_PROCESS: Mutex<Option<u32>> = Mutex::new(None);
 // Frontend can poll this to check for build errors
 static DEV_SERVER_OUTPUT: once_cell::sync::Lazy<Arc<Mutex<String>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(String::new())));
+
+// Store the currently registered voice mute hotkey
+static VOICE_HOTKEY: Mutex<Option<String>> = Mutex::new(None);
 
 #[tauri::command]
 fn set_project_path(path: String) -> Result<(), String> {
@@ -821,6 +826,48 @@ fn run_task_now(task_id: String) -> Result<(), String> {
     Ok(())
 }
 
+// ── Voice mute hotkey ─────────────────────────────────────────
+
+#[tauri::command]
+fn register_voice_mute_hotkey(app: tauri::AppHandle, hotkey: String) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::Shortcut;
+
+    // Unregister previous hotkey if any
+    if let Some(prev_str) = VOICE_HOTKEY.lock().unwrap().take() {
+        if let Ok(prev) = prev_str.parse::<Shortcut>() {
+            let _ = app.global_shortcut().unregister(prev);
+        }
+    }
+
+    let shortcut: Shortcut = hotkey.parse()
+        .map_err(|e| format!("Invalid hotkey '{}': {}", hotkey, e))?;
+
+    let app_handle = app.clone();
+    app.global_shortcut()
+        .on_shortcut(shortcut, move |_app, _shortcut, _event| {
+            // Emit event to frontend — voiceService.ts listens for this
+            let _ = app_handle.emit("voice-mute-toggle", ());
+        })
+        .map_err(|e| format!("Failed to register voice mute hotkey: {}", e))?;
+
+    *VOICE_HOTKEY.lock().unwrap() = Some(hotkey);
+    Ok(())
+}
+
+#[tauri::command]
+fn unregister_voice_mute_hotkey(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::Shortcut;
+
+    if let Some(prev_str) = VOICE_HOTKEY.lock().unwrap().take() {
+        if let Ok(prev) = prev_str.parse::<Shortcut>() {
+            app.global_shortcut()
+                .unregister(prev)
+                .map_err(|e| format!("Failed to unregister voice mute hotkey: {}", e))?;
+        }
+    }
+    Ok(())
+}
+
 // ───────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -898,6 +945,9 @@ pub fn run() {
             screen_control::create_playlist,
             screen_control::get_omni_files_path,
             screen_control::minimize_self,
+            // Voice control
+            register_voice_mute_hotkey,
+            unregister_voice_mute_hotkey,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -23,6 +23,9 @@ import { useDiffStore } from "../../stores/diffStore";
 import { useElementSelectionStore } from "../../stores/elementSelectionStore";
 import DiffViewer from "../diff/DiffViewer";
 import OmnirunSpinner from "./OmnirunSpinner";
+import VoiceButton from "../voice/VoiceButton";
+import VoiceTranscriptOverlay from "../voice/VoiceTranscriptOverlay";
+import { useVoiceStore } from "../../stores/voiceStore";
 import type { MessageImage } from "../../stores/chatStore";
 
 const MAX_TOOL_ITERATIONS = 10;
@@ -228,6 +231,17 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
   useEffect(() => {
     setAvatarError(false);
   }, [profile?.avatar_url]);
+
+  // ── Voice: wire auto-send for wake-word / continuous modes ──
+  const { setOnAutoSend } = useVoiceStore();
+  useEffect(() => {
+    setOnAutoSend((text: string) => {
+      setInput(text);
+      // Slight delay so React updates input state before sending
+      setTimeout(() => handleSend(text), 50);
+    });
+    return () => setOnAutoSend(null);
+  }, []);
 
   // ── Element selection: populate chat input + show image in chat ──
   const { pendingChatInput, setPendingChatInput, pendingImage, setPendingImage, pendingElementContext, setPendingElementContext } = useElementSelectionStore();
@@ -1776,6 +1790,9 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           </div>
         )}
 
+        {/* Voice transcript overlay — shows while recording */}
+        <VoiceTranscriptOverlay />
+
         <div className="flex gap-2">
           {/* Hidden file input */}
           <input
@@ -1797,6 +1814,15 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
           >
             <Paperclip size={18} />
           </button>
+
+          {/* Voice button — hold to talk */}
+          <VoiceButton
+            onTranscript={(text) => {
+              setInput(text);
+              setTimeout(() => handleSend(text), 50);
+            }}
+            disabled={isLoading}
+          />
 
           <textarea
             ref={inputRef}

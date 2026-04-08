@@ -9,6 +9,7 @@ import { useUsageStore } from "./stores/usageStore";
 import { useConnectionsStore } from "./stores/connectionsStore";
 import { useAuthStore } from "./stores/authStore";
 import { useTeamStore } from "./stores/teamStore";
+import { useVoiceStore } from "./stores/voiceStore";
 
 function App() {
   // Single atomic flag — nothing renders until the entire init sequence
@@ -44,6 +45,9 @@ function App() {
 
         // 4. Mark fully ready — ONE render, at the very end.
         setAppReady(true);
+
+        // 5. Initialize voice control (registers hotkey, starts wake-word if configured)
+        useVoiceStore.getState().init();
       } catch (error) {
         console.error("Failed to initialize app:", error);
         setDbError(true);
