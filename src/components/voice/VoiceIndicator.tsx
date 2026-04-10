@@ -17,9 +17,7 @@ function VoiceIndicator() {
   const t = themes[theme];
   const { settings, voiceState, isMuted, transcript, sensitiveAppPaused, toggleMute } = useVoiceStore();
 
-  // Don't show if voice is disabled or set to not show indicator
   if (!settings.enabled || !settings.showMicIndicator) return null;
-  // Don't show in push-to-talk mode when idle (button handles it)
   if (settings.mode === "push-to-talk" && voiceState === "idle") return null;
 
   const stateConfig = {
@@ -35,7 +33,7 @@ function VoiceIndicator() {
       color: "text-blue-400",
       bg: "bg-blue-500/10",
       pulse: false,
-      label: `"${settings.wakeWord}"`,
+      label: '"Hey Omni"',
     },
     listening: {
       icon: Mic,
@@ -49,7 +47,7 @@ function VoiceIndicator() {
       color: "text-purple-400",
       bg: "bg-purple-500/10",
       pulse: false,
-      label: "Processing...",
+      label: "Transcribing...",
     },
     muted: {
       icon: MicOff,
@@ -80,7 +78,6 @@ function VoiceIndicator() {
         <span className="max-w-[120px] truncate">{config.label}</span>
       )}
 
-      {/* Live transcript preview (tiny, for wake-word/continuous) */}
       {transcript && voiceState === "listening" && settings.mode !== "push-to-talk" && (
         <span className={`max-w-[150px] truncate ${t.colors.textMuted} text-[10px]`}>
           {transcript}

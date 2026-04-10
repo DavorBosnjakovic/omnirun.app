@@ -4,12 +4,6 @@
 // Top-level layout for the Assistant section.
 // Option B layout: collapsible accounts panel on the left,
 // chat area on the right.
-//
-// Responsible for:
-// - Loading + syncing accounts on mount
-// - Passing plan info down to AccountsPanel for gating
-// - Rendering ConnectAccountModal when open
-// - Panel collapse/expand state
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { PanelLeftClose, PanelLeft } from 'lucide-react';
@@ -20,6 +14,7 @@ import {
   useAssistantStore,
 } from '../../stores/assistantStore';
 import { loadScreenControlSettings } from '../../services/screenControlService';
+import { useVoiceStore } from '../../stores/voiceStore';
 import AccountsPanel from './AccountsPanel';
 import AssistantChatArea from './AssistantChatArea';
 import ConnectAccountModal from './ConnectAccountModal';
@@ -64,6 +59,24 @@ function AssistantSection() {
       syncAccountsFromSupabase(user.id);
     });
   }, [user?.id]);
+
+  // ── Voice command: toggle screen control via "Hey Omni, turn on screen control" ──
+  const pendingCommand = useVoiceStore((s) => s.pendingCommand);
+  useEffect(() => {
+    console.log('[AssistantSection] pendingCommand changed:', pendingCommand, 'screenControlEnabled:', screenControlEnabled);
+    if (pendingCommand?.type === "screen_control") {
+      console.log('[AssistantSection] Handling screen_control command, action:', pendingCommand.action);
+      if (pendingCommand.action === "on" && screenControlEnabled) {
+        console.log('[AssistantSection] Activating screen control mode');
+        setScreenControlMode(true);
+        setScreenControlActive(true);
+        screenControlStopRef.current = false;
+      } else if (pendingCommand.action === "off") {
+        handleScreenControlStop();
+      }
+      useVoiceStore.getState().clearPendingCommand();
+    }
+  }, [pendingCommand]);
 
   // Stop handler for the overlay — exits screen control mode entirely
   const handleScreenControlStop = useCallback(() => {

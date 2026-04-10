@@ -18,6 +18,7 @@ import {
 import { sendMessage } from '../../services/aiService';
 import { buildScreenControlPrompt } from '../../services/aiService';
 import { useUsageStore } from '../../stores/usageStore';
+import { useVoiceStore } from '../../stores/voiceStore';
 import { buildMemoryBlock, extractObservations } from '../../services/memoryService';
 import { buildRoutinesPromptBlock } from '../../stores/routineStore';
 import {
@@ -40,6 +41,8 @@ import {
 import type { ScreenControlStatus } from './ScreenControlOverlay';
 import MarkdownRenderer from '../chat/MarkdownRenderer';
 import OmnirunSpinner from '../chat/OmnirunSpinner';
+import VoiceButton from '../voice/VoiceButton';
+import VoiceTranscriptOverlay from '../voice/VoiceTranscriptOverlay';
 import elipseDark from '../../assets/elipse_transparent_dark.svg';
 import elipseLight from '../../assets/elipse_transparent_light.svg';
 
@@ -1012,6 +1015,14 @@ function AssistantChatArea({
     }
   }, [input, isLoading, messages, activeAccounts, screenControlEnabled, screenControlMode, runScreenControlLoop]);
 
+  // Wire voice commands to assistant chat when this section is active
+  useEffect(() => {
+    useVoiceStore.getState().setOnAutoSend((text: string) => handleSend(text));
+    return () => {
+      useVoiceStore.getState().setOnAutoSend(null);
+    };
+  }, [handleSend]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
@@ -1122,9 +1133,18 @@ function AssistantChatArea({
         )}
       </div>
 
+      {/* Voice transcript overlay */}
+      <div className="max-w-3xl mx-auto px-4">
+        <VoiceTranscriptOverlay />
+      </div>
+
       {/* Input */}
       <div className={`p-4 flex-shrink-0 ${t.colors.border} border-t`}>
         <div className="flex gap-2 max-w-3xl mx-auto">
+          <VoiceButton
+            onTranscript={(text) => handleSend(text)}
+            disabled={isLoading}
+          />
           <textarea
             ref={inputRef}
             value={input}

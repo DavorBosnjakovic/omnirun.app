@@ -13,6 +13,7 @@ mod scheduler;
 mod task_runner;
 mod oauth;
 mod screen_control;
+mod voice_engine;
 
 #[derive(Serialize, Deserialize)]
 pub struct FileEntry {
@@ -335,6 +336,16 @@ fn build_hidden_shell_command(command: &str, cwd: &PathBuf) -> std::process::Com
     if cfg!(target_os = "windows") {
         cmd = std::process::Command::new("cmd.exe");
         cmd.arg("/D").arg("/S").arg("/C").arg(command);
+
+        // Cargo build scripts (whisper-rs-sys, etc.) pollute PATH with hundreds
+        // of build artifact directories, which can exceed the Windows ~2047 char
+        // cmd.exe PATH limit. Filter those out so tools like npm are reachable.
+        if let Ok(path) = std::env::var("PATH") {
+            let clean: Vec<&str> = path.split(';')
+                .filter(|p| !p.contains("\\target\\debug\\build\\") && !p.contains("\\target\\release\\build\\"))
+                .collect();
+            cmd.env("PATH", clean.join(";"));
+        }
     } else {
         cmd = std::process::Command::new("/bin/sh");
         cmd.arg("-c").arg(command);
@@ -412,10 +423,15 @@ async fn start_dev_server(command: String, cwd: String, port_pattern: String) ->
         let output_buf = DEV_SERVER_OUTPUT.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(out);
+            let mut captured = String::new();
             for line in reader.lines() {
                 if let Ok(line) = line {
                     // Before port is found, check for port pattern
                     if !port_found_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                        if captured.len() < 2000 {
+                            captured.push_str(&line);
+                            captured.push('\n');
+                        }
                         let clean = strip_ansi_codes(&line);
                         if let Some(caps) = re_clone.captures(&clean) {
                             if let Some(port_str) = caps.get(1) {
@@ -444,10 +460,9 @@ async fn start_dev_server(command: String, cwd: String, port_pattern: String) ->
                     }
                 }
             }
-            // Stream closed — if port was never found, report it
-            if !port_found_clone.load(std::sync::atomic::Ordering::Relaxed) {
-                let _ = tx_clone.send(Err("Dev server stdout closed without printing a port".to_string()));
-            }
+            // Stream closed — don't send error here; let stderr thread report
+            // (it captures actual error output). If both close, senders drop
+            // and recv_timeout returns Disconnected.
         });
     }
 
@@ -948,6 +963,17 @@ pub fn run() {
             // Voice control
             register_voice_mute_hotkey,
             unregister_voice_mute_hotkey,
+            // Voice engine (local wake word + whisper STT)
+            voice_engine::init_voice_engine,
+            voice_engine::shutdown_voice_engine,
+            voice_engine::feed_audio_samples,
+            voice_engine::start_capture,
+            voice_engine::finish_capture,
+            voice_engine::cancel_capture,
+            voice_engine::set_wake_listening,
+            voice_engine::set_voice_muted,
+            voice_engine::set_voice_language,
+            voice_engine::is_voice_engine_ready,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

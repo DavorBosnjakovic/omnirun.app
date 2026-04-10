@@ -20,7 +20,9 @@ import HealthChecksPage from "../health/HealthChecksPage";
 import RoutinesPage from "../routines/RoutinesPage";
 import HomePage from "../home/HomePage";
 import AssistantSection from "../assistant/AssistantSection";
+import VoiceCommandModal from "../voice/VoiceCommandModal";
 import type { AppSection } from "../home/HomePage";
+import { useVoiceStore } from "../../stores/voiceStore";
 
 function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -29,10 +31,9 @@ function MainLayout() {
   const [settingsTab, setSettingsTab] = useState("general");
 
   // Top-level section nav state
-  const [activeSection, setActiveSection] = useState<AppSection>('projects');
+  const [activeSection, setActiveSection] = useState<AppSection>('home');
 
   // Tools page navigation within the Projects section
-  // (null = chat view, "deploy" | "health" | "routines")
   const [toolsPage, setToolsPage] = useState<string | null>(null);
 
   // Message to auto-send when switching back to chat
@@ -109,6 +110,24 @@ function MainLayout() {
     };
   }, [projectPath]);
 
+  // ── Voice navigation — let voice commands switch sections ──────
+  useEffect(() => {
+    const { setOnNavigate, setOnOpenSettings } = useVoiceStore.getState();
+    setOnNavigate((section: string) => {
+      const validSections: AppSection[] = ['home', 'projects', 'assistant', 'tasks'];
+      if (validSections.includes(section as AppSection)) {
+        handleSectionChange(section as AppSection);
+      }
+    });
+    setOnOpenSettings((tab: string) => {
+      handleSettingsClick(tab);
+    });
+    return () => {
+      useVoiceStore.getState().setOnNavigate(null);
+      useVoiceStore.getState().setOnOpenSettings(null);
+    };
+  }, []);
+
   // ── Divider drag handlers ─────────────────────────────────────────
 
   const handleVerticalMouseDown = useCallback(() => {
@@ -162,7 +181,6 @@ function MainLayout() {
   };
 
   const handleToolsNavigate = (page: string) => {
-    // Tasks now has its own top-level section
     if (page === "tasks") {
       setActiveSection('tasks');
       setSettingsOpen(false);
@@ -170,7 +188,6 @@ function MainLayout() {
     }
     setToolsPage(page);
     setSettingsOpen(false);
-    // Make sure we're in the projects section to see tools pages
     setActiveSection('projects');
   };
 
@@ -197,7 +214,6 @@ function MainLayout() {
 
   const handleSectionChange = (section: AppSection) => {
     setActiveSection(section);
-    // Close settings and tools pages when switching sections
     setSettingsOpen(false);
     if (section !== 'projects') {
       setToolsPage(null);
@@ -240,18 +256,15 @@ function MainLayout() {
           />
 
         ) : activeSection === 'home' ? (
-          /* ── Home dashboard ── */
           <HomePage
             onNavigate={handleSectionChange}
             onSettingsClick={handleSettingsClick}
           />
 
         ) : activeSection === 'assistant' ? (
-          /* ── Assistant section ── */
           <AssistantSection />
 
         ) : activeSection === 'tasks' ? (
-          /* ── Tasks section ── */
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-6">
               <TasksPage onSendToChat={handleSendToChat} />
@@ -259,9 +272,7 @@ function MainLayout() {
           </div>
 
         ) : (
-          /* ── Projects section (default) ── */
           toolsPage ? (
-            /* Tools page within projects */
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className={`flex items-center gap-2 px-4 py-3 ${t.colors.border} border-b`}>
                 <button
@@ -293,14 +304,11 @@ function MainLayout() {
               </div>
             </div>
           ) : (
-            /* Chat + Preview layout */
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* ── Upper area: Chat + Preview ── */}
               <div
                 className="flex overflow-hidden"
                 style={{ height: showTerminal ? `${100 - terminalHeight}%` : "100%" }}
               >
-                {/* Chat area */}
                 <div
                   className={`flex flex-col ${t.colors.border} ${previewOpen ? "border-r" : ""}`}
                   style={{ width: previewOpen ? `${chatWidth}%` : "100%" }}
@@ -339,7 +347,6 @@ function MainLayout() {
                 {timeMachineOpen && <TimeMachine />}
               </div>
 
-              {/* ── Terminal ── */}
               {showTerminal && (
                 <>
                   <div
@@ -358,6 +365,9 @@ function MainLayout() {
           )
         )}
       </div>
+
+      {/* Voice command overlay — global, always rendered */}
+      <VoiceCommandModal />
     </div>
   );
 }

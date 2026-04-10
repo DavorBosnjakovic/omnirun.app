@@ -2,8 +2,15 @@
 // voiceService.ts
 // ============================================================
 // Voice control service for Omnirun.
-// Handles: push-to-talk, always-on wake word, continuous conversation.
-// Uses Web Speech API (SpeechRecognition) — free, runs in Tauri WebView.
+//
+// Audio capture: Web Audio API (ScriptProcessorNode) in the webview.
+// Wake word: Rust ONNX pipeline (local, no network).
+// Speech-to-text: whisper.cpp in Rust (local, no network).
+//
+// The frontend captures mic audio, resamples to 16kHz, then sends
+// chunks to Rust via Tauri commands.
+// Rust handles wake word detection + whisper transcription.
+// Zero audio leaves the device. Everything runs locally.
 //
 // Path: src/services/voiceService.ts
 
@@ -13,29 +20,42 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 // ── Types ────────────────────────────────────────────────────
 
 export type VoiceMode = "push-to-talk" | "wake-word" | "continuous";
-export type VoiceState = "idle" | "listening" | "processing" | "wake-listening" | "muted";
-export type VoiceLanguage = "en-US" | "en-GB" | "es-ES" | "fr-FR" | "de-DE" | "it-IT" | "pt-BR" | "ja-JP" | "ko-KR" | "zh-CN" | "nl-NL" | "ru-RU" | "sr-RS";
+export type VoiceState =
+  | "idle"
+  | "listening"
+  | "processing"
+  | "wake-listening"
+  | "muted";
+export type VoiceLanguage =
+  | "en-US" | "en-GB" | "es-ES" | "fr-FR" | "de-DE" | "it-IT"
+  | "pt-BR" | "ja-JP" | "ko-KR" | "zh-CN" | "nl-NL" | "ru-RU" | "sr-RS";
+
+// Map frontend language codes to whisper ISO 639-1
+const WHISPER_LANG_MAP: Record<VoiceLanguage, string> = {
+  "en-US": "en", "en-GB": "en", "es-ES": "es", "fr-FR": "fr",
+  "de-DE": "de", "it-IT": "it", "pt-BR": "pt", "ja-JP": "ja",
+  "ko-KR": "ko", "zh-CN": "zh", "nl-NL": "nl", "ru-RU": "ru",
+  "sr-RS": "sr",
+};
 
 export interface VoiceSettings {
   enabled: boolean;
   mode: VoiceMode;
   language: VoiceLanguage;
-  wakeWord: string;
   muteHotkey: string;
   audioFeedback: boolean;
   autoSendOnSilence: boolean;
-  silenceTimeout: number;       // ms — how long to wait after user stops before sending
+  silenceTimeout: number; // ms
   showMicIndicator: boolean;
   autoPauseSensitiveApps: boolean;
-  sensitiveApps: string[];      // app names to auto-mute in
-  continuousExitPhrase: string; // phrase that exits continuous mode
+  sensitiveApps: string[];
+  continuousExitPhrase: string;
 }
 
 export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   enabled: true,
   mode: "push-to-talk",
   language: "en-US",
-  wakeWord: "Hey Omnirun",
   muteHotkey: "F9",
   audioFeedback: true,
   autoSendOnSilence: true,
@@ -46,7 +66,15 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   continuousExitPhrase: "that's all",
 };
 
+interface AudioResult {
+  event: "none" | "wake_word" | "transcript";
+  score: number;
+  transcript: string;
+}
+
 const STORAGE_KEY = "omnirun_voice_settings";
+const TARGET_SAMPLE_RATE = 16000;
+const CHUNK_SIZE = 1280; // 80ms at 16kHz
 
 // ── Settings persistence ─────────────────────────────────────
 
@@ -54,8 +82,7 @@ export function loadVoiceSettings(): VoiceSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_VOICE_SETTINGS };
-    const parsed = JSON.parse(raw);
-    return { ...DEFAULT_VOICE_SETTINGS, ...parsed };
+    return { ...DEFAULT_VOICE_SETTINGS, ...JSON.parse(raw) };
   } catch {
     return { ...DEFAULT_VOICE_SETTINGS };
   }
@@ -65,16 +92,8 @@ export function saveVoiceSettings(settings: VoiceSettings): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
 }
 
-// ── SpeechRecognition setup ──────────────────────────────────
+// ── Callbacks ────────────────────────────────────────────────
 
-// Browser compat — works in Chromium (Tauri WebView)
-const SpeechRecognition =
-  (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-let recognition: any | null = null;
-let isRecognitionActive = false;
-
-// Callbacks — set by the store/components
 let onTranscriptUpdate: ((text: string, isFinal: boolean) => void) | null = null;
 let onStateChange: ((state: VoiceState) => void) | null = null;
 let onError: ((error: string) => void) | null = null;
@@ -82,33 +101,51 @@ let onAutoSend: ((text: string) => void) | null = null;
 let onWakeWordDetected: (() => void) | null = null;
 let onContinuousExit: (() => void) | null = null;
 
-// Internal state
-let currentMode: VoiceMode = "push-to-talk";
+// ── Internal state ───────────────────────────────────────────
+
 let currentSettings: VoiceSettings = DEFAULT_VOICE_SETTINGS;
+let currentMode: VoiceMode = "push-to-talk";
 let isMuted = false;
+let engineReady = false;
+
+// Audio pipeline
+let audioCtx: AudioContext | null = null;
+let micStream: MediaStream | null = null;
+let sourceNode: MediaStreamAudioSourceNode | null = null;
+let scriptProcessor: ScriptProcessorNode | null = null;
+let isMicActive = false;
+let isFeedingAudio = false;
+
+// Resampling + chunking buffers
+let chunkBuffer: number[] = [];
+let debugLogCount = 0;
+
+// Silence detection
 let silenceTimer: ReturnType<typeof setTimeout> | null = null;
-let interimTranscript = "";
-let finalTranscript = "";
-let wakeWordDetected = false;
+let silenceCheckInterval: ReturnType<typeof setInterval> | null = null;
+let lastAudioRms = 0;
+const SILENCE_RMS_THRESHOLD = 0.01;
+
+// Hotkey
 let unlistenMuteHotkey: UnlistenFn | null = null;
 
 // ── Audio feedback ───────────────────────────────────────────
 
-const audioCtx = typeof AudioContext !== "undefined" ? new AudioContext() : null;
+const feedbackCtx = typeof AudioContext !== "undefined" ? new AudioContext() : null;
 
 function playTone(frequency: number, duration: number, volume = 0.15) {
-  if (!audioCtx || !currentSettings.audioFeedback) return;
+  if (!feedbackCtx || !currentSettings.audioFeedback) return;
   try {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
+    const osc = feedbackCtx.createOscillator();
+    const gain = feedbackCtx.createGain();
     osc.type = "sine";
     osc.frequency.value = frequency;
     gain.gain.value = volume;
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    gain.gain.exponentialRampToValueAtTime(0.001, feedbackCtx.currentTime + duration);
     osc.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(feedbackCtx.destination);
     osc.start();
-    osc.stop(audioCtx.currentTime + duration);
+    osc.stop(feedbackCtx.currentTime + duration);
   } catch { /* audio not available */ }
 }
 
@@ -119,166 +156,267 @@ function playWakeWordChime() {
   setTimeout(() => playTone(880, 0.1), 100);
 }
 
-// ── Core recognition ─────────────────────────────────────────
+// ── Audio capture with resampling ────────────────────────────
+// Uses ScriptProcessorNode (runs on main thread in the webview).
+// WebView2 typically runs AudioContext at 48kHz — we resample
+// to 16kHz for whisper and wake word detection.
 
-function createRecognition(): any {
-  if (!SpeechRecognition) {
-    onError?.("Speech recognition not supported in this browser.");
-    return null;
+function resample(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+  if (fromRate === toRate) return input;
+  const ratio = fromRate / toRate;
+  const outputLen = Math.floor(input.length / ratio);
+  const output = new Float32Array(outputLen);
+  for (let i = 0; i < outputLen; i++) {
+    const srcIdx = i * ratio;
+    const idx = Math.floor(srcIdx);
+    const frac = srcIdx - idx;
+    if (idx + 1 < input.length) {
+      output[i] = input[idx] * (1 - frac) + input[idx + 1] * frac;
+    } else if (idx < input.length) {
+      output[i] = input[idx];
+    }
   }
+  return output;
+}
 
-  const rec = new SpeechRecognition();
-  rec.lang = currentSettings.language;
-  rec.interimResults = true;
-  rec.continuous = true;
-  rec.maxAlternatives = 1;
+async function initMicPipeline(): Promise<void> {
+  if (audioCtx) return; // Already initialized
 
-  rec.onstart = () => {
-    isRecognitionActive = true;
-  };
+  try {
+    // Create AudioContext at default system rate (usually 48kHz).
+    // We resample to 16kHz manually before sending to Rust.
+    audioCtx = new AudioContext();
 
-  rec.onend = () => {
-    isRecognitionActive = false;
+    // Request mic access
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
 
-    // Auto-restart for wake-word and continuous modes (unless muted or disabled)
-    if (!isMuted && currentSettings.enabled) {
-      if (currentMode === "wake-word" && !wakeWordDetected) {
-        // Restart listening for wake word
-        startRecognitionSafe();
-        onStateChange?.("wake-listening");
-      } else if (currentMode === "continuous") {
-        // Restart listening for next command
-        startRecognitionSafe();
-        onStateChange?.("listening");
+    sourceNode = audioCtx.createMediaStreamSource(micStream);
+
+    // ScriptProcessorNode: buffer 4096 samples, mono in, mono out
+    // At 48kHz this fires every ~85ms
+    scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+    chunkBuffer = [];
+    debugLogCount = 0;
+
+    scriptProcessor.onaudioprocess = (e: AudioProcessingEvent) => {
+      if (!isFeedingAudio || isMuted) return;
+
+      const inputData = e.inputBuffer.getChannelData(0);
+      const nativeRate = audioCtx!.sampleRate;
+
+      // Debug: log raw mic audio for first 3 callbacks
+      if (debugLogCount < 3) {
+        let rawSum = 0;
+        let rawMax = 0;
+        for (let i = 0; i < inputData.length; i++) {
+          rawSum += inputData[i] * inputData[i];
+          const abs = Math.abs(inputData[i]);
+          if (abs > rawMax) rawMax = abs;
+        }
+        const rawRms = Math.sqrt(rawSum / inputData.length);
+        console.log(
+          `[voiceService] RAW mic: len=${inputData.length} rate=${nativeRate} rms=${rawRms.toFixed(6)} max=${rawMax.toFixed(6)}`
+        );
+        debugLogCount++;
       }
-    } else {
-      onStateChange?.(isMuted ? "muted" : "idle");
-    }
-  };
 
-  rec.onerror = (event: any) => {
-    const error = event.error;
-    // "no-speech" and "aborted" are normal — don't report them
-    if (error === "no-speech" || error === "aborted") return;
-    onError?.(error);
-    isRecognitionActive = false;
-  };
+      // Resample from native rate (48kHz) to 16kHz
+      const resampled = resample(inputData, nativeRate, TARGET_SAMPLE_RATE);
 
-  rec.onresult = (event: any) => {
-    interimTranscript = "";
-    finalTranscript = "";
-
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const result = event.results[i];
-      const text = result[0].transcript;
-
-      if (result.isFinal) {
-        finalTranscript += text;
-      } else {
-        interimTranscript += text;
+      // Track RMS for silence detection
+      let sum = 0;
+      for (let i = 0; i < resampled.length; i++) {
+        sum += resampled[i] * resampled[i];
       }
-    }
+      lastAudioRms = Math.sqrt(sum / resampled.length);
 
-    const currentText = finalTranscript || interimTranscript;
-
-    // ── Wake word detection ──
-    if (currentMode === "wake-word" && !wakeWordDetected) {
-      const lower = currentText.toLowerCase().trim();
-      const wake = currentSettings.wakeWord.toLowerCase().trim();
-      if (lower.includes(wake)) {
-        wakeWordDetected = true;
-        playWakeWordChime();
-        onWakeWordDetected?.();
-        onStateChange?.("listening");
-        // Reset transcripts — don't include the wake word in the message
-        interimTranscript = "";
-        finalTranscript = "";
-        onTranscriptUpdate?.("", false);
-        // Reset the silence timer to give user time to speak after wake word
-        resetSilenceTimer();
-        return;
+      // Accumulate into chunk buffer and send complete 1280-sample chunks
+      for (let i = 0; i < resampled.length; i++) {
+        chunkBuffer.push(resampled[i]);
       }
-      // Still waiting for wake word — show nothing in transcript
-      return;
-    }
 
-    // ── Continuous mode exit phrase ──
-    if (currentMode === "continuous" && finalTranscript) {
-      const lower = finalTranscript.toLowerCase().trim();
-      const exitPhrase = currentSettings.continuousExitPhrase.toLowerCase().trim();
-      if (lower.includes(exitPhrase)) {
-        stopAll();
-        onContinuousExit?.();
-        return;
+      while (chunkBuffer.length >= CHUNK_SIZE) {
+        const chunk = chunkBuffer.splice(0, CHUNK_SIZE);
+        invoke<AudioResult>("feed_audio_samples", {
+          samples: chunk,
+        }).then(handleAudioResult).catch(() => {});
       }
-    }
+    };
 
-    // ── Normal transcript update ──
-    onTranscriptUpdate?.(currentText, !!finalTranscript);
+    // Connect: mic → processor → destination (must connect to keep it alive)
+    sourceNode.connect(scriptProcessor);
+    scriptProcessor.connect(audioCtx.destination);
 
-    // ── Auto-send on silence (for wake-word after detection & continuous) ──
-    if (currentMode !== "push-to-talk" && currentSettings.autoSendOnSilence) {
-      resetSilenceTimer();
-      if (finalTranscript) {
-        silenceTimer = setTimeout(() => {
-          if (finalTranscript.trim()) {
-            onAutoSend?.(finalTranscript.trim());
-            finalTranscript = "";
-            interimTranscript = "";
-            onTranscriptUpdate?.("", false);
-            // In wake-word mode, go back to listening for wake word
-            if (currentMode === "wake-word") {
-              wakeWordDetected = false;
-              onStateChange?.("wake-listening");
+    isMicActive = true;
+
+    // Suspend immediately — we'll resume when needed
+    await audioCtx.suspend();
+
+    console.log(
+      "[voiceService] Mic pipeline initialized. Native rate:",
+      audioCtx.sampleRate,
+      "Hz → resampling to",
+      TARGET_SAMPLE_RATE,
+      "Hz"
+    );
+  } catch (err: any) {
+    onError?.("Mic access failed: " + (err?.message || err));
+    throw err;
+  }
+}
+
+async function resumeMic() {
+  if (audioCtx && audioCtx.state === "suspended") {
+    await audioCtx.resume();
+  }
+  // Reset debug counter so we get fresh logs each time
+  debugLogCount = 0;
+  isFeedingAudio = true;
+}
+
+async function suspendMic() {
+  isFeedingAudio = false;
+  if (audioCtx && audioCtx.state === "running") {
+    await audioCtx.suspend();
+  }
+}
+
+function destroyMicPipeline() {
+  isFeedingAudio = false;
+  isMicActive = false;
+
+  if (scriptProcessor) {
+    scriptProcessor.disconnect();
+    scriptProcessor = null;
+  }
+  if (sourceNode) {
+    sourceNode.disconnect();
+    sourceNode = null;
+  }
+  if (micStream) {
+    micStream.getTracks().forEach((t) => t.stop());
+    micStream = null;
+  }
+  if (audioCtx) {
+    audioCtx.close().catch(() => {});
+    audioCtx = null;
+  }
+  chunkBuffer = [];
+}
+
+// ── Handle results from Rust engine ──────────────────────────
+
+function handleAudioResult(result: AudioResult) {
+  if (result.event === "wake_word") {
+    playWakeWordChime();
+    onWakeWordDetected?.();
+
+    // Switch to capture mode
+    invoke("start_capture").catch(() => {});
+    onStateChange?.("listening");
+    onTranscriptUpdate?.("", false);
+
+    // Give user 2 seconds to start speaking before silence detection kicks in
+    setTimeout(() => startSilenceDetection(), 2000);
+  }
+}
+
+// ── Silence detection (for auto-send after wake word / continuous) ──
+
+function startSilenceDetection() {
+  resetSilenceTimer();
+
+  silenceCheckInterval = setInterval(() => {
+    if (!isFeedingAudio || isMuted) return;
+
+    if (lastAudioRms < SILENCE_RMS_THRESHOLD) {
+      if (!silenceTimer) {
+        silenceTimer = setTimeout(async () => {
+          silenceTimer = null;
+          if (silenceCheckInterval) {
+            clearInterval(silenceCheckInterval);
+            silenceCheckInterval = null;
+          }
+
+          onStateChange?.("processing");
+          onTranscriptUpdate?.("Transcribing...", false);
+
+          try {
+            const result = await invoke<AudioResult>("finish_capture");
+            const text = result.transcript.trim();
+
+            if (text) {
+              if (
+                currentMode === "continuous" &&
+                text.toLowerCase().includes(currentSettings.continuousExitPhrase.toLowerCase())
+              ) {
+                stopAll();
+                onContinuousExit?.();
+                return;
+              }
+
+              onTranscriptUpdate?.(text, true);
+              onAutoSend?.(text);
             }
+          } catch (err: any) {
+            onError?.("Transcription failed: " + (err?.message || err));
+          }
+
+          if (currentMode === "wake-word") {
+            invoke("set_wake_listening", { active: true }).catch(() => {});
+            onStateChange?.("wake-listening");
+          } else if (currentMode === "continuous") {
+            invoke("start_capture").catch(() => {});
+            onStateChange?.("listening");
+            startSilenceDetection();
+          } else {
+            onStateChange?.("idle");
           }
         }, currentSettings.silenceTimeout);
       }
+    } else {
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
     }
-  };
-
-  return rec;
+  }, 100);
 }
 
 function resetSilenceTimer() {
+  if (silenceCheckInterval) {
+    clearInterval(silenceCheckInterval);
+    silenceCheckInterval = null;
+  }
   if (silenceTimer) {
     clearTimeout(silenceTimer);
     silenceTimer = null;
   }
 }
 
-function startRecognitionSafe() {
-  if (!recognition) recognition = createRecognition();
-  if (!recognition) return;
+// ── Initialize Rust engine ───────────────────────────────────
 
-  // Update language in case it changed
-  recognition.lang = currentSettings.language;
-
+async function initEngine(): Promise<void> {
+  if (engineReady) return;
   try {
-    if (!isRecognitionActive) {
-      recognition.start();
-    }
-  } catch (e: any) {
-    // "already started" — ignore
-    if (!e?.message?.includes("already started")) {
-      onError?.(e?.message || "Failed to start recognition");
-    }
+    await invoke("init_voice_engine");
+    engineReady = true;
+    console.log("[voiceService] Rust voice engine ready");
+  } catch (err: any) {
+    console.warn("[voiceService] Engine init failed:", err);
+    onError?.("Voice engine failed to load: " + (err?.message || err));
   }
-}
-
-function stopRecognitionSafe() {
-  resetSilenceTimer();
-  try {
-    if (recognition && isRecognitionActive) {
-      recognition.stop();
-    }
-  } catch { /* ignore */ }
-  isRecognitionActive = false;
 }
 
 // ── Public API ───────────────────────────────────────────────
 
-/** Register callbacks. Call once from the voice store on init. */
 export function setVoiceCallbacks(callbacks: {
   onTranscriptUpdate: (text: string, isFinal: boolean) => void;
   onStateChange: (state: VoiceState) => void;
@@ -295,151 +433,190 @@ export function setVoiceCallbacks(callbacks: {
   onContinuousExit = callbacks.onContinuousExit;
 }
 
-/** Update settings (called whenever settings change). */
-export function applyVoiceSettings(settings: VoiceSettings) {
+export async function applyVoiceSettings(settings: VoiceSettings) {
+  const previousMode = currentSettings.mode;
   currentSettings = settings;
   currentMode = settings.mode;
 
-  // If recognition exists, update language
-  if (recognition) {
-    recognition.lang = settings.language;
+  const whisperLang = WHISPER_LANG_MAP[settings.language] || "en";
+  invoke("set_voice_language", { lang: whisperLang }).catch(() => {});
+
+  if (!settings.enabled) {
+    stopAll();
+    return;
   }
 
-  // If mode changed to wake-word and enabled, start listening for wake word
-  if (settings.enabled && settings.mode === "wake-word" && !isMuted) {
-    if (!isRecognitionActive) {
-      wakeWordDetected = false;
-      startRecognitionSafe();
-      onStateChange?.("wake-listening");
-    }
+  await initEngine();
+  await initMicPipeline();
+
+  if (settings.mode === "wake-word" && !isMuted) {
+    resetSilenceTimer();
+    await resumeMic();
+    isFeedingAudio = true;
+    await invoke("set_wake_listening", { active: true });
+    onStateChange?.("wake-listening");
   }
 
-  // If mode changed away from wake-word/continuous, stop auto-listening
-  if (settings.mode === "push-to-talk" && isRecognitionActive) {
-    stopRecognitionSafe();
+  if (settings.mode === "continuous" && !isMuted) {
+    resetSilenceTimer();
+    await resumeMic();
+    isFeedingAudio = true;
+    await invoke("start_capture");
+    onStateChange?.("listening");
+    startSilenceDetection();
+  }
+
+  if (settings.mode === "push-to-talk") {
+    resetSilenceTimer();
+    await invoke("set_wake_listening", { active: false }).catch(() => {});
+    await invoke("cancel_capture").catch(() => {});
+    await suspendMic();
     onStateChange?.("idle");
   }
+
+  if (previousMode === "wake-word" && settings.mode !== "wake-word") {
+    await invoke("set_wake_listening", { active: false }).catch(() => {});
+  }
 }
 
-/** Push-to-talk: start recording (called on button press). */
-export function startPushToTalk() {
+export async function startPushToTalk() {
   if (isMuted || !currentSettings.enabled) return;
-  currentMode = "push-to-talk";
-  interimTranscript = "";
-  finalTranscript = "";
-  recognition = createRecognition();
-  startRecognitionSafe();
+
+  await initEngine();
+  await initMicPipeline();
+
   playListeningStart();
+  await resumeMic();
+  isFeedingAudio = true;
+  await invoke("start_capture");
+  onTranscriptUpdate?.("", false);
   onStateChange?.("listening");
 }
 
-/** Push-to-talk: stop recording and return transcript (called on button release). */
-export function stopPushToTalk(): string {
+export async function stopPushToTalk(): Promise<string> {
   playListeningStop();
-  stopRecognitionSafe();
-  onStateChange?.("idle");
-  const result = (finalTranscript || interimTranscript).trim();
-  finalTranscript = "";
-  interimTranscript = "";
-  return result;
+  isFeedingAudio = false;
+  onStateChange?.("processing");
+  onTranscriptUpdate?.("Transcribing...", false);
+
+  try {
+    const result = await invoke<AudioResult>("finish_capture");
+    const text = result.transcript.trim();
+
+    await suspendMic();
+    onStateChange?.("idle");
+    onTranscriptUpdate?.(text, true);
+    return text;
+  } catch (err: any) {
+    await suspendMic();
+    onStateChange?.("idle");
+    onError?.("Transcription failed: " + (err?.message || err));
+    return "";
+  }
 }
 
-/** Start continuous conversation mode. */
-export function startContinuousMode() {
+export async function startContinuousMode() {
   if (isMuted || !currentSettings.enabled) return;
+
+  await initEngine();
+  await initMicPipeline();
+
   currentMode = "continuous";
-  interimTranscript = "";
-  finalTranscript = "";
-  wakeWordDetected = false;
-  recognition = createRecognition();
-  startRecognitionSafe();
   playListeningStart();
+  await resumeMic();
+  isFeedingAudio = true;
+  await invoke("start_capture");
   onStateChange?.("listening");
+  startSilenceDetection();
 }
 
-/** Start wake-word listening mode. */
-export function startWakeWordMode() {
+export async function startWakeWordMode() {
   if (isMuted || !currentSettings.enabled) return;
+
+  await initEngine();
+  await initMicPipeline();
+
   currentMode = "wake-word";
-  interimTranscript = "";
-  finalTranscript = "";
-  wakeWordDetected = false;
-  recognition = createRecognition();
-  startRecognitionSafe();
+  await resumeMic();
+  isFeedingAudio = true;
+  await invoke("set_wake_listening", { active: true });
   onStateChange?.("wake-listening");
 }
 
-/** Stop all voice activity. */
-export function stopAll() {
-  stopRecognitionSafe();
-  wakeWordDetected = false;
+export async function stopAll() {
+  resetSilenceTimer();
+  isFeedingAudio = false;
+
+  await invoke("cancel_capture").catch(() => {});
+  await invoke("set_wake_listening", { active: false }).catch(() => {});
+  await suspendMic();
+
   playListeningStop();
   onStateChange?.("idle");
 }
 
-/** Toggle mute. Returns new muted state. */
 export function toggleMute(): boolean {
   isMuted = !isMuted;
 
   if (isMuted) {
-    stopRecognitionSafe();
+    resetSilenceTimer();
+    isFeedingAudio = false;
+    invoke("set_voice_muted", { muted: true }).catch(() => {});
+    suspendMic();
     onStateChange?.("muted");
   } else {
-    onStateChange?.("idle");
-    // Resume wake-word or continuous if that's the active mode
+    invoke("set_voice_muted", { muted: false }).catch(() => {});
+
     if (currentSettings.mode === "wake-word") {
       startWakeWordMode();
     } else if (currentSettings.mode === "continuous") {
       startContinuousMode();
+    } else {
+      onStateChange?.("idle");
     }
   }
 
   return isMuted;
 }
 
-/** Set mute state directly. */
 export function setMuted(muted: boolean) {
   if (isMuted === muted) return;
   toggleMute();
 }
 
-/** Check if muted. */
 export function getMuted(): boolean {
   return isMuted;
 }
 
-/** Check if Web Speech API is available. */
 export function isSpeechAvailable(): boolean {
-  return !!SpeechRecognition;
+  return typeof AudioContext !== "undefined" || typeof (window as any).webkitAudioContext !== "undefined";
+}
+
+export function isEngineReady(): boolean {
+  return engineReady;
 }
 
 // ── Global mute hotkey (Tauri) ───────────────────────────────
 
-/** Register the F9 global mute hotkey via Tauri. */
 export async function registerMuteHotkey(hotkey: string = "F9") {
-  // Unregister previous if any
   await unregisterMuteHotkey();
 
   try {
-    // Listen for the hotkey event from Rust
     unlistenMuteHotkey = await listen("voice-mute-toggle", () => {
       toggleMute();
     });
 
-    // Tell Rust to register the global shortcut
     await invoke("register_voice_mute_hotkey", { hotkey });
   } catch (e: any) {
     console.warn("Failed to register voice mute hotkey:", e);
   }
 }
 
-/** Unregister the global mute hotkey. */
 export async function unregisterMuteHotkey() {
   if (unlistenMuteHotkey) {
     unlistenMuteHotkey();
     unlistenMuteHotkey = null;
   }
-
   try {
     await invoke("unregister_voice_mute_hotkey");
   } catch { /* might not be registered */ }
@@ -447,7 +624,6 @@ export async function unregisterMuteHotkey() {
 
 // ── Sensitive app detection ──────────────────────────────────
 
-/** Check if the currently active app is in the sensitive list. */
 export async function checkSensitiveApp(): Promise<boolean> {
   if (!currentSettings.autoPauseSensitiveApps) return false;
   if (currentSettings.sensitiveApps.length === 0) return false;
@@ -464,4 +640,13 @@ export async function checkSensitiveApp(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ── Cleanup ──────────────────────────────────────────────────
+
+export function destroy() {
+  resetSilenceTimer();
+  destroyMicPipeline();
+  invoke("shutdown_voice_engine").catch(() => {});
+  engineReady = false;
 }
