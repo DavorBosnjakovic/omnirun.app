@@ -22,6 +22,15 @@ import { useVoiceStore } from '../../stores/voiceStore';
 import { buildMemoryBlock, extractObservations } from '../../services/memoryService';
 import { buildRoutinesPromptBlock } from '../../stores/routineStore';
 import {
+  isEmailQuery,
+  extractEmailSearchQuery,
+  fetchRecentEmails,
+  fetchUnreadEmails,
+  searchEmails,
+  sendEmail,
+  formatEmailsForAI,
+} from '../../services/emailService';
+import {
   takeScreenshot,
   loadScreenControlSettings,
   parseScreenAction,
@@ -121,7 +130,8 @@ Guidelines:
 - Always confirm before sending anything on behalf of the user
 - If you cannot take an action yet (e.g. a service is not connected), say so clearly and suggest connecting it
 - Never make up content — only work with what the user tells you or what the APIs return
-- For morning briefs, prioritize: urgent emails, today's calendar, failed tasks, then everything else`;
+- For morning briefs, prioritize: urgent emails, today's calendar, failed tasks, then everything else
+- When email data is provided below, use it to answer the user's question. Do not say you don't have access — the data has already been fetched for you.`;
 }
 
 // ─── Suggestions ──────────────────────────────────────────────
@@ -951,6 +961,81 @@ function AssistantChatArea({
     }
   };
 
+  // ── Detect send confirmation ────────────────────────────────
+  const isSendConfirmation = (text: string): boolean => {
+    return /\b(send it|yes send|go ahead|confirm send|send the email|send that|yes,? send|please send)\b/i.test(text);
+  };
+
+  // ── Parse draft email from AI's last message and send ──────
+  const parseDraftAndSend = async (messageText: string): Promise<string | null> => {
+    if (!isSendConfirmation(messageText)) return null;
+    if (!user?.id) return null;
+
+    const gmailAccount = activeAccounts.find((a) => a.provider === 'gmail');
+    if (!gmailAccount) return null;
+
+    // Find the last assistant message that contains a draft
+    const lastDraft = [...messages].reverse().find((m) =>
+      m.role === 'assistant' &&
+      /\*?\*?To:\*?\*?\s*.+@.+/i.test(m.content) &&
+      /\*?\*?Subject:\*?\*?\s*.+/i.test(m.content)
+    );
+    if (!lastDraft) return null;
+
+    // Extract To, Subject, Body from the draft
+    const toMatch = lastDraft.content.match(/\*?\*?To:\*?\*?\s*(.+@[\w.-]+)/i);
+    const subjectMatch = lastDraft.content.match(/\*?\*?Subject:\*?\*?\s*(.+)/i);
+    if (!toMatch || !subjectMatch) return null;
+
+    const to = toMatch[1].trim();
+    const subject = subjectMatch[1].trim();
+
+    // Extract body — everything between Subject line and "Should I send" / end
+    const lines = lastDraft.content.split('\n');
+    const subjectIdx = lines.findIndex((l) => /\*?\*?Subject:\*?\*?/i.test(l));
+    const endIdx = lines.findIndex((l, i) => i > subjectIdx && /should I send|want me to send|shall I send/i.test(l));
+    const bodyLines = lines.slice(subjectIdx + 1, endIdx > subjectIdx ? endIdx : undefined)
+      .filter((l) => l.trim() !== '')
+      .map((l) => l.replace(/^\*?\*?Body:\*?\*?\s*/i, '').trim())
+      .filter((l) => l.length > 0);
+    const body = bodyLines.join('\n').trim();
+
+    if (!body) return null;
+
+    try {
+      await sendEmail(user.id, { to, subject, body }, 'gmail');
+      return `✅ Email sent to ${to}`;
+    } catch (err: any) {
+      return `❌ Failed to send: ${err.message}`;
+    }
+  };
+
+  // ── Fetch email data for AI context ─────────────────────────
+  const fetchEmailContext = async (messageText: string): Promise<string> => {
+    const gmailAccount = activeAccounts.find((a) => a.provider === 'gmail');
+    if (!gmailAccount || !user?.id) return '';
+    if (!isEmailQuery(messageText)) return '';
+    try {
+      const searchQuery = extractEmailSearchQuery(messageText);
+      let emails;
+      let label: string;
+      if (searchQuery === 'is:unread') {
+        emails = await fetchUnreadEmails(user.id, 'gmail', 10);
+        label = 'Unread emails';
+      } else if (searchQuery) {
+        emails = await searchEmails(user.id, searchQuery, 'gmail', 10);
+        label = `Email search results for "${searchQuery}"`;
+      } else {
+        emails = await fetchRecentEmails(user.id, 'gmail', 10);
+        label = 'Recent inbox emails';
+      }
+      return '\n\n' + formatEmailsForAI(emails, label);
+    } catch (err: any) {
+      console.error('[AssistantChatArea] Email fetch failed:', err);
+      return `\n\n[Email fetch failed: ${err.message}]`;
+    }
+  };
+
   // ── Send message ────────────────────────────────────────────
   const handleSend = useCallback(async (overrideText?: string) => {
     const messageText = overrideText || input.trim();
@@ -968,6 +1053,16 @@ function AssistantChatArea({
     setLoading(true);
     stoppedRef.current = false;
 
+    // Check if user is confirming a send
+    try {
+      const sendResult = await parseDraftAndSend(messageText);
+      if (sendResult) {
+        addMessage({ id: (Date.now() + 1).toString(), role: 'assistant', content: sendResult, timestamp: new Date() });
+        setLoading(false);
+        return;
+      }
+    } catch {}
+
     try {
       const provider = getActiveProvider();
       if (!provider) throw new Error('No API key configured. Go to Settings \u2192 API Keys.');
@@ -984,6 +1079,10 @@ function AssistantChatArea({
       const routinesBlock = buildRoutinesPromptBlock();
       const screenControlBlock = buildScreenControlPrompt();
 
+      // Fetch email data if this is an email-related query
+      let emailContext = '';
+      try { emailContext = await fetchEmailContext(messageText); } catch {}
+
       const result = await sendMessage(
         apiMessages, provider,
         (chunk) => {
@@ -991,7 +1090,7 @@ function AssistantChatArea({
           fullResponse += chunk;
           useAssistantStore.setState((state) => ({ messages: state.messages.map((m) => m.id === assistantId ? { ...m, content: fullResponse } : m) }));
         },
-        { path: '', manifest: null, contextString: systemPrompt + memoryBlock + routinesBlock + screenControlBlock },
+        { path: '', manifest: null, contextString: systemPrompt + memoryBlock + routinesBlock + screenControlBlock + emailContext },
         undefined,
         (reader) => { readerRef.current = reader; }
       );

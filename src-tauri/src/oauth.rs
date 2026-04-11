@@ -344,15 +344,26 @@ async fn fetch_user_info(
             Ok(("notion-user".to_string(), Some("Notion".to_string())))
         }
         "todoist" => {
-            let resp: serde_json::Value = client
-                .get("https://api.todoist.com/rest/v2/user")
+            // Try sync API for user info; if it fails, return placeholder
+            // (the access token is what matters — user info is cosmetic)
+            let result = client
+                .post("https://api.todoist.com/sync/v9/sync")
                 .bearer_auth(access_token)
-                .send().await.map_err(|e| format!("Failed to fetch Todoist user info: {}", e))?
-                .json().await.map_err(|e| format!("Failed to parse Todoist user info: {}", e))?;
-            Ok((
-                resp["email"].as_str().unwrap_or("").to_string(),
-                resp["full_name"].as_str().map(|s| s.to_string()),
-            ))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .body("resource_types=[\"user\"]")
+                .send().await;
+            match result {
+                Ok(response) => {
+                    if let Ok(resp) = response.json::<serde_json::Value>().await {
+                        let email = resp["user"]["email"].as_str().unwrap_or("todoist-user").to_string();
+                        let name = resp["user"]["full_name"].as_str().map(|s| s.to_string());
+                        Ok((email, name))
+                    } else {
+                        Ok(("todoist-user".to_string(), Some("Todoist".to_string())))
+                    }
+                }
+                Err(_) => Ok(("todoist-user".to_string(), Some("Todoist".to_string()))),
+            }
         }
         _ => Err(format!("Unknown provider for user info: {}", provider)),
     }
@@ -367,7 +378,10 @@ async fn run_oauth_flow(
 ) -> Result<OAuthResult, String> {
     // 1. Fixed port — same for every user, registered in their OAuth app settings
     let port = OAUTH_PORT;
-    let redirect_uri = format!("http://127.0.0.1:{}", port);
+    let redirect_uri = match provider {
+        "slack" | "notion" => "https://oauth-redirect.omnirun-app.workers.dev".to_string(),
+        _ => format!("http://127.0.0.1:{}", port),
+    };
 
     // 2. Build the authorization URL
     let auth_url = build_auth_url(provider, &client_id, &scopes, &redirect_uri)?;

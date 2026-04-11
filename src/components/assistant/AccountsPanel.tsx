@@ -307,7 +307,15 @@ function AccountsPanel({ plan, userId }: AccountsPanelProps) {
         >
           <AlertCircle size={11} className="text-yellow-500 mt-0.5 flex-shrink-0" />
           <p className="text-[10px] text-yellow-600 dark:text-yellow-400 leading-snug">
-            {integrationLimit} integration limit on {plan} plan. Upgrade to add more.
+            {integrationLimit} integration limit on {plan} plan.{' '}
+            <span
+              className="underline cursor-pointer hover:opacity-80"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('omnirun-open-settings', { detail: 'billing' }));
+              }}
+            >
+              Upgrade to add more
+            </span>
           </p>
         </div>
       )}

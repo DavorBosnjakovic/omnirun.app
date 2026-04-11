@@ -10,7 +10,7 @@
 // OAuth callback port: 49580 (fixed, in the private port range)
 // Rust backend binds to 127.0.0.1:49580 for all OAuth flows.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, CheckCircle, AlertCircle, Loader, ExternalLink, Eye, EyeOff, Copy, Check } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -452,8 +452,12 @@ function ConnectAccountModal({ userId, plan, initialProvider, onClose }: Connect
     }
   };
 
+  const hasAutoStarted = useRef(false);
   useEffect(() => {
-    if (initialProvider) handleProviderPick(initialProvider);
+    if (initialProvider && !hasAutoStarted.current) {
+      hasAutoStarted.current = true;
+      handleProviderPick(initialProvider);
+    }
   }, []);
 
   const providerDef = ASSISTANT_PROVIDERS.find((p) => p.id === selectedProvider);

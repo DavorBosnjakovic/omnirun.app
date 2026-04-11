@@ -675,6 +675,43 @@ async fn resend_api(
     Ok(ProxyResponse { status, body: response_body })
 }
 
+// ── Gmail API Proxy ──────────────────────────────────────────
+// Gmail API doesn't allow browser/webview requests (CORS).
+// Proxied through Rust, same pattern as supabase_management_api.
+
+#[tauri::command]
+async fn gmail_api_proxy(
+    path: String,
+    access_token: String,
+    method: String,
+    body: Option<String>,
+) -> Result<ProxyResponse, String> {
+    let client = reqwest::Client::new();
+    let url = format!("https://gmail.googleapis.com{}", path);
+
+    let mut request = match method.as_str() {
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "PATCH" => client.patch(&url),
+        "DELETE" => client.delete(&url),
+        _ => client.get(&url),
+    };
+
+    request = request
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json");
+
+    if let Some(b) = body {
+        request = request.body(b);
+    }
+
+    let response = request.send().await.map_err(|e| e.to_string())?;
+    let status = response.status().as_u16();
+    let response_body = response.text().await.map_err(|e| e.to_string())?;
+
+    Ok(ProxyResponse { status, body: response_body })
+}
+
 // ── AI Streaming Proxy ────────────────────────────────────────
 // Bypasses tauri-plugin-http for AI API calls to avoid streaming
 // timeouts. Uses reqwest directly with no read/total timeout so
@@ -922,6 +959,8 @@ pub fn run() {
             supabase_management_api,
             // Resend API proxy
             resend_api,
+            // Gmail API proxy
+            gmail_api_proxy,
             // AI streaming proxy (bypasses tauri-plugin-http timeout)
             stream_ai_request,
             // Scheduled tasks

@@ -128,6 +128,13 @@ function MainLayout() {
     };
   }, []);
 
+  // ── Listen for settings open events from child components ──
+  useEffect(() => {
+    const handler = (e: any) => handleSettingsClick(e.detail || 'general');
+    window.addEventListener('omnirun-open-settings', handler);
+    return () => window.removeEventListener('omnirun-open-settings', handler);
+  }, []);
+
   // ── Divider drag handlers ─────────────────────────────────────────
 
   const handleVerticalMouseDown = useCallback(() => {
