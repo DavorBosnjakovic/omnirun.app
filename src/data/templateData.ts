@@ -58,6 +58,7 @@ export const TEMPLATE_CATEGORIES: { id: string; name: string }[] = [
   { id: "websites", name: "Websites" },
   { id: "personal-tools", name: "Personal Tools" },
   { id: "business-tools", name: "Business Tools" },
+  { id: "mobile-apps", name: "Mobile Apps" },
   { id: "automations", name: "Automations" },
   { id: "fun-learning", name: "Fun & Learning" },
 ];

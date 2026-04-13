@@ -125,22 +125,60 @@ function cleanup(){
 }
 })();"#;
 
+/// Mouse drag-to-scroll for horizontally scrollable elements.
+/// Always injected into HTML previews so Expo/React Native web apps
+/// support mouse drag on scrollable containers (they only support touch by default).
+/// Only activates on elements that actually have horizontal overflow — no effect on others.
+const DRAG_SCROLL_JS: &str = r#"(function(){
+if(window.__omnirunDragScroll)return;
+window.__omnirunDragScroll=true;
+var tgt=null,startX=0,scrollL=0;
+function findScrollable(el){
+  while(el&&el!==document.body){
+    if(el.scrollWidth>el.clientWidth+1){var s=getComputedStyle(el).overflowX;if(s==='auto'||s==='scroll')return el;}
+    el=el.parentElement;
+  }
+  return null;
+}
+document.addEventListener('mousedown',function(e){
+  var s=findScrollable(e.target);if(!s)return;
+  tgt=s;startX=e.pageX;scrollL=s.scrollLeft;tgt.style.cursor='grabbing';tgt.style.userSelect='none';
+},true);
+document.addEventListener('mousemove',function(e){
+  if(!tgt)return;e.preventDefault();tgt.scrollLeft=scrollL-(e.pageX-startX);
+},true);
+document.addEventListener('mouseup',function(){
+  if(!tgt)return;tgt.style.cursor='';tgt.style.userSelect='';tgt=null;
+},true);
+})();"#;
+
 /// Inject the selection overlay script into an HTML string before </body>.
+/// Also always injects the drag-scroll helper for mouse-based horizontal scrolling.
 fn inject_selection_script(html: String) -> String {
     let tag = format!("\n<script data-omnirun-selection>{}</script>\n", SELECTION_OVERLAY_JS);
+    inject_before_closing_tag(html, &tag)
+}
+
+/// Inject the drag-scroll script into an HTML string before </body>.
+fn inject_drag_scroll_script(html: String) -> String {
+    let tag = format!("\n<script data-omnirun-dragscroll>{}</script>\n", DRAG_SCROLL_JS);
+    inject_before_closing_tag(html, &tag)
+}
+
+/// Helper: inject a script tag before </body> or </html>.
+fn inject_before_closing_tag(html: String, tag: &str) -> String {
     if let Some(pos) = html.rfind("</body>") {
         let mut out = html[..pos].to_string();
-        out.push_str(&tag);
+        out.push_str(tag);
         out.push_str(&html[pos..]);
         out
     } else if let Some(pos) = html.rfind("</html>") {
         let mut out = html[..pos].to_string();
-        out.push_str(&tag);
+        out.push_str(tag);
         out.push_str(&html[pos..]);
         out
     } else {
-        // No closing tag found — append at end
-        html + &tag
+        html + tag
     }
 }
 
@@ -219,9 +257,10 @@ async fn proxy_to_dev_server(target_port: u16, uri: &str) -> Response {
         .to_string();
     let bytes = resp.bytes().await.unwrap_or_default();
 
-    // For HTML responses, optionally inject selection overlay
+    // For HTML responses, inject drag-scroll helper and optionally selection overlay
     if content_type.contains("text/html") {
         if let Ok(mut html) = String::from_utf8(bytes.to_vec()) {
+            html = inject_drag_scroll_script(html);
             if *SELECTION_MODE.lock().unwrap() {
                 html = inject_selection_script(html);
             }
@@ -299,10 +338,11 @@ async fn serve_file(
     let path_str = canonical.to_string_lossy();
     let ct = content_type_for(&path_str);
 
-    // For HTML files, optionally inject selection overlay
+    // For HTML files, inject drag-scroll helper and optionally selection overlay
     if ct.starts_with("text/html") {
         match String::from_utf8(bytes) {
             Ok(mut html_string) => {
+                html_string = inject_drag_scroll_script(html_string);
                 if *SELECTION_MODE.lock().unwrap() {
                     html_string = inject_selection_script(html_string);
                 }

@@ -8,6 +8,7 @@ import {
   Briefcase,
   Zap,
   Gamepad2,
+  Smartphone,
   Check,
   AlertCircle,
   Search,
@@ -36,6 +37,7 @@ const categoryIcons: Record<string, React.ReactNode> = {
   websites: <Globe size={18} />,
   "personal-tools": <Wrench size={18} />,
   "business-tools": <Briefcase size={18} />,
+  "mobile-apps": <Smartphone size={18} />,
   automations: <Zap size={18} />,
   "fun-learning": <Gamepad2 size={18} />,
 };
@@ -564,6 +566,10 @@ interface TemplateCardProps {
 }
 
 function TemplateCard({ template, theme: t, onClick }: TemplateCardProps) {
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgError, setImgError] = useState(false);
+  const screenshotUrl = `/templates/screenshots/${template.id}.png`;
+
   return (
     <button
       onClick={onClick}
@@ -571,8 +577,7 @@ function TemplateCard({ template, theme: t, onClick }: TemplateCardProps) {
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: 4,
-        padding: "12px 14px",
+        padding: 0,
         background: "rgba(38, 42, 47, 0.5)",
         border: template.featured
           ? "1px solid rgba(45, 184, 122, 0.35)"
@@ -580,57 +585,166 @@ function TemplateCard({ template, theme: t, onClick }: TemplateCardProps) {
         cursor: "pointer",
         width: "100%",
         position: "relative",
+        overflow: "hidden",
       }}
       onMouseEnter={(e) => {
-        (e.currentTarget as HTMLElement).style.background = "rgba(45, 184, 122, 0.06)";
         (e.currentTarget as HTMLElement).style.borderColor = "rgba(45, 184, 122, 0.4)";
+        const overlay = e.currentTarget.querySelector("[data-hover-overlay]") as HTMLElement;
+        if (overlay) overlay.style.opacity = "1";
       }}
       onMouseLeave={(e) => {
-        (e.currentTarget as HTMLElement).style.background = "rgba(38, 42, 47, 0.5)";
         (e.currentTarget as HTMLElement).style.borderColor = template.featured
           ? "rgba(45, 184, 122, 0.35)"
           : "rgba(85, 91, 99, 0.35)";
+        const overlay = e.currentTarget.querySelector("[data-hover-overlay]") as HTMLElement;
+        if (overlay) overlay.style.opacity = "0";
       }}
     >
-      {/* Badges */}
-      <div style={{ display: "flex", alignItems: "center", gap: 4, position: "absolute", top: 8, right: 8 }}>
-        {template.featured && (
-          <Star size={12} style={{ color: "#F59E0B" }} />
-        )}
-        {template.tier === "pro" && (
-          <span
+      {/* Screenshot preview area */}
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          height: 110,
+          background: "rgba(25, 28, 32, 0.8)",
+          overflow: "hidden",
+        }}
+      >
+        {/* Screenshot image */}
+        {!imgError && (
+          <img
+            src={screenshotUrl}
+            alt=""
+            onLoad={() => setImgLoaded(true)}
+            onError={() => setImgError(true)}
             style={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: "#818CF8",
-              background: "rgba(129, 140, 248, 0.12)",
-              padding: "1px 6px",
-              borderRadius: 4,
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              objectPosition: "top left",
+              opacity: imgLoaded ? 1 : 0,
+              transition: "opacity 300ms ease",
+            }}
+          />
+        )}
+
+        {/* Fallback: large emoji icon when no screenshot */}
+        {(imgError || !imgLoaded) && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 36,
+              opacity: imgError ? 1 : 0.4,
             }}
           >
-            PRO
-          </span>
+            {template.icon}
+          </div>
         )}
-        {template.tier === "custom" && (
+
+        {/* Bottom gradient fade into info area */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 32,
+            background: "linear-gradient(to top, rgba(30, 33, 38, 1), transparent)",
+          }}
+        />
+
+        {/* Hover overlay with "Use Template" */}
+        <div
+          data-hover-overlay
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: 0,
+            transition: "opacity 150ms ease",
+          }}
+        >
           <span
             style={{
-              fontSize: 10,
+              color: "#2DB87A",
+              fontSize: 12,
               fontWeight: 600,
-              color: "#F59E0B",
-              background: "rgba(245, 158, 11, 0.12)",
-              padding: "1px 6px",
-              borderRadius: 4,
+              background: "rgba(45, 184, 122, 0.15)",
+              border: "1px solid rgba(45, 184, 122, 0.3)",
+              borderRadius: 6,
+              padding: "5px 12px",
             }}
           >
-            ENT
+            Use Template
           </span>
-        )}
+        </div>
+
+        {/* Badges — top right */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, position: "absolute", top: 6, right: 6 }}>
+          {template.featured && (
+            <Star size={12} style={{ color: "#F59E0B" }} />
+          )}
+          {template.tier === "pro" && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: "#818CF8",
+                background: "rgba(129, 140, 248, 0.2)",
+                padding: "1px 6px",
+                borderRadius: 4,
+                backdropFilter: "blur(4px)",
+              }}
+            >
+              PRO
+            </span>
+          )}
+          {template.tier === "custom" && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: "#F59E0B",
+                background: "rgba(245, 158, 11, 0.2)",
+                padding: "1px 6px",
+                borderRadius: 4,
+                backdropFilter: "blur(4px)",
+              }}
+            >
+              ENT
+            </span>
+          )}
+        </div>
       </div>
 
-      <div style={{ fontSize: 20, marginBottom: 2 }}>{template.icon}</div>
-      <div className={`text-sm font-medium ${t.colors.text}`}>{template.name}</div>
-      <div className={`text-xs ${t.colors.textMuted}`} style={{ lineHeight: 1.4 }}>
-        {template.description}
+      {/* Info area */}
+      <div style={{ padding: "8px 12px 10px" }}>
+        <div className={`text-sm font-medium ${t.colors.text}`} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <span style={{ fontSize: 14 }}>{template.icon}</span>
+          {template.name}
+        </div>
+        <div
+          className={`text-xs ${t.colors.textMuted}`}
+          style={{
+            lineHeight: 1.4,
+            marginTop: 2,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {template.description}
+        </div>
       </div>
     </button>
   );

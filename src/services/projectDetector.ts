@@ -4,6 +4,13 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type ProjectType = "static" | "framework" | "native-app" | "non-web";
 
+// Frameworks that target mobile devices (phone mockup in preview)
+const MOBILE_FRAMEWORKS = new Set([
+  "React Native",
+  "Flutter",
+  "Expo",
+]);
+
 export interface ProjectDetection {
   type: ProjectType;
   framework: string | null;
@@ -12,6 +19,7 @@ export interface ProjectDetection {
   portPattern: RegExp | null;
   needsInstall: boolean;
   resolvedPath?: string; // Actual project path (may differ from opened folder if found in subdir)
+  isMobileApp: boolean;  // True for React Native, Flutter native, Expo — shows phone mockup in preview
 }
 
 // ── Framework Detection Map (npm/package.json based) ──────────
@@ -100,7 +108,7 @@ const FRAMEWORK_MAP: { pkg: string; info: FrameworkInfo }[] = [
     pkg: "expo",
     info: {
       name: "Expo",
-      devCommand: "npx expo start --web",
+      devCommand: "set BROWSER=none && npx expo start --web",
       portPattern: /localhost:(\d+)/,
     },
   },
@@ -376,6 +384,7 @@ const NON_WEB: ProjectDetection = {
   installCommand: null,
   portPattern: null,
   needsInstall: false,
+  isMobileApp: false,
 };
 
 export async function detectProjectType(projectPath: string): Promise<ProjectDetection> {
@@ -437,6 +446,7 @@ async function _detectInPath(projectPath: string): Promise<ProjectDetection> {
       installCommand: null,
       portPattern: null,
       needsInstall: false,
+      isMobileApp: false,
     };
   }
 
@@ -465,8 +475,10 @@ async function _detectInPath(projectPath: string): Promise<ProjectDetection> {
       console.log("[detector] Dependencies found:", depNames);
 
       // Check native app frameworks first (Tauri, Electron, React Native)
+      // Skip React Native match if Expo is present — Expo projects include
+      // react-native as a dependency but should use the Expo web dev server
       for (const { pkg, info } of NATIVE_APP_MAP) {
-        if (allDeps[pkg]) {
+        if (allDeps[pkg] && !(pkg === "react-native" && allDeps["expo"])) {
           const manager = detectPackageManager(rootFileNames);
           const hasModules = await checkNodeModules(projectPath);
           console.log("[detector] → native-app:", info.name, "manager:", manager, "hasModules:", hasModules);
@@ -478,6 +490,7 @@ async function _detectInPath(projectPath: string): Promise<ProjectDetection> {
             installCommand: getInstallCommand(manager),
             portPattern: null,
             needsInstall: !hasModules,
+            isMobileApp: MOBILE_FRAMEWORKS.has(info.name),
           };
         }
       }
@@ -496,6 +509,7 @@ async function _detectInPath(projectPath: string): Promise<ProjectDetection> {
             installCommand: getInstallCommand(manager),
             portPattern: info.portPattern,
             needsInstall: !hasModules,
+            isMobileApp: MOBILE_FRAMEWORKS.has(info.name),
           };
         }
       }
@@ -514,6 +528,7 @@ async function _detectInPath(projectPath: string): Promise<ProjectDetection> {
         installCommand: null,
         portPattern: null,
         needsInstall: false,
+        isMobileApp: false,
       };
     }
 
@@ -646,6 +661,7 @@ async function detectFileBasedFramework(
       installCommand: fw.installCommand,
       portPattern: fw.portPattern,
       needsInstall,
+      isMobileApp: MOBILE_FRAMEWORKS.has(fw.name),
     };
   }
 

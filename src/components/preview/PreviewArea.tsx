@@ -40,6 +40,120 @@ type PreviewStatus =
   | "non-web"          // Not a web project
   | "error";           // Something went wrong
 
+// ── Phone Mockup Component ───────────────────────────────────
+// Pure CSS phone frame with notch, status bar, and home indicator.
+// Wraps any content (iframe, native output panel, etc.) in a
+// realistic mobile device bezel that matches the app theme.
+
+interface PhoneMockupProps {
+  children: React.ReactNode;
+  theme: ReturnType<typeof useSettingsStore.getState>["theme"];
+  t: (typeof themes)[keyof typeof themes];
+}
+
+function PhoneMockup({ children, theme, t }: PhoneMockupProps) {
+  // Dynamic bezel color — slightly lighter than bgSecondary so the frame pops
+  const bezelBg = theme === "light" || theme === "sepia" ? "#1C1C1E" : "#2A2A2E";
+  const bezelBorder = theme === "light" || theme === "sepia" ? "#3A3A3C" : "#3A3A3E";
+  const statusBarBg = theme === "light" || theme === "sepia" ? "#1C1C1E" : "#1A1A1E";
+
+  return (
+    <div className="flex flex-col items-center h-full py-4 px-2 overflow-auto"
+      style={{ background: "transparent" }}
+    >
+      {/* Phone body */}
+      <div
+        className="relative flex flex-col flex-1 min-h-0"
+        style={{
+          width: 393,
+          maxWidth: "100%",
+          background: bezelBg,
+          borderRadius: 44,
+          border: `3px solid ${bezelBorder}`,
+          boxShadow: "0 8px 40px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2)",
+          padding: "12px 4px",
+          overflow: "hidden",
+        }}
+      >
+        {/* Notch / Dynamic Island */}
+        <div
+          style={{
+            position: "absolute",
+            top: 12,
+            left: "50%",
+            transform: "translateX(-50%)",
+            width: 120,
+            height: 28,
+            background: "#000",
+            borderRadius: 20,
+            zIndex: 20,
+          }}
+        />
+
+        {/* Status bar (time, signal, battery) */}
+        <div
+          className="flex items-center justify-between px-8 flex-shrink-0"
+          style={{
+            height: 44,
+            background: statusBarBg,
+            borderRadius: "40px 40px 0 0",
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 600,
+            fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
+            position: "relative",
+            zIndex: 10,
+          }}
+        >
+          <span style={{ opacity: 0.9 }}>9:41</span>
+          <div style={{ width: 120 }} /> {/* Space for notch */}
+          <div className="flex items-center gap-1.5" style={{ opacity: 0.9 }}>
+            {/* Signal bars */}
+            <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+              <rect x="0" y="8" width="3" height="4" rx="0.5" fill="#fff" />
+              <rect x="4.5" y="5" width="3" height="7" rx="0.5" fill="#fff" />
+              <rect x="9" y="2" width="3" height="10" rx="0.5" fill="#fff" />
+              <rect x="13" y="0" width="3" height="12" rx="0.5" fill="#fff" />
+            </svg>
+            {/* Battery */}
+            <svg width="24" height="12" viewBox="0 0 24 12" fill="none">
+              <rect x="0.5" y="0.5" width="20" height="11" rx="2" stroke="#fff" strokeOpacity="0.4" />
+              <rect x="2" y="2" width="16" height="8" rx="1" fill="#34C759" />
+              <rect x="22" y="3.5" width="2" height="5" rx="1" fill="#fff" fillOpacity="0.4" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Screen content area */}
+        <div
+          className="flex-1 min-h-0 overflow-hidden"
+          style={{
+            background: "#fff",
+            borderRadius: "0 0 36px 36px",
+          }}
+        >
+          {children}
+        </div>
+
+        {/* Home indicator */}
+        <div
+          className="flex justify-center flex-shrink-0"
+          style={{ paddingTop: 6, paddingBottom: 2 }}
+        >
+          <div
+            style={{
+              width: 134,
+              height: 5,
+              borderRadius: 100,
+              background: "rgba(255,255,255,0.25)",
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PreviewArea({ onClose }: PreviewAreaProps) {
   const [tooltip, setTooltip] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string | null>(null);
@@ -93,6 +207,18 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
     selectedFile.name.toLowerCase().endsWith(ext)
   ) : false;
 
+  // Whether the detected project is a mobile app (phone mockup in preview)
+  const isMobileApp = detection?.isMobileApp ?? false;
+
+  // ── Auto-switch viewport based on project type ──
+  useEffect(() => {
+    if (isMobileApp) {
+      setViewportSize("mobile");
+    } else {
+      setViewportSize("desktop");
+    }
+  }, [isMobileApp]);
+
   // ── Detect project type and start appropriate server ──────
 
   useEffect(() => {
@@ -125,6 +251,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
             try {
               if (oldPort) {
                 await invoke("stop_dev_server").catch(() => {});
+                await invoke("set_preview_proxy", { targetPort: null }).catch(() => {});
                 await new Promise((r) => setTimeout(r, 2000));
               }
               if (previewVersionRef.current !== thisVersion) return;
@@ -801,30 +928,29 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   };
 
   const handleLoadExternal = async () => {
-    // User wants the version from disk — reload the file
+    // User wants to load the new version from disk
     if (!selectedFile) return;
     try {
       const content = await readFile(selectedFile.path);
       setFileContent(content);
       setEditContent(content);
-    } catch (err) {
-      console.error("Failed to reload file:", err);
+      setShowConflict(false);
+    } catch (err: any) {
+      console.error("Failed to load external version:", err);
     }
-    setShowConflict(false);
   };
 
   const handleSave = async () => {
     if (!selectedFile || !projectPath || saving) return;
-
     setSaving(true);
+    setShowConflict(false);
+
     try {
       await writeFile(selectedFile.path, editContent);
-
-      // Update local state with saved content
       setFileContent(editContent);
       setIsEditing(false);
 
-      // Refresh file tree
+      // Refresh file tree to catch any new files
       try {
         const files = await readDirectory(projectPath, 3);
         setFileTree(files);
@@ -1053,7 +1179,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
 
               {/* Viewport size switcher */}
               <div className={`flex items-center ${t.borderRadius} overflow-hidden border ${t.colors.border}`}>
-                {(Object.entries(VIEWPORT_PRESETS) as [ViewportSize, typeof VIEWPORT_PRESETS[ViewportSize]][]).map(([key, preset]) => {
+                {(Object.entries(VIEWPORT_PRESETS) as [ViewportSize, typeof VIEWPORT_PRESETS[ViewportSize]][]).filter(([key]) => !isMobileApp || key === "mobile").map(([key, preset]) => {
                   const Icon = preset.icon;
                   const isActive = viewportSize === key;
                   return (
@@ -1269,27 +1395,47 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
                 </div>
                 {/* Info + previous output */}
                 <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6">
-                  <Terminal size={32} className="opacity-50" />
-                  <div className="text-center max-w-xs">
-                    <p className={`text-sm font-medium ${t.colors.text} mb-2`}>
-                      {detection?.framework} project detected
-                    </p>
-                    <p className="text-xs mb-1">
-                      Run command: <code className={`px-1.5 py-0.5 ${t.colors.bgTertiary} ${t.borderRadius} text-xs`}>{detection?.devCommand}</code>
-                    </p>
-                    <p className="text-xs opacity-70 mt-3">
-                      This app opens in its own window. Click Run to start it, or ask the AI to run it for you.
-                    </p>
-                  </div>
-                  {/* Show previous output if any */}
-                  {nativeOutput && (
-                    <pre
-                      ref={nativeOutputRef}
-                      className={`text-xs w-full max-h-48 overflow-auto p-3 mt-2 ${t.colors.bgTertiary} ${t.borderRadius} ${t.colors.textMuted}`}
-                      style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}
-                    >
-                      {nativeOutput}
-                    </pre>
+                  {isMobileApp ? (
+                    /* Mobile app: show phone mockup with placeholder screen */
+                    <PhoneMockup theme={theme} t={t}>
+                      <div className="flex flex-col items-center justify-center h-full gap-3 p-6" style={{ background: "#f5f5f7" }}>
+                        <Smartphone size={32} className="opacity-30" style={{ color: "#1C1C1E" }} />
+                        <div className="text-center">
+                          <p className="text-sm font-medium mb-1" style={{ color: "#1C1C1E" }}>
+                            {detection?.framework} App
+                          </p>
+                          <p className="text-xs" style={{ color: "#86868B" }}>
+                            Click Run to launch on device or emulator
+                          </p>
+                        </div>
+                      </div>
+                    </PhoneMockup>
+                  ) : (
+                    /* Non-mobile native app: original layout */
+                    <>
+                      <Terminal size={32} className="opacity-50" />
+                      <div className="text-center max-w-xs">
+                        <p className={`text-sm font-medium ${t.colors.text} mb-2`}>
+                          {detection?.framework} project detected
+                        </p>
+                        <p className="text-xs mb-1">
+                          Run command: <code className={`px-1.5 py-0.5 ${t.colors.bgTertiary} ${t.borderRadius} text-xs`}>{detection?.devCommand}</code>
+                        </p>
+                        <p className="text-xs opacity-70 mt-3">
+                          This app opens in its own window. Click Run to start it, or ask the AI to run it for you.
+                        </p>
+                      </div>
+                      {/* Show previous output if any */}
+                      {nativeOutput && (
+                        <pre
+                          ref={nativeOutputRef}
+                          className={`text-xs w-full max-h-48 overflow-auto p-3 mt-2 ${t.colors.bgTertiary} ${t.borderRadius} ${t.colors.textMuted}`}
+                          style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}
+                        >
+                          {nativeOutput}
+                        </pre>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -1314,14 +1460,32 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
                     Stop
                   </button>
                 </div>
-                {/* Live output */}
-                <pre
-                  ref={nativeOutputRef}
-                  className={`flex-1 overflow-auto p-4 text-xs ${t.colors.bg} ${t.colors.textMuted}`}
-                  style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}
-                >
-                  {nativeOutput || "Starting process..."}
-                </pre>
+                {/* Live output — wrap in phone mockup for mobile apps */}
+                {isMobileApp ? (
+                  <div className="flex-1 min-h-0 overflow-auto">
+                    <PhoneMockup theme={theme} t={t}>
+                      <pre
+                        ref={nativeOutputRef}
+                        className="h-full overflow-auto p-3 text-xs"
+                        style={{
+                          fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                          background: "#1C1C1E",
+                          color: "#98989D",
+                        }}
+                      >
+                        {nativeOutput || "Starting process..."}
+                      </pre>
+                    </PhoneMockup>
+                  </div>
+                ) : (
+                  <pre
+                    ref={nativeOutputRef}
+                    className={`flex-1 overflow-auto p-4 text-xs ${t.colors.bg} ${t.colors.textMuted}`}
+                    style={{ fontFamily: "'JetBrains Mono', 'Fira Code', monospace" }}
+                  >
+                    {nativeOutput || "Starting process..."}
+                  </pre>
+                )}
               </div>
             )}
 
@@ -1383,8 +1547,20 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
                     className="w-full h-full border-0 bg-white"
                     title="Live Preview"
                   />
+                ) : viewportSize === "mobile" && isMobileApp ? (
+                  /* Mobile app detected + mobile viewport: phone mockup frame */
+                  <PhoneMockup theme={theme} t={t}>
+                    <iframe
+                      ref={iframeRef}
+                      key={refreshKey}
+                      src={`http://localhost:${serverPort}?_r=${refreshKey}`}
+                      className="w-full h-full border-0"
+                      title="Live Preview"
+                      style={{ background: "#fff" }}
+                    />
+                  </PhoneMockup>
                 ) : (
-                  /* Tablet / Mobile: constrained iframe centered with device chrome */
+                  /* Tablet / Mobile (non-mobile-app): constrained iframe centered with device chrome */
                   <div className={`flex flex-col items-center h-full py-4 px-2 overflow-auto ${t.colors.bgSecondary}`}>
                     {/* Viewport width label */}
                     <div className={`text-xs mb-2 ${t.colors.textMuted} flex items-center gap-1.5`}>

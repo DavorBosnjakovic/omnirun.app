@@ -251,14 +251,24 @@ async fn execute_command(command: String, cwd: String) -> Result<CommandResult, 
     // Uses tokio::process::Command so this runs asynchronously —
     // the UI stays responsive during long commands like npm install.
     let output = if cfg!(target_os = "windows") {
-        tokio::process::Command::new("cmd.exe")
-            .arg("/D")
-            .arg("/S")
-            .arg("/C")
-            .arg(&trimmed)
-            .current_dir(&cwd_path)
-            .output()
-            .await
+        let mut cmd = tokio::process::Command::new("C:\\Windows\\System32\\cmd.exe");
+        cmd.arg("/D").arg("/S").arg("/C").arg(&trimmed);
+        cmd.current_dir(&cwd_path);
+
+        // Ensure PATH includes essential system directories and Node.js
+        // Dedup + filter build artifacts + rustup to stay under Windows ~2047 char limit
+        if let Ok(path) = std::env::var("PATH") {
+            let mut seen = std::collections::HashSet::new();
+            let clean: Vec<&str> = path.split(';')
+                .filter(|p| !p.is_empty())
+                .filter(|p| !p.contains("\\target\\debug") && !p.contains("\\target\\release"))
+                .filter(|p| !p.contains("\\.rustup\\"))
+                .filter(|p| seen.insert(p.to_lowercase()))
+                .collect();
+            cmd.env("PATH", clean.join(";"));
+        }
+
+        cmd.output().await
     } else {
         tokio::process::Command::new("/bin/sh")
             .arg("-c")
@@ -334,15 +344,20 @@ fn build_hidden_shell_command(command: &str, cwd: &PathBuf) -> std::process::Com
     let mut cmd;
 
     if cfg!(target_os = "windows") {
-        cmd = std::process::Command::new("cmd.exe");
+        cmd = std::process::Command::new("C:\\Windows\\System32\\cmd.exe");
         cmd.arg("/D").arg("/S").arg("/C").arg(command);
 
         // Cargo build scripts (whisper-rs-sys, etc.) pollute PATH with hundreds
         // of build artifact directories, which can exceed the Windows ~2047 char
         // cmd.exe PATH limit. Filter those out so tools like npm are reachable.
+        // Dedup + filter build artifacts + rustup to stay under Windows ~2047 char limit
         if let Ok(path) = std::env::var("PATH") {
+            let mut seen = std::collections::HashSet::new();
             let clean: Vec<&str> = path.split(';')
-                .filter(|p| !p.contains("\\target\\debug\\build\\") && !p.contains("\\target\\release\\build\\"))
+                .filter(|p| !p.is_empty())
+                .filter(|p| !p.contains("\\target\\debug") && !p.contains("\\target\\release"))
+                .filter(|p| !p.contains("\\.rustup\\"))
+                .filter(|p| seen.insert(p.to_lowercase()))
                 .collect();
             cmd.env("PATH", clean.join(";"));
         }

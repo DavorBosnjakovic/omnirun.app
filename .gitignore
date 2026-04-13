@@ -55,4 +55,4 @@ coverage/
 *.pdb
 
 
-src-tauri/resources/whisper/ggml-base.en.bin
+src-tauri/resources/whisper/*.bin
