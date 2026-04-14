@@ -475,9 +475,13 @@ async fn start_dev_server(command: String, cwd: String, port_pattern: String) ->
                     }
                 }
             }
-            // Stream closed — don't send error here; let stderr thread report
-            // (it captures actual error output). If both close, senders drop
-            // and recv_timeout returns Disconnected.
+            // Stream closed — if port was never found, report with captured output
+            if !port_found_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = tx_clone.send(Err(format!(
+                    "Dev server stdout closed without printing a port. Output:\n{}",
+                    if captured.is_empty() { "(no output on stdout)".to_string() } else { captured }
+                )));
+            }
         });
     }
 

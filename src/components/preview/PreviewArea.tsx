@@ -316,6 +316,7 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
     return () => {
       cancelled = true;
       invoke("stop_preview_server").catch(() => {});
+      invoke("stop_dev_server").catch(() => {});
     };
   }, [projectPath]);
 
@@ -556,15 +557,55 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
 
       if (isStale()) return;
 
-      // 5. Start the new dev server
+      // 5. Start the new dev server (with EADDRINUSE retry)
       console.log("[preview] Starting dev server:", det.devCommand);
       setStatusMessage(`Starting ${det.framework} dev server...`);
 
-      const port = await invoke<number>("start_dev_server", {
-        command: det.devCommand,
-        cwd: devPath,
-        portPattern: det.portPattern.source,
-      });
+      let port: number = 0;
+      let lastErr: any = null;
+      const maxRetries = 2;
+
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            console.log(`[preview] Retry attempt ${attempt} after EADDRINUSE`);
+            setStatusMessage(`Port in use — killing orphaned process and retrying...`);
+
+            // Kill whatever is on common dev ports
+            await invoke("execute_command", {
+              command: 'for /f "tokens=5" %a in (\'netstat -aon ^| findstr ":300[0-9] " ^| findstr LISTENING\') do taskkill /PID %a /F 2>nul',
+              cwd: devPath,
+            }).catch(() => {});
+            // Also try higher ports (3010-3020)
+            await invoke("execute_command", {
+              command: 'for /f "tokens=5" %a in (\'netstat -aon ^| findstr ":301[0-9] " ^| findstr LISTENING\') do taskkill /PID %a /F 2>nul',
+              cwd: devPath,
+            }).catch(() => {});
+
+            // Wait for port to be released
+            await new Promise((r) => setTimeout(r, 2000));
+            if (isStale()) return;
+
+            setStatusMessage(`Starting ${det.framework} dev server...`);
+          }
+
+          port = await invoke<number>("start_dev_server", {
+            command: det.devCommand,
+            cwd: devPath,
+            portPattern: det.portPattern.source,
+          });
+          lastErr = null;
+          break; // Success — exit retry loop
+        } catch (err: any) {
+          lastErr = err;
+          const errStr = err?.toString?.() || "";
+          if (!errStr.includes("EADDRINUSE") && !errStr.includes("address already in use")) {
+            break; // Not a port conflict — don't retry
+          }
+        }
+      }
+
+      if (lastErr) throw lastErr;
 
       if (isStale()) return;
       console.log("[preview] Dev server reported port:", port);
