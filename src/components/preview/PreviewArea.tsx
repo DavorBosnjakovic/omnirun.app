@@ -1,4 +1,4 @@
-import { ExternalLink, PanelRightClose, FileCode, Copy, Check, Globe, RefreshCw, Pencil, Save, X, Download, Terminal, AlertCircle, Loader, Monitor, Tablet, Smartphone, Play, Square, MousePointer } from "lucide-react";
+import { ExternalLink, PanelRightClose, FileCode, Copy, Check, Globe, RefreshCw, Pencil, Save, X, Download, Terminal, AlertCircle, Loader, Monitor, Tablet, Smartphone, Play, Square, MousePointer, Rocket, Settings } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useProjectStore } from "../../stores/projectStore";
@@ -11,6 +11,11 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useElementSelectionStore } from "../../stores/elementSelectionStore";
+import { useConnectionsStore } from "../../stores/connectionsStore";
+import { useDeployStore } from "../../stores/deployStore";
+import DeployTargetPicker from "../deploy/DeployTargetPicker";
+import { useDeployTargetStore } from "../../stores/deployTargetStore";
+import { listConnectedDeployProviders } from "../../services/deploymentService";
 import FloatingActionBar from "./FloatingActionBar";
 
 interface PreviewAreaProps {
@@ -193,6 +198,50 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
   const [installElapsed, setInstallElapsed] = useState(0);
   const installTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const t = themes[theme];
+
+  // ── Deploy button (shows when a deploy provider is connected) ──
+  const currentProject = useProjectStore((s) => s.currentProject);
+  const projectConnections = useConnectionsStore((s) => s.projectConnections);
+  const startDeploy = useDeployStore((s) => s.startDeploy);
+  const deployTargets = useDeployTargetStore((s) => s.targets);
+  const setDeployTarget = useDeployTargetStore((s) => s.setTarget);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const connectedDeployProviders = currentProject
+    ? listConnectedDeployProviders(currentProject.id)
+    : [];
+  // Touch projectConnections so this block re-renders when connections change.
+  void projectConnections;
+  const canDeploy = connectedDeployProviders.length > 0;
+
+  const savedTarget = currentProject ? deployTargets[currentProject.id] : null;
+
+  const runDeploy = () => {
+    if (!currentProject || !projectPath) return;
+    // deployProject reads target from store; no need to pass provider here.
+    startDeploy({
+      projectId: currentProject.id,
+      projectPath,
+      projectName: savedTarget?.remoteProjectName || currentProject.name || 'omnirun-project',
+      cloudflareAccountId: savedTarget?.cloudflareAccountId,
+    });
+  };
+
+  const handleDeploy = () => {
+    if (!currentProject || !projectPath) return;
+    // No saved target yet → show picker to pick provider + remote project.
+    if (!savedTarget) {
+      setPickerOpen(true);
+    } else {
+      runDeploy();
+    }
+  };
+
+  // "Change target" — explicitly open the picker regardless of saved state.
+  const handleChangeTarget = () => {
+    if (!currentProject) return;
+    setPickerOpen(true);
+  };
 
   // Resolved path: may differ from projectPath if the app lives in a subdirectory
   const activePath = detection?.resolvedPath || projectPath;
@@ -1284,6 +1333,48 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
             </div>
           )}
 
+          {/* Deploy button — direct deploy to Vercel / Netlify / Cloudflare */}
+          {canDeploy && (
+            <>
+              <div className="relative">
+                <button
+                  onClick={handleDeploy}
+                  onMouseEnter={() => setTooltip("deploy")}
+                  onMouseLeave={() => setTooltip(null)}
+                  className={`${t.colors.bgTertiary} hover:opacity-80 p-2 ${t.borderRadius} ${t.colors.text}`}
+                >
+                  <Rocket size={15} />
+                </button>
+                {tooltip === "deploy" && (
+                  <div className={`absolute right-0 top-full mt-1 px-2 py-1 text-xs whitespace-nowrap ${t.colors.bgTertiary} ${t.colors.text} ${t.borderRadius} shadow-lg z-50`}>
+                    {savedTarget
+                      ? `Deploy to ${savedTarget.domain || savedTarget.remoteProjectName}`
+                      : "Deploy"}
+                  </div>
+                )}
+              </div>
+
+              {/* Change target — only shown when a target is already saved */}
+              {savedTarget && (
+                <div className="relative">
+                  <button
+                    onClick={handleChangeTarget}
+                    onMouseEnter={() => setTooltip("deploy-settings")}
+                    onMouseLeave={() => setTooltip(null)}
+                    className={`${t.colors.bgTertiary} hover:opacity-80 p-2 ${t.borderRadius} ${t.colors.textMuted}`}
+                  >
+                    <Settings size={14} />
+                  </button>
+                  {tooltip === "deploy-settings" && (
+                    <div className={`absolute right-0 top-full mt-1 px-2 py-1 text-xs whitespace-nowrap ${t.colors.bgTertiary} ${t.colors.text} ${t.borderRadius} shadow-lg z-50`}>
+                      Change deploy target
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
           {/* Close preview */}
           <div className="relative">
             <button
@@ -1712,6 +1803,24 @@ function PreviewArea({ onClose }: PreviewAreaProps) {
       {/* Element selection floating action bar */}
       {selectMode && selectedElements.length > 0 && (
         <FloatingActionBar iframeRect={iframeRect} />
+      )}
+
+      {/* Deploy target picker — shown on first deploy, or when user clicks the gear */}
+      {pickerOpen && currentProject && (
+        <DeployTargetPicker
+          omniProjectId={currentProject.id}
+          omniProjectName={currentProject.name || 'omnirun-project'}
+          availableProviders={connectedDeployProviders}
+          onConfirm={(target) => {
+            setPickerOpen(false);
+            if (!currentProject) return;
+            setDeployTarget(currentProject.id, target);
+            // Defer one tick so the target is fully committed to the store
+            // before deployProject reads it back.
+            setTimeout(() => runDeploy(), 0);
+          }}
+          onCancel={() => setPickerOpen(false)}
+        />
       )}
     </div>
   );

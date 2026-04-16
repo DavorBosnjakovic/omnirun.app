@@ -98,24 +98,28 @@ function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionCh
     }
   };
 
+  // Load project data without navigating (used by startup auto-select)
+  const loadProject = async (project: { id: string; name: string; path: string }) => {
+    const prevProject = currentProject;
+    if (hasTeam && prevProject && prevProject.id !== project.id) {
+      useTeamStore.getState().unlockProject(prevProject.name);
+    }
+
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("set_project_path", { path: project.path });
+    setCurrentProject(project);
+    setProjectPath(project.path);
+    useProjectStore.getState().setSelectedFile(null);
+    const files = await readDirectory(project.path, 3);
+    setFileTree(files);
+    const manifest = await generateManifest(project.path, files);
+    setManifest(manifest);
+  };
+
+  // Load project AND navigate to Projects section (used by user clicks)
   const handleOpenProject = async (project: { id: string; name: string; path: string }) => {
     try {
-      // Unlock the previous project if switching (team feature)
-      const prevProject = currentProject;
-      if (hasTeam && prevProject && prevProject.id !== project.id) {
-        useTeamStore.getState().unlockProject(prevProject.name);
-      }
-
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("set_project_path", { path: project.path });
-      setCurrentProject(project);
-      setProjectPath(project.path);
-      useProjectStore.getState().setSelectedFile(null);
-      const files = await readDirectory(project.path, 3);
-      setFileTree(files);
-      const manifest = await generateManifest(project.path, files);
-      setManifest(manifest);
-      // Navigate to projects section when opening a project
+      await loadProject(project);
       onSectionChange('projects');
     } catch (error) {
       console.error("Failed to open project:", error);
@@ -134,16 +138,16 @@ function Sidebar({ isOpen, onToggle, onSettingsClick, activeSection, onSectionCh
     setMenuOpen(null);
   };
 
-  // Auto-select last project on startup
+  // Auto-select last project on startup (loads data only, stays on Home)
   const startupRan = useRef(false);
   useEffect(() => {
     if (startupRan.current || currentProject || projects.length === 0) return;
     startupRan.current = true;
     dbService.getLastProjectId().then((lastId) => {
       const target = (lastId && projects.find((p) => p.id === lastId)) || projects[0];
-      if (target) handleOpenProject(target);
+      if (target) loadProject(target).catch((err) => console.error("Failed to auto-load project:", err));
     }).catch(() => {
-      if (projects[0]) handleOpenProject(projects[0]);
+      if (projects[0]) loadProject(projects[0]).catch((err) => console.error("Failed to auto-load project:", err));
     });
   }, [projects, currentProject]);
 

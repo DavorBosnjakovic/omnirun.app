@@ -9,6 +9,11 @@ const MOBILE_FRAMEWORKS = new Set([
   "React Native",
   "Flutter",
   "Expo",
+  "Capacitor",
+  "Ionic",
+  "Quasar",
+  "Framework7",
+  "NativeScript",
 ]);
 
 export interface ProjectDetection {
@@ -71,6 +76,64 @@ const FRAMEWORK_MAP: { pkg: string; info: FrameworkInfo }[] = [
       portPattern: /localhost:(\d+)/,
     },
   },
+  // ── Mobile frameworks (must be BEFORE vite — they use vite internally) ──
+  {
+    pkg: "@ionic/react",
+    info: {
+      name: "Ionic",
+      devCommand: "npm run dev",
+      portPattern: /localhost:(\d+)/,
+    },
+  },
+  {
+    pkg: "@ionic/angular",
+    info: {
+      name: "Ionic",
+      devCommand: "npm start",
+      portPattern: /localhost:(\d+)/,
+    },
+  },
+  {
+    pkg: "@ionic/vue",
+    info: {
+      name: "Ionic",
+      devCommand: "npm run dev",
+      portPattern: /localhost:(\d+)/,
+    },
+  },
+  {
+    pkg: "quasar",
+    info: {
+      name: "Quasar",
+      devCommand: "npx quasar dev",
+      portPattern: /localhost:(\d+)/,
+    },
+  },
+  {
+    pkg: "framework7",
+    info: {
+      name: "Framework7",
+      devCommand: "npm run dev",
+      portPattern: /localhost:(\d+)/,
+    },
+  },
+  {
+    pkg: "@nativescript/core",
+    info: {
+      name: "NativeScript",
+      devCommand: "ns preview",
+      portPattern: /localhost:(\d+)/,
+    },
+  },
+  {
+    pkg: "@capacitor/core",
+    info: {
+      name: "Capacitor",
+      devCommand: "npm run dev",
+      portPattern: /localhost:(\d+)/,
+    },
+  },
+  // ── Generic web frameworks (checked after mobile-specific ones) ──
   {
     pkg: "vite",
     info: {

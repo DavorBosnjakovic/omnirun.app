@@ -121,7 +121,7 @@ function ToolsDropdown({ onNavigate }: ToolsDropdownProps) {
             className={`w-full px-3 py-2.5 text-sm text-left flex items-center gap-3 ${t.colors.text} hover:bg-white/10 transition-colors`}
           >
             <Rocket size={16} />
-            <span className="flex-1">Deploy</span>
+            <span className="flex-1">Deployments</span>
           </button>
 
           {/* Health Checks */}

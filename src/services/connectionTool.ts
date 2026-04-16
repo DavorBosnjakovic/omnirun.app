@@ -23,20 +23,27 @@ const ALL_PROVIDER_DOCS: Record<string, string> = {
 - list_commits: Params: { owner, repo, per_page?, sha? }
 - create_pr: Create PR. Params: { owner, repo, title, body?, head, base? }
 - list_prs: Params: { owner, repo, state? }
-- get_tree: Full file tree. Params: { owner, repo, branch? }`,
+- get_tree: Full file tree. Params: { owner, repo, branch? }
+
+**DO NOT use github actions to deploy a site.** GitHub is for version control only.
+To deploy, use the \`deploy\` tool (or the vercel/netlify/cloudflare \`deploy_folder\` action). OmniRun deploys DIRECTLY to hosting providers — never via a GitHub push.`,
 
   vercel: `### vercel
 - list_projects: Params: { limit? }
 - get_project: Params: { projectId }
-- create_project: Params: { name, framework?, gitRepository? }
-- deploy: Deploy files. Params: { name, files: [{file, data}], projectSettings?, target? }
-- get_deployment: Params: { deploymentId }
+- create_project: Create a gitless Vercel project. Params: { name, framework? }
+- deploy_folder: **Preferred deploy action.** Deploys the current project folder directly — reads files, uploads by SHA, creates the deployment. Params: { projectPath, name, target?, projectSettings? }
+- upload_file: Low-level. Upload one file by SHA. Only call this yourself if you know what you're doing; \`deploy_folder\` calls it for you. Params: { sha1, contentBase64, size }
+- deploy: Low-level. Create a deployment from already-uploaded files. \`deploy_folder\` calls it for you. Params: { name, files: [{file, sha, size}], projectSettings?, target?, project? }
+- get_deployment: Poll deployment status. Params: { deploymentId }
 - list_deployments: Params: { projectId, limit?, target? }
 - set_env: Set env vars. Params: { projectId, envVars: [{key, value, target}] }
 - list_env: Params: { projectId }
 - list_domains: Params: { projectId }
 - add_domain: Params: { projectId, domain }
-- check_domain: Params: { domain }`,
+- check_domain: Params: { domain }
+
+**To deploy a project to Vercel, call \`deploy_folder\` with the project path.** Do NOT create a GitHub repo, do NOT use \`github.put_file\`, do NOT link the project to a Git repository.`,
 
   supabase: `### supabase
 - list_projects: List all projects
@@ -63,9 +70,14 @@ const ALL_PROVIDER_DOCS: Record<string, string> = {
 - list_sites: List all sites
 - get_site: Params: { siteId }
 - create_site: Params: { name?, custom_domain? }
+- deploy_folder: **Preferred deploy action.** Deploys the current project folder directly to Netlify. Creates a site if siteId not given. Params: { projectPath, siteId?, siteName? }
+- deploy_site: Low-level. Create a deploy from a SHA1 file manifest. Params: { siteId, files: { '/path': 'sha1', ... }, draft?, async? }
+- upload_deploy_file: Low-level. Upload one file to an in-progress deploy. Params: { deployId, path, contentBase64 }
 - list_deploys: Params: { siteId }
 - set_env: Params: { siteId, key, values }
-- list_env: Params: { siteId }`,
+- list_env: Params: { siteId }
+
+**To deploy a project to Netlify, call \`deploy_folder\` with the project path.** Do NOT use \`github.put_file\` — OmniRun deploys directly to Netlify, never via GitHub.`,
 
   sendgrid: `### sendgrid
 - send_email: Params: { to, from, subject, text?, html? }
@@ -78,7 +90,17 @@ const ALL_PROVIDER_DOCS: Record<string, string> = {
 - create_dns_record: Params: { zoneId, type, name, content, ttl?, proxied? }
 - update_dns_record: Params: { zoneId, recordId, type, name, content }
 - delete_dns_record: Params: { zoneId, recordId }
-- purge_cache: Params: { zoneId }`,
+- purge_cache: Params: { zoneId }
+- list_pages_projects: Params: { accountId }
+- get_pages_project: Params: { accountId, projectName }
+- create_pages_project: Create a gitless Pages project. Params: { accountId, name, productionBranch? }
+- deploy_folder: **Preferred deploy action for Cloudflare Pages.** Deploys the current project folder directly. Creates the Pages project if needed. Params: { projectPath, accountId, projectName, branch? }
+- get_pages_upload_jwt: Low-level. Params: { accountId, projectName }
+- check_missing_pages_hashes: Low-level. Params: { jwt, hashes }
+- upload_pages_files: Low-level. Params: { jwt, payload }
+- create_pages_deployment: Low-level. Params: { accountId, projectName, manifest, branch? }
+
+**To deploy a project to Cloudflare Pages, call \`deploy_folder\` with the project path.** Do NOT use \`github.put_file\` — OmniRun deploys directly.`,
 
   namecheap: `### namecheap
 - list_domains: List all domains
@@ -131,6 +153,8 @@ This is a meta-tool — specify the provider, action, and parameters.
 - provider: string (required) — The service name: ${providerList}
 - action: string (required) — The action to perform (varies by provider)
 - params: object (optional) — Action-specific parameters
+
+**Deployment rule:** To deploy a project to hosting (Vercel, Netlify, Cloudflare Pages), always use the \`deploy\` tool if available, or call \`deploy_folder\` on the provider directly. NEVER deploy by pushing files to GitHub via \`github.put_file\` — GitHub is for version control only, not as a deploy pipeline.
 
 **Available actions by provider:**
 

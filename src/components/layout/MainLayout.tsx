@@ -135,6 +135,18 @@ function MainLayout() {
     return () => window.removeEventListener('omnirun-open-settings', handler);
   }, []);
 
+  // ── Listen for tools page navigation from child components ──
+  // (Used by DeployModal's "View in OmniRun" button and similar
+  // deep-links from anywhere in the app.)
+  useEffect(() => {
+    const handler = (e: any) => {
+      const page = e.detail;
+      if (typeof page === 'string') handleToolsNavigate(page);
+    };
+    window.addEventListener('omnirun-navigate-tools', handler);
+    return () => window.removeEventListener('omnirun-navigate-tools', handler);
+  }, []);
+
   // ── Divider drag handlers ─────────────────────────────────────────
 
   const handleVerticalMouseDown = useCallback(() => {

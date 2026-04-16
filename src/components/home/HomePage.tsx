@@ -85,7 +85,7 @@ export default function HomePage({ onNavigate, onSettingsClick }: HomePageProps)
   const { tasks } = useTaskStore();
   const { projectConnections, loadFromDB, loadProjectConnectionsFromDB } = useConnectionsStore();
   const { monthlyCost, monthlyTokens, monthlyBudget } = useUsageStore();
-  const { profile } = useAuthStore();
+  const { profile, user } = useAuthStore();
   const { accounts } = useAssistantStore();
   const plan = profile?.plan ?? 'starter';
   const emailAccounts = selectEmailAccounts(accounts);
@@ -302,7 +302,7 @@ export default function HomePage({ onNavigate, onSettingsClick }: HomePageProps)
       <div className="flex items-start justify-between">
         <div>
           <h1 className={`text-sm font-semibold ${t.colors.text}`}>
-            {getGreeting()} 👋
+            {getGreeting()}{user?.displayName ? `, ${user.displayName.split(' ')[0]}` : ''} 👋
           </h1>
           <p className={`text-xs ${t.colors.textMuted} mt-0.5`}>{today}</p>
         </div>

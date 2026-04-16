@@ -10,6 +10,7 @@ import { themes, ThemeKey } from "../../config/themes";
 import UsageIndicator from "../chat/UsageIndicator";
 import ToolsDropdown from "./ToolsDropdown";
 import VoiceIndicator from "../voice/VoiceIndicator";
+import DeployModal from "../deploy/DeployModal";
 import elipseDark from "../../assets/elipse_transparent_dark.svg";
 import elipseLight from "../../assets/elipse_transparent_light.svg";
 
@@ -463,6 +464,10 @@ function Topbar({ terminalOpen, onToggleTerminal, onToolsNavigate, onSettingsCli
           </button>
         </div>
       </div>
+
+      {/* Deploy progress modal — global, driven by useDeployStore.
+          The Deploy button itself lives in PreviewArea. */}
+      <DeployModal />
     </div>
   );
 }

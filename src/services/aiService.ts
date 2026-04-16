@@ -261,6 +261,10 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
   - Briefly mention "💾 Saved to project knowledge" in your response
   - If the same type of content was saved before, UPDATE it (replace, don't duplicate)
   - Do NOT save ephemeral content (error logs, stack traces, screenshots for one-time fixes)
+- SIMPLICITY: Write the minimum code that solves the problem. No speculative features, no abstractions for single-use code, no "just in case" flexibility. If 200 lines could be 50, make it 50.
+- SURGICAL EDITS: When editing files, only change what's needed for the task. Don't "improve" adjacent code, comments, or formatting. Match the existing style. If your changes make imports or variables unused, clean those up — but don't touch pre-existing dead code unless asked.
+- VERIFY BEFORE DONE: After completing a task, re-read the changed file to confirm it's correct. Don't report "done" on assumption.
+- AMBIGUITY: If the request is unclear, state your interpretation and ask before building — don't guess silently. If a simpler approach exists, suggest it first.
 `;
 
   // Get connection context early so we can use it for both tools prompt and services section
@@ -352,7 +356,11 @@ IMPORTANT: You have direct access to project files through tools. You MUST use t
   - Briefly mention "💾 Saved to project knowledge" in your response
   - If the same type of content was saved before, UPDATE it (replace, don't duplicate)
   - Do NOT save ephemeral content (error logs, stack traces, screenshots for one-time fixes)
-- ELEMENT SELECTION: When the user's message contains [ELEMENT SELECTED] or [ELEMENTS SELECTED] blocks, the user clicked a specific element in the live preview. The block contains the CSS selector, tag name, text content, and current computed styles. Use this to make precise, targeted changes to ONLY that element. Do not modify unrelated elements. When multiple elements are selected, apply changes consistently across all of them. Always use the selector path to locate the element in the source code.`;
+- ELEMENT SELECTION: When the user's message contains [ELEMENT SELECTED] or [ELEMENTS SELECTED] blocks, the user clicked a specific element in the live preview. The block contains the CSS selector, tag name, text content, and current computed styles. Use this to make precise, targeted changes to ONLY that element. Do not modify unrelated elements. When multiple elements are selected, apply changes consistently across all of them. Always use the selector path to locate the element in the source code.
+- SIMPLICITY: Write the minimum code that solves the problem. No speculative features, no abstractions for single-use code, no "just in case" flexibility. If 200 lines could be 50, make it 50.
+- SURGICAL EDITS: When editing files, only change what's needed for the task. Don't "improve" adjacent code, comments, or formatting. Match the existing style. If your changes make imports or variables unused, clean those up — but don't touch pre-existing dead code unless asked.
+- VERIFY BEFORE DONE: After completing a task, re-read the changed file to confirm it's correct. Don't report "done" on assumption.
+- AMBIGUITY: If the request is unclear, state your interpretation and ask before building — don't guess silently. If a simpler approach exists, suggest it first.`;
 
   // ── Tools prompt (static per session — tool definitions don't change) ──
   const projectId = useProjectStore.getState().currentProject?.id;

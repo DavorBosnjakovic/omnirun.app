@@ -1,6 +1,8 @@
 import { readFile, writeFile, readDirectory, createDirectory, deletePath, FileEntry } from "./fileService";
 import { updateManifestEntry, removeManifestEntry, getRelativePath, ProjectManifest } from "./manifestService";
 import { executeConnectionTool, connectionToolPrompt, buildConnectionToolPrompt } from "./connectionTool";
+import { deployProject, pickDefaultProvider, listConnectedDeployProviders } from "./deploymentService";
+import { useProjectStore } from "../stores/projectStore";
 import { webSearch, formatResultsForAI } from "./webSearchService";
 import { updateContextFromAI, VALID_SECTIONS, type ContextSection, type ProjectContext as ContextData } from "./contextService";
 import { createTask } from "../stores/taskStore";
@@ -289,6 +291,11 @@ export const AVAILABLE_TOOLS: ToolDefinition[] = [
     name: "connection",
     description: "Interact with connected external services (Vercel, GitHub, Supabase, Cloudflare). Specify provider, action, and parameters.",
     parameters: '{"provider": "vercel", "action": "list_projects", "params": {}}',
+  },
+  {
+    name: "deploy",
+    description: "Deploy the current project directly to a hosting provider (Vercel, Netlify, or Cloudflare Pages). Reads the project folder, uploads files, creates the deployment, and returns the live URL. If provider is omitted, auto-picks the first connected deploy provider. DO NOT deploy via github.put_file — this tool deploys DIRECTLY without GitHub. For Cloudflare Pages deploys, pass cloudflareAccountId.",
+    parameters: '{"provider": "vercel", "projectName": "my-bakery"}',
   },
   {
     name: "write_context",
@@ -1650,6 +1657,75 @@ export async function executeTool(
           },
           updatedManifest,
         };
+      }
+	  
+	  case "deploy": {
+        const currentProject = useProjectStore.getState().currentProject;
+        if (!currentProject) {
+          return {
+            result: {
+              tool: "deploy",
+              success: false,
+              result: "❌ No project is open. Open a project first, then deploy.",
+            },
+            updatedManifest,
+          };
+        }
+
+        // Auto-pick provider if not specified.
+        const requestedProvider = args.provider as
+          | "vercel" | "netlify" | "cloudflare" | undefined;
+        const provider = requestedProvider ?? pickDefaultProvider(currentProject.id);
+
+        if (!provider) {
+          const connected = listConnectedDeployProviders(currentProject.id);
+          const hint = connected.length
+            ? `Connected deploy providers: ${connected.join(", ")}. Specify one with the provider argument.`
+            : "No deploy provider connected. Connect Vercel, Netlify, or Cloudflare in Settings > Project Connections.";
+          return {
+            result: {
+              tool: "deploy",
+              success: false,
+              result: `❌ ${hint}`,
+            },
+            updatedManifest,
+          };
+        }
+
+        // Derive project name: explicit arg > current project name > folder name
+        const projectName =
+          (args.projectName as string | undefined) ||
+          currentProject.name ||
+          projectPath.split(/[\\/]/).filter(Boolean).pop() ||
+          "omnirun-project";
+
+        try {
+          const result = await deployProject({
+            projectId: currentProject.id,
+            projectPath,
+            projectName,
+            provider,
+            cloudflareAccountId: args.cloudflareAccountId as string | undefined,
+          });
+
+          return {
+            result: {
+              tool: "deploy",
+              success: true,
+              result: `✅ Deployed to ${result.provider}: ${result.url}`,
+            },
+            updatedManifest,
+          };
+        } catch (err: any) {
+          return {
+            result: {
+              tool: "deploy",
+              success: false,
+              result: `❌ Deploy failed: ${err?.message || "Unknown error"}`,
+            },
+            updatedManifest,
+          };
+        }
       }
 
       case "write_context": {

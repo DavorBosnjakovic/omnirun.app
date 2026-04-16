@@ -52,14 +52,88 @@ const actions: Record<string, (params: any, token: string) => Promise<any>> = {
     return ntlFetch('/sites', token, { method: 'POST', body: JSON.stringify(body) });
   },
 
-  // Deploy a site (zip-based)
+  // Create a deploy by sending a file SHA1 manifest.
+  // Netlify responds with `required: [sha1, ...]` — only those need uploading.
+  // files param: { 'index.html': 'sha1hash', 'assets/app.js': 'sha1hash', ... }
   async deploy_site(params, token) {
-    const { siteId, files } = params;
-    // files: { '/index.html': 'sha1hash', ... }
+    const { siteId, files, draft = false, async = false } = params;
     return ntlFetch(`/sites/${siteId}/deploys`, token, {
       method: 'POST',
-      body: JSON.stringify({ files }),
+      body: JSON.stringify({ files, draft, async }),
     });
+  },
+
+  // Upload one file's raw bytes to an in-progress deploy.
+  // Netlify identifies the file by its PATH in the URL (not SHA like Vercel).
+  // Params: { deployId, path, contentBase64 }
+  async upload_deploy_file(params, token) {
+    const { deployId, path, contentBase64 } = params;
+    const binary = atob(contentBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    const res = await fetch(`${BASE}/deploys/${deployId}/files/${path}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/octet-stream',
+        'User-Agent': 'omnirun/1.0.0',
+      },
+      body: bytes,
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || `Netlify upload failed: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  // High-level: deploy an entire project folder in one call.
+  // Creates a site if siteId is not provided.
+  // Params: { projectPath, siteId?, siteName? }
+  async deploy_folder(params, token) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const { projectPath, siteName } = params;
+    let { siteId } = params;
+
+    // 1. Read the project folder via Rust.
+    const payload: any = await invoke('read_project_for_deploy', { projectPath });
+    const files: Array<{ path: string; sha1: string; size: number; content_base64: string }> =
+      payload.files;
+
+    // 2. Create a new site if none was provided.
+    if (!siteId) {
+      const site = await actions.create_site({ name: siteName }, token);
+      siteId = site.id;
+    }
+
+    // 3. Build the SHA1 manifest Netlify expects: { "/path": "sha1", ... }
+    const manifest: Record<string, string> = {};
+    for (const f of files) {
+      manifest[`/${f.path}`] = f.sha1;
+    }
+
+    // 4. Create the deploy — Netlify returns `required` (array of SHAs to upload).
+    const deploy: any = await actions.deploy_site(
+      { siteId, files: manifest, async: false },
+      token
+    );
+
+    // 5. Upload only the files Netlify doesn't already have.
+    const required: string[] = deploy.required || [];
+    const requiredSet = new Set(required);
+    for (const f of files) {
+      if (requiredSet.has(f.sha1)) {
+        await actions.upload_deploy_file(
+          { deployId: deploy.id, path: f.path, contentBase64: f.content_base64 },
+          token
+        );
+      }
+    }
+
+    // 6. Return the deploy object (caller polls state via get_deploy / list_deploys).
+    return { ...deploy, site_id: siteId };
   },
 
   async list_deploys(params, token) {

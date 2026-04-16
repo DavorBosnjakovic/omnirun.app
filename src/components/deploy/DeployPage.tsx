@@ -28,8 +28,13 @@ import {
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useConnectionsStore } from '../../stores/connectionsStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useDeployTargetStore } from '../../stores/deployTargetStore';
+import { useDeployStore } from '../../stores/deployStore';
+import { listConnectedDeployProviders } from '../../services/deploymentService';
+import DeployTargetPicker from './DeployTargetPicker';
 import { themes } from '../../config/themes';
 import { executeProjectProviderAction } from '../../services/connections/connectionManager';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 // --------------- Types ---------------
 
@@ -143,6 +148,38 @@ export default function DeployPage({ onSettingsClick, onSendToChat }: DeployPage
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [expandedDeploy, setExpandedDeploy] = useState<string | null>(null);
 
+  // ── Deploy target + one-click deploy ──
+  const deployTargets = useDeployTargetStore((s) => s.targets);
+  const setDeployTarget = useDeployTargetStore((s) => s.setTarget);
+  const clearDeployTarget = useDeployTargetStore((s) => s.clearTarget);
+  const startDeploy = useDeployStore((s) => s.startDeploy);
+  const [targetPickerOpen, setTargetPickerOpen] = useState(false);
+
+  const savedTarget = projectId ? deployTargets[projectId] : null;
+  const connectedDeployProviders = projectId
+    ? listConnectedDeployProviders(projectId)
+    : [];
+
+  const handleDeployNow = () => {
+    if (!currentProject) return;
+    if (!savedTarget) {
+      setTargetPickerOpen(true);
+      return;
+    }
+    startDeploy({
+      projectId: currentProject.id,
+      projectPath: (currentProject as any).path || '',
+      projectName: savedTarget.remoteProjectName || currentProject.name || 'omnirun-project',
+      cloudflareAccountId: savedTarget.cloudflareAccountId,
+    });
+  };
+
+  const handleChangeTarget = () => setTargetPickerOpen(true);
+  const handleClearTarget = () => {
+    if (!projectId) return;
+    clearDeployTarget(projectId);
+  };
+
   // Load connections from DB on mount
   useEffect(() => {
     if (projectId) {
@@ -240,10 +277,14 @@ export default function DeployPage({ onSettingsClick, onSendToChat }: DeployPage
     });
   };
 
-  // Open URL in browser
-  const handleOpenUrl = (url: string) => {
+  // Open URL in browser (uses Tauri's opener plugin — window.open is blocked in Tauri)
+  const handleOpenUrl = async (url: string) => {
     const fullUrl = url.startsWith('http') ? url : `https://${url}`;
-    window.open(fullUrl, '_blank');
+    try {
+      await openUrl(fullUrl);
+    } catch (e) {
+      console.error('Failed to open URL:', e);
+    }
   };
 
   // Card bg matching ConnectionsSettings pattern
@@ -341,6 +382,59 @@ export default function DeployPage({ onSettingsClick, onSendToChat }: DeployPage
           Refresh
         </button>
       </div>
+
+      {/* ── Deploy target card ── */}
+      {currentProject && connectedDeployProviders.length > 0 && (
+        <div className={`${bgCard} ${t.borderRadius} p-4 mb-5`}>
+          <div className="flex items-start gap-3">
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center ${t.colors.bgTertiary || t.colors.bg} flex-shrink-0`}>
+              <Rocket size={16} className={t.colors.textMuted} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className={`text-xs font-medium uppercase tracking-wide ${t.colors.textMuted} mb-1`}>
+                Deploy target
+              </div>
+              {savedTarget ? (
+                <>
+                  <div className={`text-sm font-medium ${t.colors.text} truncate`}>
+                    {savedTarget.domain || savedTarget.remoteProjectName}
+                  </div>
+                  <div className={`text-xs ${t.colors.textMuted} mt-0.5`}>
+                    {savedTarget.provider} · {savedTarget.remoteProjectName}
+                    {savedTarget.lastDeployedAt && ` · last deployed ${formatTimeAgo(savedTarget.lastDeployedAt)}`}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className={`text-sm ${t.colors.text}`}>
+                    Not set yet
+                  </div>
+                  <div className={`text-xs ${t.colors.textMuted} mt-0.5`}>
+                    Pick where this project deploys to
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {savedTarget && (
+                <button
+                  onClick={handleClearTarget}
+                  className={`px-2.5 py-1.5 text-xs ${t.borderRadius} ${t.colors.textMuted} hover:${t.colors.text} transition-colors`}
+                  title="Forget this target (you'll be asked again on next deploy)"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                onClick={handleChangeTarget}
+                className={`px-3 py-1.5 text-xs font-medium ${t.borderRadius} ${t.colors.border} border ${t.colors.text} hover:bg-white/10 transition-colors`}
+              >
+                {savedTarget ? 'Change' : 'Set target'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error banner */}
       {error && (
@@ -669,6 +763,29 @@ export default function DeployPage({ onSettingsClick, onSendToChat }: DeployPage
             ))}
           </div>
         </div>
+      )}
+
+      {/* Deploy target picker */}
+      {targetPickerOpen && currentProject && (
+        <DeployTargetPicker
+          omniProjectId={currentProject.id}
+          omniProjectName={currentProject.name || 'omnirun-project'}
+          availableProviders={connectedDeployProviders}
+          onConfirm={(target) => {
+            setTargetPickerOpen(false);
+            setDeployTarget(currentProject.id, target);
+            // Defer so the store commits before deployProject reads it.
+            setTimeout(() => {
+              startDeploy({
+                projectId: currentProject.id,
+                projectPath: (currentProject as any).path || '',
+                projectName: target.remoteProjectName,
+                cloudflareAccountId: target.cloudflareAccountId,
+              });
+            }, 0);
+          }}
+          onCancel={() => setTargetPickerOpen(false)}
+        />
       )}
     </div>
   );

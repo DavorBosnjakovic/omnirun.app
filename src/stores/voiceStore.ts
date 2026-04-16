@@ -282,6 +282,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => {
           }
         }, 3000);
       }
+
+      // Start muted by default — user clicks topbar indicator to unmute
+      stopAll();
+      set({ isMuted: true, voiceState: "muted" });
     },
 
     startPushToTalk: () => {

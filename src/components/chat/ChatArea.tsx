@@ -922,6 +922,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
       const toolGroupId = `tool-group-${Date.now()}`;
       let toolGroupCreated = false;
       let toolGroupLines: string[] = [];
+      let hadFileOps = false;
 
       while (iterations < MAX_TOOL_ITERATIONS) {
         iterations++;
@@ -1082,6 +1083,7 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
 
         // Refresh file tree if files were changed
         if (filesChanged.length > 0) {
+          hadFileOps = true;
           try {
             const files = await readDirectory(projectPath, 3);
             setFileTree(files);
@@ -1173,6 +1175,25 @@ function ChatArea({ onSettingsClick, pendingMessage, onPendingMessageConsumed }:
         }
 
         // Continue the loop — AI will process tool results
+      }
+
+      // If files were modified, suppress the AI's final narration text.
+      // The tool group message already shows what was done (Created/Edited/Deleted).
+      // Only keep the final message if it's a question or an error.
+      if (hadFileOps) {
+        const currentMsgs = useChatStore.getState().messages;
+        const lastMsg = currentMsgs[currentMsgs.length - 1];
+        if (lastMsg?.role === "assistant" && lastMsg.id !== toolGroupId
+            && !isToolMessage(lastMsg.content) && !isSearchMessage(lastMsg.content)) {
+          const text = (lastMsg.content || "").trim();
+          const isQuestion = /\?\s*$/.test(text);
+          const isError = text.startsWith("❌");
+          if (!isQuestion && !isError) {
+            useChatStore.setState((state) => ({
+              messages: state.messages.filter((m) => m.id !== lastMsg.id),
+            }));
+          }
+        }
       }
 
       if (iterations >= MAX_TOOL_ITERATIONS) {

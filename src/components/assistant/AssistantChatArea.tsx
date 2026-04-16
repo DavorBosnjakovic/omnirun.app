@@ -131,7 +131,9 @@ Guidelines:
 - If you cannot take an action yet (e.g. a service is not connected), say so clearly and suggest connecting it
 - Never make up content — only work with what the user tells you or what the APIs return
 - For morning briefs, prioritize: urgent emails, today's calendar, failed tasks, then everything else
-- When email data is provided below, use it to answer the user's question. Do not say you don't have access — the data has already been fetched for you.`;
+- When email data is provided below, use it to answer the user's question. Do not say you don't have access — the data has already been fetched for you.
+- Before acting on a request, define what "done" looks like and how to verify it. Execute, then confirm the result — don't report done on assumption.
+- If the request is ambiguous, state your interpretation and ask — don't guess silently.`;
 }
 
 // ─── Suggestions ──────────────────────────────────────────────

@@ -14,6 +14,7 @@ mod task_runner;
 mod oauth;
 mod screen_control;
 mod voice_engine;
+mod deploy;
 
 #[derive(Serialize, Deserialize)]
 pub struct FileEntry {
@@ -1032,6 +1033,8 @@ pub fn run() {
             voice_engine::set_voice_muted,
             voice_engine::set_voice_language,
             voice_engine::is_voice_engine_ready,
+            // Direct-deploy (Vercel/Netlify/Cloudflare Pages)
+            deploy::read_project_for_deploy,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -58,37 +58,144 @@ const actions: Record<string, (params: any, token: string) => Promise<any>> = {
     return vFetch(`/v9/projects/${projectId}`, token);
   },
 
-  // Create a new project
+  // Create a new project (gitless — OmniRun deploys directly, no GitHub link)
   async create_project(params, token) {
-    const { name, framework, gitRepository } = params;
+    const { name, framework } = params;
     const body: any = { name };
     if (framework) body.framework = framework; // nextjs, vite, etc.
-    if (gitRepository) body.gitRepository = gitRepository; // { type: 'github', repo: 'owner/repo' }
     return vFetch('/v10/projects', token, {
       method: 'POST',
       body: JSON.stringify(body),
     });
   },
 
-  // Deploy a project (file-based deployment)
-  async deploy(params, token) {
-    const { name, files, projectSettings, target = 'production' } = params;
-    // files: [{ file: 'index.html', data: '...' }, ...]
-    // Convert file data to base64 if not already
-    const deployFiles = files.map((f: any) => ({
-      file: f.file,
-      data: f.data, // should be file content string
-    }));
+  // Upload a single file to Vercel by SHA1 digest.
+  // Must be called for every file BEFORE deploy().
+  // Vercel stores the file keyed by its SHA1 and references it in the deploy.
+  async upload_file(params, token) {
+    const { sha1, contentBase64, size } = params;
+    // Decode base64 → raw bytes for the request body.
+    const binary = atob(contentBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
+    const res = await fetch(`${BASE}/v2/files`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/octet-stream',
+        'x-vercel-digest': sha1,
+        'Content-Length': String(size),
+        'User-Agent': 'omnirun/1.0.0',
+      },
+      body: bytes,
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error?.message || `Vercel upload failed: ${res.status}`);
+    }
+    return res.status === 204 ? null : res.json();
+  },
+
+  // Create a deployment from already-uploaded files (referenced by SHA).
+  // Call upload_file for each file first, then call this.
+  async deploy(params, token) {
+    const { name, files, projectSettings, target = 'production', project } = params;
+    // files: [{ file: 'index.html', sha: 'abc123...', size: 1234 }, ...]
     return vFetch('/v13/deployments', token, {
       method: 'POST',
       body: JSON.stringify({
         name,
-        files: deployFiles,
+        files,
         target,
         projectSettings,
+        ...(project ? { project } : {}),
       }),
     });
+  },
+
+  // High-level: deploy an entire project folder in one call.
+  // Reads files via the Tauri deploy command, uploads each one,
+  // then creates the deployment. Returns the deployment object
+  // (use get_deployment to poll status).
+  //
+  // Params:
+  //   projectPath    - local folder to deploy
+  //   name           - project name (used when creating a new project)
+  //   vercelProjectId - OPTIONAL: existing Vercel project ID to deploy TO.
+  //                     When provided, deployment is linked to that project
+  //                     (domains, env vars, deployment history all preserved).
+  //                     When omitted, a new Vercel project is created.
+  //   target         - 'production' | 'preview' (default 'production')
+  //   projectSettings - optional framework/build overrides
+  async deploy_folder(params, token) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const {
+      projectPath,
+      name,
+      vercelProjectId,
+      target = 'production',
+      projectSettings,
+    } = params;
+
+    // 1. Ask Rust to read the project folder.
+    const payload: any = await invoke('read_project_for_deploy', { projectPath });
+    const { files, framework } = payload;
+
+    // 2. Upload every file by SHA. Emit progress via globalThis so
+    //    deploymentService can surface a "3 / 47 files" counter.
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      await actions.upload_file(
+        { sha1: f.sha1, contentBase64: f.content_base64, size: f.size },
+        token
+      );
+      const emit = (globalThis as any).__omnirunUploadProgress;
+      if (typeof emit === 'function') emit(i + 1, files.length);
+    }
+
+    // 3. Build the deployment manifest (Vercel expects file+sha+size).
+    const manifest = files.map((f: any) => ({
+      file: f.path,
+      sha: f.sha1,
+      size: f.size,
+    }));
+
+    // 4. Default project settings from detected framework if none provided.
+    const settings = projectSettings ?? (framework ? { framework } : undefined);
+
+    // 5. Create the deployment — link to existing project if ID was passed.
+    const deployment = await actions.deploy(
+      {
+        name,
+        files: manifest,
+        target,
+        projectSettings: settings,
+        project: vercelProjectId, // links to existing project when provided
+      },
+      token
+    );
+
+    // 6. If we deployed to an existing project, check for custom domains
+    //    attached to it and prefer those over the auto-generated vercel.app URL.
+    if (vercelProjectId) {
+      try {
+        const domains: any = await actions.list_domains({ projectId: vercelProjectId }, token);
+        const domainList: any[] = domains?.domains ?? domains ?? [];
+        const verifiedCustom = domainList.find(
+          (d: any) => d.verified && !d.name?.endsWith('.vercel.app')
+        );
+        if (verifiedCustom?.name) {
+          deployment.url = verifiedCustom.name;
+          deployment.customDomain = verifiedCustom.name;
+        }
+      } catch {
+        // non-fatal — fall back to deployment.url as returned
+      }
+    }
+
+    return deployment;
   },
 
   // Get deployment status
