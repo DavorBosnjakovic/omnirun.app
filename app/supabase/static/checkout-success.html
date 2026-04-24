@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Subscription Active - omnirun</title>
+</head>
+<body style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0A0A0A;color:#E5E5E5;display:flex;align-items:center;justify-content:center;min-height:100vh">
+  <div style="text-align:center;padding:48px;max-width:440px">
+    <div style="font-size:48px;margin-bottom:20px">&#10003;</div>
+    <h1 style="font-size:24px;font-weight:700;margin-bottom:12px">You're all set!</h1>
+    <div id="badge" style="display:none;background:rgba(45,184,122,0.15);color:#2DB87A;font-size:13px;font-weight:600;padding:4px 12px;border-radius:20px;margin-bottom:24px;text-transform:capitalize"></div>
+    <p style="color:#888;font-size:15px;line-height:1.5;margin-bottom:24px">Your subscription is active with a 7-day free trial. You can close this tab and return to omnirun.</p>
+    <p style="color:#555;font-size:13px">Your plan will update automatically in the app within a few seconds.</p>
+  </div>
+  <script>
+    var p = new URLSearchParams(window.location.search).get("plan");
+    if (p) { var b = document.getElementById("badge"); b.textContent = p + " plan activated"; b.style.display = "inline-block"; }
+  </script>
+</body>
+</html>

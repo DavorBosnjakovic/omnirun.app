@@ -1,0 +1,173 @@
+import { useEffect, useState } from "react";
+import MainLayout from "./components/layout/MainLayout";
+import OnboardingWrapper from "./components/onboarding/OnboardingWrapper";
+import LoginPage from "./components/auth/LoginPage";
+import { dbService } from "./services/dbService";
+import { useProjectStore } from "./stores/projectStore";
+import { useSettingsStore } from "./stores/settingsStore";
+import { useUsageStore } from "./stores/usageStore";
+import { useConnectionsStore } from "./stores/connectionsStore";
+import { useAuthStore } from "./stores/authStore";
+import { useTeamStore } from "./stores/teamStore";
+import { useVoiceStore } from "./stores/voiceStore";
+
+function App() {
+  // Single atomic flag — nothing renders until the entire init sequence
+  // is complete. Splitting into dbReady + authChecked allowed React to
+  // re-render between steps, causing "DB not initialized" errors when
+  // auth listeners tried to persist tokens mid-init.
+  const [appReady, setAppReady] = useState(false);
+  const [dbError, setDbError] = useState(false);
+
+  useEffect(() => {
+    async function initApp() {
+      try {
+        // 1. Initialize database (creates tables, runs migrations)
+        await dbService.init();
+
+        // 2. Load all stores from SQLite
+        await Promise.all([
+          useProjectStore.getState().loadFromDB(),
+          useSettingsStore.getState().loadFromDB(),
+          useUsageStore.getState().loadFromDB(),
+        ]);
+
+        // Load connections for the current project (project-scoped only)
+        const currentProjectId = useProjectStore.getState().currentProject?.id;
+        if (currentProjectId) {
+          await useConnectionsStore.getState().loadProjectConnectionsFromDB(currentProjectId);
+        }
+
+        // 3. Restore auth session from stored tokens.
+        //    Must run AFTER DB is fully initialized because the auth
+        //    state-change listener will immediately try to persist tokens.
+        await useAuthStore.getState().initialize();
+
+        // 4. Mark fully ready — ONE render, at the very end.
+        setAppReady(true);
+
+        // 5. Initialize voice control (registers hotkey, starts wake-word if configured)
+        useVoiceStore.getState().init();
+      } catch (error) {
+        console.error("Failed to initialize app:", error);
+        setDbError(true);
+      }
+    }
+
+    initApp();
+
+    return () => {
+      useAuthStore.getState().cleanup();
+    };
+  }, []);
+
+  const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted);
+  const theme = useSettingsStore((s) => s.theme);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const hasTeam = useTeamStore((s) => s.hasTeam);
+
+  // ── Team lock subscription + app close cleanup ──────────────
+  useEffect(() => {
+    if (!appReady || !isAuthenticated) return;
+
+    const teamState = useTeamStore.getState();
+    const user = useAuthStore.getState().user;
+
+    // Fetch team data (triggers lock subscription if team exists)
+    if (user?.id) {
+      teamState.fetchTeam(user.id).then(() => {
+        const { hasTeam } = useTeamStore.getState();
+        if (hasTeam) {
+          useTeamStore.getState().fetchLocks();
+          useTeamStore.getState().subscribeToLocks();
+        }
+      });
+    }
+
+    // Global activity tracking for idle timer (keypress, mouse move)
+    const trackActivity = () => useTeamStore.getState().trackActivity();
+    window.addEventListener('keydown', trackActivity);
+    window.addEventListener('mousemove', trackActivity);
+    window.addEventListener('click', trackActivity);
+
+    // Unlock all locks on app close / refresh
+    const handleBeforeUnload = () => {
+      useTeamStore.getState().unlockAllMyLocks();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    // Tauri window close event (more reliable than beforeunload for desktop)
+    let unlistenClose: (() => void) | null = null;
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const appWindow = getCurrentWindow();
+        unlistenClose = await appWindow.onCloseRequested(async () => {
+          await useTeamStore.getState().unlockAllMyLocks();
+        }) as unknown as () => void;
+      } catch {
+        // Not in Tauri environment (e.g., dev browser) — beforeunload handles it
+      }
+    })();
+
+    return () => {
+      window.removeEventListener('keydown', trackActivity);
+      window.removeEventListener('mousemove', trackActivity);
+      window.removeEventListener('click', trackActivity);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      useTeamStore.getState().unsubscribeFromLocks();
+      if (unlistenClose) unlistenClose();
+    };
+  }, [appReady, isAuthenticated]);
+
+  const fontMap: Record<string, string> = {
+    omnirun: "'Sora', sans-serif",
+    dark: "'Inter', sans-serif",
+    light: "'Plus Jakarta Sans', sans-serif",
+    sepia: "'Lora', serif",
+    retro: "'JetBrains Mono', monospace",
+    midnight: "'Space Grotesk', sans-serif",
+    highContrast: "'Atkinson Hyperlegible', sans-serif",
+  };
+
+  const appFont = fontMap[theme] || "'Inter', sans-serif";
+
+  if (dbError) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-black text-white text-sm opacity-60">
+        Failed to initialize database. Please restart the app.
+      </div>
+    );
+  }
+
+  // Nothing renders until the full init sequence is done
+  if (!appReady) {
+    return null;
+  }
+
+  // Flow: Onboarding (first launch) → Auth (login/signup) → MainLayout
+  if (!onboardingCompleted) {
+    return (
+      <div style={{ fontFamily: appFont }} className="h-screen w-screen">
+        <OnboardingWrapper />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated && !isLoading) {
+    return (
+      <div style={{ fontFamily: appFont }} className="h-screen w-screen">
+        <LoginPage />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily: appFont }} className="h-screen w-screen">
+      <MainLayout />
+    </div>
+  );
+}
+
+export default App;
