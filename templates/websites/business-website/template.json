@@ -1,0 +1,30 @@
+{
+  "name": "Business Website",
+  "slug": "business-website",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "static",
+  "description": "Professional multi-page business website with home, about, services, and contact pages. Ready to customize with your brand.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "basic",
+  "category": "websites",
+  "tags": ["html", "css", "business", "multi-page", "responsive", "contact-form"],
+  "icon": "🏢",
+  "defaultProjectName": "My Business Website",
+  "files": [
+    "template.json",
+    "index.html",
+    "about.html",
+    "services.html",
+    "contact.html",
+    "style.css",
+    "script.js"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a static multi-page business website (HTML/CSS/JS, no build tools). Pages: index.html (home with hero, features, testimonials, CTA), about.html (team, mission, values), services.html (service cards with pricing tiers), contact.html (contact form, map placeholder, business info). All pages share style.css (CSS custom properties for easy rebranding) and script.js (mobile nav, form handling, scroll animations). The user can ask to change colors/branding (edit CSS variables in :root), add new pages, add a blog section, connect a real contact form backend, add animations, change layout, add a gallery, etc."
+}

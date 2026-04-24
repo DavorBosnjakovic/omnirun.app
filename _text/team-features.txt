@@ -1,0 +1,402 @@
+# Omnirun --  Team Features Specification
+
+**Status:** Built
+**Last Updated:** April 6, 2026
+
+---
+
+## OVERVIEW
+
+Teams allow Pro, Business, and Enterprise users to collaborate on projects.
+The system is intentionally simple --  no real-time collaborative editing,
+no file-level locking, no merge conflicts. One person works on a project
+at a time. The AI needs full control of the project folder, so simultaneous
+editing would cause chaos.
+
+---
+
+## TERMINOLOGY
+
+- **Team** --  A group of users under one paid plan
+- **Members** --  People in the team
+- **Owner** --  The person who pays. One per team. Cannot be changed (only transferred).
+- **Member** --  Everyone else on the team. Can access projects, chat with AI, deploy.
+
+Only two roles: **Owner** and **Member**. No Admin/Editor/Viewer.
+Granular permissions not included  --  just Owner + Member.
+
+---
+
+## PLAN SEATS
+
+| Plan  | Team Seats | Projects |
+|------------|-----------|----------|
+| Starter  | 1 (solo)  | 1  |
+| Pro  | 1 (solo)  | 5  |
+| Business  | 5  | 15  |
+| Enterprise | Unlimited | Unlimited|
+
+Starter users see no Team tab in Settings --  it only appears for Business+.
+
+---
+
+## SETTINGS TAB
+
+New Settings sidebar order:
+General, API Keys, Voice, Connections, **Team**, Billing, Usage, About
+
+### Team Settings Page --  Owner View
+
+```
++-------------------------------------------------------------+
+| Team  |
++-------------------------------------------------------------+
+|  |
+| TEAM NAME  |
+| [WebDesign Agency  ] [Save]  |
+|  |
+| API KEY POLICY  |
+| (*) Shared key --  Team uses owner's API key  |
+| ( ) Individual keys --  Each member brings their own  |
+|  |
+| MEMBERS (3 of 5 seats used)  |
+| +---------------------------------------------------------+ |
+| | You (Owner)  you@email.com  Owner  | |
+| +---------------------------------------------------------+ |
+| | Sarah Miller  sarah@email.com  Member  [x]  | |
+| +---------------------------------------------------------+ |
+| | Mike Chen  mike@email.com  Member  [x]  | |
+| +---------------------------------------------------------+ |
+|  |
+| [+ Invite Member]  |
+|  |
+| ACTIVITY LOG  |
+| +---------------------------------------------------------+ |
+| | Sarah worked on E-commerce Site --  2 hours ago  | |
+| | Mike deployed Portfolio --  yesterday  | |
+| | You created Landing Page project --  2 days ago  | |
+| | Sarah joined the team --  5 days ago  | |
+| +---------------------------------------------------------+ |
+| Showing last 30 days  |
+|  |
++-------------------------------------------------------------+
+```
+
+### Team Settings Page --  Member View
+
+Members see a simplified version:
+- Team name (read-only)
+- Member list (read-only, no remove buttons)
+- Activity log
+- NO billing info
+- NO invite button
+- NO API key policy toggle
+
+---
+
+## INVITATION FLOW
+
+1. Owner clicks [+ Invite Member]
+2. Modal appears: "Enter email address" + [Send Invite]
+3. System sends email to invitee:
+  - "You've been invited to join [Team Name] on Omnirun"
+  - Two buttons: "Download Omnirun" (if new) + "Accept Invitation"
+  - Invitation expires after 7 days
+4. Invitee downloads app (if needed), creates account, accepts invite
+5. They appear in the member list
+6. Owner sees "Invitation pending" status until accepted
+
+### Invitation States
+- **Pending** --  Sent, not accepted yet. Shows in member list as gray/italic.
+- **Accepted** --  Active member.
+- **Expired** --  7 days passed. Owner can resend.
+
+### Limits
+- Cannot invite more members than available seats
+- Cannot invite someone already on another team (one team per account)
+- Owner can cancel pending invitations
+
+---
+
+## API KEY POLICY
+
+Owner chooses one of two modes in Team Settings:
+
+### Shared Key (Default)
+- Owner's API keys are encrypted (AES-GCM via Web Crypto API) and stored in Supabase teams.encrypted_api_keys
+- Encryption key derived from team_id + owner_id -- Supabase RLS is the real security layer
+- Members don't need to set up API keys at all
+- All AI costs go to the owner's API account
+- Best for: Agencies where the boss pays for everything
+- Members see "Using team API key" banner in API Settings (entire page replaced, read-only)
+- Owner sees "Your API keys are shared with your team" notice in API Settings
+- When owner saves API key changes, keys are re-encrypted and re-uploaded automatically
+
+### Individual Keys (BYOK Per Member)
+- Each member enters their own API key in their personal API Settings
+- Each member pays their own AI provider directly
+- Best for: Loose teams, freelancer groups
+- If a member hasn't set up their key, they see info banner: "Each team member uses their own API key. Set yours up in Settings → API Key."
+
+The toggle lives in Team Settings, only the Owner can change it.
+
+### Confirmation Dialogs
+
+**Switching to Shared Key:**
+"Share your API key with your team?"
+"Your API keys will be encrypted and stored securely on Omnirun's servers so your team members can use them. They will no longer be stored only on your device. All AI costs will go to your API account. You can switch back to individual keys at any time."
+Buttons: [Cancel] [Share Key]
+
+**Switching to Individual Keys:**
+"Stop sharing your API key?"
+"Your API key will be removed from Omnirun's servers. Team members will need to set up their own API keys to keep working."
+Buttons: [Cancel] [Stop Sharing]
+
+### Implementation Details
+- Supabase migration 005: added encrypted_api_keys (TEXT) and shared_keys_updated_at (TIMESTAMPTZ) to teams table
+- Encryption: AES-GCM, key derived from SHA-256(team_id:owner_id:omnirun-team-key), IV prepended to ciphertext, base64 encoded
+- All provider configs (providerId, apiKey, selectedModel) are encrypted as one JSON blob
+- Existing RLS policies cover access: "Members read own team" + "Owners update own team"
+- teamStore.ts handles encrypt/decrypt via setApiKeyPolicy() and fetchSharedKeys()
+
+---
+
+## PROJECT-LEVEL LOCKING
+
+Since AI modifies files across the whole project, only one person can work
+on a project at a time. This is the core collaboration rule.
+
+### How It Works
+
+1. Member A opens Project X and starts chatting with AI
+2. Project X is now **locked** to Member A
+3. Other members see Project X in their sidebar with:
+  - Grayed out appearance
+  - Lock indicator + message: "Sarah is working on this"
+  - Project is read-only (can browse files but cannot chat/modify)
+4. Member A closes the project / switches to another project / goes offline
+5. Project X **unlocks** automatically
+6. Other members get notified: "E-commerce Site is now available"
+
+### Lock Behavior
+- Lock is automatic --  no manual "lock/unlock" button
+- Lock activates when a member opens a project AND sends their first message
+- Just browsing files doesn't lock (only active AI work does)
+- Lock releases when: member switches project, closes app, or goes idle 15+ min
+- If app crashes, lock auto-releases after 5 minutes of no heartbeat
+- Owner can force-unlock any project from Team Settings (emergency override)
+
+### UI Indicators
+- **Sidebar project list:** Small avatar/dot next to project name showing who's in it
+- **Locked project:** Gray text, lock icon, "Sarah is working on this" tooltip
+- **Available project:** Normal appearance, green dot = no one working on it
+
+---
+
+## NOTIFICATIONS
+
+Minimal. Two types only:
+
+### In-App Notifications
+- **Project available:** "E-commerce Site is now available" (when someone finishes)
+- **Invitation received:** "You've been invited to join [Team Name]"
+
+### How They Appear
+- Small dot indicator on the bell icon in sidebar (or topbar)
+- Click to see notification list
+- Notifications auto-dismiss after being read
+- No email notifications
+- No sounds, no toast popups, no push notifications
+
+---
+
+## MEMBER REMOVAL
+
+- Owner clicks [x] next to a member's name
+- Confirmation: "Remove Sarah Miller from the team? She'll lose access immediately."
+- On confirm: Access revoked instantly, seat freed up
+- Nothing is deleted --  all projects and files remain intact
+- Removed member's app reverts to logged-out / personal state
+- Activity log records: "Sarah Miller was removed --  Feb 10"
+
+---
+
+## ACTIVITY LOG
+
+Lives in Team Settings page. Simple chronological list.
+
+### What Gets Logged
+- Member worked on [Project Name] --  timestamp
+- Member deployed [Project Name] --  timestamp
+- Member joined the team --  timestamp
+- Member was removed --  timestamp
+- Project created --  timestamp
+- Project deleted --  timestamp
+
+### Behavior
+- Shows last 30 days
+- Refreshes when Team Settings page is opened (NOT real-time)
+- Grouped by day ("Today", "Yesterday", "Feb 8", etc.)
+- No filtering or search
+
+---
+
+## BILLING --  OWNER ONLY
+
+- Only the Owner sees the Billing tab in Settings
+- Members do NOT see: plan info, pricing, payment method, billing history
+- Members see Team tab but with read-only info (member list, activity)
+- If a member clicks Billing in sidebar, redirect to Team page or hide it entirely
+
+---
+
+## NOT INCLUDED
+
+These are not being built. Do NOT build:
+- [ ] Granular roles (Admin/Editor/Viewer) --  just Owner + Member
+- [ ] File-level locking or collaborative editing
+- [ ] Real-time sync via WebSockets
+- [ ] Conflict resolution / merge logic
+- [ ] In-line code comments between team members
+- [ ] Team chat / messaging
+- [ ] Project-level permissions (all members see all team projects)
+- [ ] Multiple teams per account
+- [ ] Transfer ownership UI (manual/support only)
+- [ ] Email notifications
+- [ ] Usage analytics per member
+
+These can be added later based on actual user demand.
+
+---
+
+## BACKEND REQUIREMENTS
+
+Team features need a backend. Minimum infrastructure:
+
+- **User accounts / auth** --  Email + password, or magic link
+- **Team database** --  Teams table, Members table, Invitations table
+- **Project lock service** --  Simple flag per project (locked_by, locked_at)
+- **Heartbeat** --  Periodic ping from app to confirm member is still active (for auto-unlock)
+- **Activity log storage** --  Append-only log per team
+- **Email service** --  For sending invitations (SendGrid, Resend, etc.)
+
+This overlaps with Backend/Services in DEVtasks (Stripe, subscriptions, license validation).
+Build together --  don't create two separate backend systems.
+
+---
+
+## DEVELOPMENT CHECKLIST
+
+### Team Settings UI -- BUILT (April 5, 2026)
+- [x] Team tab in Settings sidebar (always visible, no-team state shows feature overview + upgrade CTA)
+- [x] Team name field (editable by Owner)
+- [x] API key policy toggle (Shared key vs Individual keys) with confirmation dialogs
+- [x] Member list display (avatar/initial, name, email, role, status)
+- [x] Seat counter ("3 of 5 seats used")
+- [x] Remove member button (Owner only, with confirmation modal)
+- [x] Member view (read-only version of Team page)
+- [x] No-team state: feature overview (4 cards), upgrade button → Billing Teams tab
+- [x] TeamSettings.tsx, teamStore.ts created
+
+### Invitations -- BUILT (April 5, 2026)
+- [x] Invite member modal (email input + send)
+- [x] Invitation email template (Resend API via Supabase Edge Function, branded dark theme HTML, download + accept buttons)
+- [x] Pending invitation display in member list (grayed out, with expiry)
+- [x] Cancel pending invitation
+- [x] Resend expired invitation (re-triggers Edge Function)
+- [x] Accept invitation flow (accept_invitation Supabase RPC: validates token, checks email match, checks one-team-per-account, inserts member, logs activity, notifies owner)
+- [x] In-app notification on invitation for existing users (notify_invitation_created trigger)
+- [x] Database webhook: team_invitations INSERT → send-invitation-email Edge Function
+- [x] Seat limit enforcement (can't invite beyond plan limit)
+
+### Project Locking -- BUILT (April 5, 2026)
+- [x] Lock flag per project (project_locks table: locked_by, locked_at, last_heartbeat, unique per team+project)
+- [x] Auto-lock on first AI message in project (aiService.ts lock gate before sendMessage)
+- [x] Auto-unlock on project switch (Sidebar.tsx handleOpenProject unlocks previous project)
+- [x] Auto-unlock on app close (App.tsx beforeunload + Tauri onCloseRequested → unlockAllMyLocks)
+- [x] Idle timeout unlock (15 min no activity -- global keydown/mousemove/click tracking, 60s idle check interval)
+- [x] Crash recovery unlock (5 min no heartbeat -- pg_cron runs cleanup_stale_locks every minute)
+- [x] Heartbeat ping from app (every 60 seconds while locked -- teamStore startHeartbeat/stopHeartbeat)
+- [x] Owner force-unlock override (teamStore forceUnlock, RLS allows owner DELETE)
+- [x] Sidebar UI: grayed out project + amber lock icon + "Sarah is working on this" tooltip
+- [x] Sidebar UI: green dot indicator on projects locked by current user
+- [x] Sidebar UI: first name of locker shown on right side of project row
+- [x] Supabase Realtime subscription on project_locks for live sidebar updates
+- [x] Lock gate in aiService blocks AI messages if project locked by another member
+
+### Team Notifications -- BUILT (April 5, 2026)
+- [x] Uses existing notification infrastructure (assistant_notifications table + Realtime + notificationStore + Topbar dropdown)
+- [x] "Project available" notification on unlock (notify_project_available trigger on project_locks DELETE)
+- [x] "Invitation received" notification (notify_invitation_created trigger on team_invitations INSERT)
+- [x] source = 'team' for all team notifications, source_meta.type distinguishes subtypes
+- [x] 'team' → 'Team' label in notificationStore getSourceLabel()
+- [x] Notifications auto-dismiss on read (existing markAsRead behavior)
+
+### Activity Log -- UI BUILT (April 5, 2026)
+- [x] Activity log on Team Settings page
+- [x] Log entries: worked on, deployed, joined, removed, created, deleted
+- [x] Grouped by day
+- [x] Last 30 days display
+- [x] Refresh on page open
+
+### API Key Policy -- BUILT (April 5, 2026)
+- [x] Shared key mode: owner keys encrypted (AES-GCM) and stored in Supabase teams.encrypted_api_keys
+- [x] Members see "Using team API key" banner in API Settings (full page replaced)
+- [x] Owner sees "Your API keys are shared" notice in API Settings
+- [x] Owner save auto re-encrypts and re-uploads shared keys
+- [x] Individual key mode: members manage their own keys normally
+- [x] "Each team member uses their own API key" info banner for members in individual mode
+- [x] Confirmation dialog when switching to shared: warns key will be stored on servers
+- [x] Confirmation dialog when switching to individual: warns members will need own keys
+- [x] Supabase migration 005: encrypted_api_keys + shared_keys_updated_at columns added to teams table
+
+### Backend -- BUILT (April 5, 2026)
+- [x] User accounts (email + password or magic link)
+- [x] Auth system (login, signup, session management)
+- [x] Teams table (id, name, owner_id, plan, api_key_policy, encrypted_api_keys, shared_keys_updated_at)
+- [x] Members table (id, team_id, user_id, role, joined_at)
+- [x] Invitations table (id, team_id, email, status, expires_at, token)
+- [x] Project locks table (project_id, team_id, locked_by, locked_at, last_heartbeat)
+- [x] Activity log table (team_id, user_id, action, project_name, timestamp)
+- [x] Invitation email sending (Resend API via Supabase Edge Function send-invitation-email)
+- [x] Heartbeat (teamStore 60s interval, updates last_heartbeat in project_locks)
+- [x] Lock/unlock (teamStore lockProject/unlockProject/unlockAllMyLocks/forceUnlock)
+- [x] accept_invitation RPC (SECURITY DEFINER, validates + joins + logs + notifies)
+- [x] notify_project_available trigger (project_locks DELETE → notifications)
+- [x] notify_invitation_created trigger (team_invitations INSERT → notifications for existing users)
+- [x] pg_cron: cleanup-stale-locks every minute
+- [x] Supabase Realtime on project_locks (subscribeToLocks in teamStore)
+- [x] Migration 007: triggers, accept_invitation RPC, pg_cron schedule, service-role INSERT policy on notifications
+---
+
+## TESTING RESULTS (April 6, 2026)
+
+### Verified Working
+- [x] Invitation email sending (Edge Function + Resend, branded dark theme email arrives)
+- [x] Invitation notification for existing users (notify_invitation_created trigger)
+- [x] Accept invitation RPC (member added, activity logged, owner notified, UI transitions to member view)
+- [x] Project auto-lock on first AI message (project_locks row created)
+- [x] Heartbeat updates every 60 seconds
+- [x] Auto-unlock on project switch (project_locks row deleted)
+- [x] Unlock notification ("X is now available" created for team members)
+- [x] TeamSettings pending invitation view (Accept/Decline buttons for invitees)
+- [x] Notification click navigates to Settings → Team tab
+
+### RLS Fixes Applied (Migration 007b)
+- "Invitees see own invitations" changed from auth.users subquery to auth.email() (was causing 403)
+- "Invitees read invited team" new SELECT policy added (invitees can read team name)
+- "Invitees decline own invitations" new UPDATE policy added
+- handle_new_user trigger on auth.users recreated (was accidentally dropped)
+
+### Known Issues Found
+- Invitation email has black background (should be transparent) -- cosmetic
+- Accept invitation link goes to omnirun.app/invite/{token} which is 404 (website not built yet)
+- Projects from User A visible to User B on same machine (SQLite is local, not per-user) -- expected behavior
+
+### Not Yet Tested
+- Idle timeout unlock (15 min)
+- Crash recovery via pg_cron (5 min no heartbeat)
+- Owner force-unlock
+- Lock gate blocking other members from AI messages
+- Sidebar lock indicators (visual, needs two instances)
+- Realtime lock subscription live update

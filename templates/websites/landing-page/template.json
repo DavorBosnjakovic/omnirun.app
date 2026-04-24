@@ -1,0 +1,26 @@
+{
+  "name": "Landing Page",
+  "slug": "landing-page",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "static",
+  "description": "Single-page, conversion-focused landing page with hero, features, pricing, and CTA.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "basic",
+  "category": "websites",
+  "tags": ["html", "css", "landing-page", "conversion", "pricing", "responsive"],
+  "icon": "🚀",
+  "defaultProjectName": "My Landing Page",
+  "files": [
+    "template.json",
+    "index.html",
+    "style.css"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a static single-page landing page (HTML/CSS only, no JS, no build tools). Sections: sticky nav with blur effect, hero with headline + two CTA buttons + trusted-by logos, 3 feature cards with icons, how-it-works 3-step process, 3-tier pricing table (Starter/Pro/Enterprise with popular badge), FAQ accordion (CSS-only using <details>/<summary>), final CTA banner, and footer with link columns. CSS custom properties in :root for instant rebranding. Fully responsive. The user will likely ask to: change the product name/copy, adjust pricing tiers, add testimonials, add a signup/waitlist form, change colors, add animations, add more sections, connect to Stripe, embed a demo video, etc."
+}

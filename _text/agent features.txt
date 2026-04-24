@@ -1,0 +1,600 @@
+# Omnirun -- Agent Features, Navigation Redesign & Home Dashboard
+**Date: April 11, 2026**
+**Status: Navigation + Home Dashboard + Assistant Section BUILT. Memory system BUILT (layers 1+2, improvements April 2). Notification system BUILT. Avatar + profile photo BUILT. OAuth backend BUILT. Email read/send WORKING. All assistant integrations connected.**
+
+---
+
+## OVERVIEW
+
+Three connected decisions made in the March 26 session:
+1. Omnirun will grow beyond a dev/build tool into a proactive personal agent platform -- inspired by OpenClaw but with far better UX
+2. The app navigation needs a new top-level structure to accommodate this expansion
+3. A Home dashboard was designed and built as the entry point to the new structure
+
+March 27 session:
+4. Assistant section fully built (chat UI, email OAuth flow, account management panel)
+5. Home dashboard redesigned -- Email widget removed, Connections widget tabbed (Projects/Assistant), Team widget added
+6. Memory system fully designed and agreed -- to be built in next session
+
+April 2 session:
+7. Notification system built -- Supabase table + realtime, notificationStore, badge dot + dropdown in Topbar
+8. Avatar system built -- upload with circular crop in Settings, display in Topbar, Supabase Storage
+9. Memory system layers 1+2 built -- memoryService, extraction hooks in both chat areas, compression, About Me panel, Memory settings page
+10. ASSISTANT_PROVIDERS expanded -- all providers set to available: true (Gmail, Outlook, Calendar, Slack, Discord, GitHub, Notion, Todoist, Website Watcher)
+11. AssistantChatArea updated -- Omnirun logo replaces Bot icon, memory block injected into system prompt
+
+April 2 session (continued):
+12. Memory system improvements -- multi-phase compression, derivability rule, success gate, verification nudge, idle consolidation
+13. Context guard -- saveContext won't create empty .omnirun/context.md until real content exists
+14. User avatar in chat -- both ChatArea and AssistantChatArea show user's avatar (or initials) instead of generic icon
+15. AI logo enlarged ~25% in both chat areas (w-8→w-10)
+
+April 11 session:
+16. OAuth backend FULLY BUILT -- oauth.rs complete with all 9 providers (Gmail, Outlook, Google Calendar, Outlook Calendar, Slack, Discord, GitHub, Notion, Todoist)
+17. Google Cloud project (omnirun-app) set up -- OAuth consent screen, Web application client, Gmail API enabled, Calendar API enabled
+18. Gmail email reading WORKING -- emailService.ts fetches/searches/parses emails via gmail_api_proxy Rust command
+19. Gmail email sending WORKING -- parseDraftAndSend in AssistantChatArea detects "Send it" and sends via Gmail API
+20. Token auto-refresh implemented -- uses refresh_token + credentials from oauthCredentialService localStorage
+21. All assistant integrations connected and tested: Gmail, Google Calendar, Discord, GitHub, Slack, Notion, Todoist
+22. Cloudflare Worker (oauth-redirect.omnirun-app.workers.dev) deployed for HTTPS redirect -- needed by Slack/Notion (they require HTTPS redirect URIs)
+23. ConnectAccountModal double-fire fix -- useRef guard prevents React StrictMode from opening two browser tabs
+24. AccountsPanel upgrade link -- dispatches custom event to open Settings → Billing
+25. MainLayout listens for omnirun-open-settings custom event from child components
+26. Supabase CHECK constraints updated -- provider_check and provider_type_check now include all provider types
+
+---
+
+## PART 1: AGENT FEATURES (OpenClaw-Inspired)
+
+### What OpenClaw Is (for context)
+OpenClaw is an open-source autonomous AI agent that runs on your machine and connects to messaging apps (WhatsApp, Discord, Telegram) to automate tasks around the clock. It exploded in early 2026, then its creator joined OpenAI. The project moved to a foundation and stays open source.
+
+Key insight: OpenClaw is powerful but deeply technical -- no real UI, no non-developer story. Omnirun's opportunity is to deliver the same agent capabilities wrapped in an interface anyone can use.
+
+### The Core Agent Pattern
+All agent features follow the same loop:
+
+```
+Agent watches something (email, calendar, GitHub, a file, a website...)
+        ↓
+Claude processes + summarizes
+        ↓
+Pushes notification to Omnirun mobile app
+        ↓
+User replies in plain English
+        ↓
+Agent takes action (sends reply, updates calendar, creates task...)
+```
+
+Build the engine once. Plug in different "watchers."
+
+### Agent Types
+
+**Scheduled agents** -- already exist as Scheduled Tasks. Run on cron.
+**Watching agents (new)** -- always-on, event-driven. Triggered by something happening, not by time.
+
+### Future Agent Opportunities
+
+| What it watches       | What it does                                        |
+|-----------------------|-----------------------------------------------------|
+| Gmail / Outlook       | Summarizes emails, drafts replies, bulk actions     |
+| Google Calendar       | Morning brief, conflict warnings, smart scheduling  |
+| GitHub PRs / Issues   | "New PR from Sarah -- approve / review?"            |
+| Slack / Discord       | Surfaces important messages you missed              |
+| Competitor website    | "Their pricing page changed -- here's the diff"     |
+| Deployed site         | "Error spike detected -- here's what broke"         |
+| A folder / file       | "Client dropped new files -- want me to process?"   |
+
+---
+
+## PART 2: EMAIL AGENT
+
+### Decision: Do NOT build a full email client
+Building a real email client (IMAP/SMTP, thread view, search, attachments, rich compose) would take months and pulls focus from the core product.
+
+### Decision: Build an AI layer on top of Gmail/Outlook via their APIs
+The user keeps their existing email client. Omnirun connects via Gmail API (OAuth) or Microsoft Graph API (OAuth) and acts as the AI brain on top.
+
+```
+Gmail/Outlook stays as-is
+        ↓
+Omnirun connects via Gmail API / Microsoft Graph API (OAuth)
+        ↓
+Omnirun reads, summarizes, drafts, sends -- all via API
+        ↓
+Interface lives in the Assistant section chat
+```
+
+**Example interaction:**
+```
+Omnirun: "3 emails worth your attention:
+  1. Client reply from Marco -- he approved the design
+  2. Invoice from hosting provider ($47, due Friday)
+  3. Sarah asking for the project files
+  Want me to handle any of these?"
+
+User: "Reply to Marco, say great and we'll start Monday.
+       Ignore the invoice. Forward Sarah's request to my team."
+
+Omnirun: "Done. Replied to Marco, forwarded to team.
+          Reminder set for the invoice Friday morning."
+```
+
+**On mobile:** Push notification → tap → opens Assistant chat → handled in one message.
+
+### CRITICAL DISTINCTION: Two Types of Connections
+
+**Project Connections (Settings page)** = project-level services.
+Vercel, GitHub, Stripe, Supabase, Netlify, Cloudflare etc.
+These are tools the AI uses to build and deploy projects.
+They are scoped to projects (global or per-project).
+Managed ONLY in Settings → Project Connections.
+
+**Assistant connections** = personal integrations.
+Gmail, Outlook, Google Calendar, Slack, Discord etc.
+These are the user's personal life/work accounts the assistant monitors on their behalf.
+They are NOT project tools.
+Managed ONLY in the Assistant section panel.
+
+These two types of connections must NEVER be mixed together in the same settings page.
+
+### Where Email Connection Lives
+The Assistant section manages its own connections internally via the left panel (AccountsPanel.tsx).
+When no email account is connected, the Assistant section shows a prominent onboarding prompt to connect Gmail or Outlook -- right there in context.
+The Home dashboard Connections widget has an "Assistant" tab showing connected accounts as read-only status with "Open Assistant →" link.
+
+### Plan-Gating for Email Accounts
+- Starter: 1 email account
+- Pro: 2 email accounts
+- Business: 5 email accounts
+- Enterprise: unlimited
+
+### OAuth Credential Setup
+- Option A (implemented): Omnirun registers one Google Cloud app for all users. Credentials stored in .env (VITE_GMAIL_CLIENT_ID, VITE_GMAIL_CLIENT_SECRET). Users just click Connect.
+- Google OAuth verification required before public launch (4-6 weeks review). Can test with up to 100 manually added test users during development.
+- Same pattern for Microsoft Azure / Outlook.
+
+### OAuth Flow (FULLY BUILT -- April 11, 2026)
+1. User clicks "Connect Gmail" in AccountsPanel (or "+" button next to provider)
+2. ConnectAccountModal opens -- if credentials in .env, skips to OAuth; if not, shows configure step
+3. Tauri invokes start_gmail_oauth command (oauth.rs -- BUILT for all 9 providers)
+4. Rust spawns localhost HTTP server on port 49580, opens system browser with OAuth URL
+5. User logs in, provider redirects to localhost/callback (or Cloudflare Worker for Slack/Notion)
+6. Rust exchanges auth code for tokens, fetches user info, returns OAuthResult to frontend
+7. Frontend saves to Supabase assistant_email_accounts + local SQLite cache
+8. Account appears in panel, modal shows success step
+
+### HTTPS Redirect Worker (for Slack/Notion)
+- Slack and Notion require HTTPS redirect URIs -- localhost HTTP is rejected
+- Cloudflare Worker deployed at https://oauth-redirect.omnirun-app.workers.dev
+- Worker redirects to http://127.0.0.1:49580 with query params preserved
+- oauth.rs uses this URL for slack/notion providers, localhost for all others
+
+### Gmail Email Service (BUILT -- April 11, 2026)
+- emailService.ts: full Gmail API service via gmail_api_proxy Rust command
+- Read: fetchRecentEmails, fetchUnreadEmails, searchEmails, getEmailById
+- Send: sendEmail (RFC 2822 format, supports replies with threading)
+- Auto-refresh: tokens refresh silently using refresh_token + stored OAuth credentials
+- AI integration: AssistantChatArea detects email queries, prefetches data, injects into system prompt
+- Send flow: AI drafts email with To/Subject/Body, user confirms with "Send it", parseDraftAndSend executes
+
+### Connected Providers (tested April 11, 2026)
+- Gmail: WORKING (read + send + search)
+- Google Calendar: CONNECTED (API enabled, OAuth works, no calendar service built yet)
+- Discord: CONNECTED (OAuth works, no message service built yet)
+- GitHub: CONNECTED (OAuth works, no PR/issue service built yet)
+- Slack: CONNECTED via HTTPS worker (OAuth works, no message service built yet)
+- Notion: CONNECTED via HTTPS worker (OAuth works, no page service built yet)
+- Todoist: CONNECTED (OAuth works with sync API fallback, no task service built yet)
+- Outlook: NOT TESTED (needs Azure app registration)
+- Outlook Calendar: NOT TESTED (needs Azure app registration)
+
+---
+
+## PART 3: NAVIGATION REDESIGN -- DONE
+
+### The Solution: Top-Level Section Navigation
+
+The sidebar has 4 top-level section items above a divider, then the existing project sub-navigation below:
+
+```
+SIDEBAR
+─────────────────────────
+  ⌂  Home
+  ⬡  Projects          ← active = green highlight
+  ✦  Assistant
+  ◷  Tasks             ← red badge when tasks failed
+─────────────────────────
+  (only shown when in Projects:)
+  [Projects] [Files] [Chats]
+
+  testsite
+  bakery site
+  portfolio
+─────────────────────────
+  Settings
+  Help
+  [+ New Project]
+─────────────────────────
+```
+
+### Section Definitions
+
+**Home** -- Dashboard. Morning brief + widgets. See Part 4.
+
+**Projects** -- Exactly what Omnirun is today. Unchanged. Chat is project-scoped.
+Projects/Files/Chats sub-tabs only appear when this section is active.
+
+**Assistant** -- Global chat, no project context. Email agents, calendar, cross-app automations.
+Has its own connection management panel (left side) for personal integrations.
+BUILT March 27, 2026.
+
+**Tasks** -- Scheduled Tasks view (already built). Now a top-level section
+instead of only accessible via Tools dropdown.
+
+### Launch Behavior
+- Opens to last section used. No forced homepage.
+- Very first launch (new user): opens to Home.
+- Tasks in Tools dropdown now routes to Tasks section (not a tools sub-page).
+
+---
+
+## PART 4: HOME DASHBOARD -- REDESIGNED (March 27, 2026)
+
+### Layout (2 rows)
+
+**Morning Brief** -- full width, always at top.
+
+**Row 1 -- 2 columns (equal height, items-stretch):** Projects (left) | Connections tabbed (right)
+
+**Row 2 -- 3 columns:** Tasks | Usage | Team
+
+Recent Activity -- removed from layout (was rarely populated, added noise).
+
+### Morning Brief
+Auto-generated text on app open. Summarizes: failed tasks, successful tasks, broken connections. Plain English, one paragraph. If all is well: "All X projects are healthy. No issues detected."
+
+### Projects Widget
+- Lists up to 8 projects (increased from 5) with status badge
+- Status derived from task data: Error / Active / Idle
+- "View all →" → Projects section
+
+### Connections Widget (TABBED)
+Two tabs, both read-only status only (management happens elsewhere):
+
+**Projects tab:**
+- Shows connections for the selected project only (project switcher dropdown if multiple projects)
+- Only shows project-scoped connections -- global connections NOT shown (they don't belong to specific projects)
+- Status: ● Connected / ⚠ Error / ○ Connecting
+- "Manage →" → Settings → Project Connections
+
+**Assistant tab:**
+- Shows connected email accounts (Gmail, Outlook) with provider icon and status
+- Empty state if no accounts connected
+- "Open Assistant →" → Assistant section
+
+### Tasks Widget
+- Up to 5 tasks: failed first, then upcoming, then recent success
+- Dot colors: red = failed, amber = upcoming, green = success, gray = inactive
+- "All →" → Tasks section
+
+### Usage Widget
+- Monthly cost + tokens in stat cards
+- Budget bar if budget is set (green → amber → red as % increases)
+- "View usage details →" → Usage settings
+
+### Team Widget (NEW)
+Three states based on plan:
+- **Starter/Pro**: Lock icon + "Collaborate with your team on Business plan." + "Upgrade to Business" button (→ Settings → Billing)
+- **Business/Enterprise, no team yet**: Users icon + "No team set up yet." + "Set up team →" link (→ Settings → Team)
+- **Business/Enterprise, team active**: Member list with online status (placeholder until team store wired)
+
+---
+
+## PART 5: MEMORY SYSTEM -- BUILT (Layers 1+2) + IMPROVED (April 2, 2026)
+
+See memory-system.txt for the full implementation guide.
+
+### Philosophy
+Remember the way a good human collaborator remembers. Not verbatim logs, but meaning. Not everything, but what matters. Not static facts, but evolving understanding.
+
+### Guiding Principles (added April 2, 2026)
+- **Bandwidth-aware**: Every token has a cost. Prune or compress anything low-value, stale, or derivable.
+- **Skeptical memory**: Recalled info treated as hints. Agent verifies architecture claims against actual files before acting.
+- **Strict write discipline**: Memory updates gated on confirmed success. Failed attempts stored as failures, not facts.
+- **Derivability rule**: If a fact can be re-derived from config files / codebase, don't store it. Save budget for preferences, decisions, failures.
+- **Self-healing**: Memory improves itself during idle time, not just weekly.
+
+### Three-Layer Architecture
+
+**Layer 1: user_context.md (global identity file)**
+- Always loaded into every Assistant AND Project chat session
+- Maximum 3000 tokens (hard cap, enforced by multi-phase compression)
+- Stored in SQLite user_memory table
+- User can view and edit via "About me" panel in Assistant section
+- Updated by compression job + idle consolidation
+
+**Layer 2: project files (.omnirun/context.md)**
+- One file per project, loaded only when working on that project
+- NOT created on disk until AI has real content to save (empty guard in saveContext)
+- Stores NON-DERIVABLE knowledge only: decisions + WHY, failed approaches, naming conventions, deployment quirks
+- Tech stack / file structure NOT stored (derivable from package.json / file reads)
+- Updated after each session that touches that project, gated on confirmed success
+
+**Layer 3: vector store (sqlite-vec)**
+- Local SQLite extension -- no external database needed, fits privacy model
+- Contains compressed session summaries, specific decisions, things tried that didn't work
+- Queried at session start: retrieves top 3-5 chunks relevant to current context
+- Grows indefinitely without bloating context window
+- Requires sqlite-vec Rust crate addition to Cargo.toml
+
+### User Controls (Settings → Memory section)
+Three toggles, all default ON:
+- "Allow Omnirun to learn from your Assistant conversations — the more you use it, the better it understands your habits, preferences and style. Everything is stored locally on your device and never leaves it."
+- "Allow Omnirun to learn from your Project conversations — stores coding preferences, architectural choices, your naming conventions. Stored locally only."
+- "Allow Omnirun to learn your writing voice — used when drafting emails and content on your behalf. Stored locally only."
+
+Sync toggle (default OFF):
+- "Sync memory across devices — your memory will be encrypted and stored in the cloud so it works across all your installations. Note: in sync mode, your memory is no longer stored locally only."
+- Confirmation: "Turning on sync will upload your memory to Omnirun's secure servers. It is encrypted before leaving your device, but it will no longer be local-only. [Cancel] [Sync]"
+
+### Observation Extraction
+- Runs after conversations with 4+ messages exchanged
+- Uses Haiku (cheap, fast) -- completely silent background call
+- Extracts: approvals/rejections, explicit preferences, recurring people, behavioral patterns, voice/style signals
+- Never stores: raw email content, credentials, third-party contact details (first name only), raw code
+- Derivability check: skips facts readable from config files / codebase
+- Success gate: marks failed operations as FAILED_ATTEMPT (prevents memory pollution)
+
+### Multi-Phase Compression (improved April 2, 2026)
+- Weekly (Sunday) via Scheduled Tasks system + idle consolidation (30+ min idle, 10+ observations, 4h cooldown)
+- Also triggered when raw observations hit 50 entries
+- 4-phase structured prompt (single Haiku call, same cost, better output):
+  1. Deduplicate -- skip observations already captured
+  2. Contradiction check -- update only if contradicted 3+ times
+  3. Staleness check -- remove derivable facts, demote entries not reinforced in 60+ days
+  4. Compress & write -- merge, sharpen, enforce 3000 token cap
+- Hard 3000 token cap -- recency + frequency determine what stays
+
+### Verification Nudge (added April 2, 2026)
+- ~50 tokens in system prompt distinguishing trusted vs hint memory
+- Preferences, patterns, past failures = TRUSTED (act on directly)
+- Architecture, tech stack, dependencies, file structure = HINTS (verify against actual files)
+- Prevents stale-memory-induced hallucinations when project state has changed
+
+### Idle-Time Consolidation (added April 2, 2026)
+- runIdleConsolidation() in memoryService.ts
+- Triggers: 30+ min idle, 10+ unprocessed observations, 4+ hours since last run
+- Reuses multi-phase compression, costs ~$0.001-0.003 per run
+- Keeps memory fresher than weekly-only compression
+
+### Onboarding Step
+- New step after existing onboarding (before CompletionStep)
+- Explains memory in plain English, shows 3 toggles, defaults all ON
+- "You can change this anytime in Settings"
+- Cold start: asks 3-4 natural questions in first conversation (what are you building, how technical are you, what should I handle automatically vs always ask about)
+
+### Privacy Boundaries
+- Never stored: raw email content (summaries and patterns only), credentials (regex filter), third-party email addresses (first name only), file contents (patterns and decisions only, not code)
+- "Memory updated" indicator after extraction -- user can tap to see what was added
+- Explicit forget: "Forget that I mentioned X" works immediately
+
+---
+
+## PART 6: FILES BUILT (March 26-27, 2026)
+
+### New: `src/components/home/HomePage.tsx`
+- Exports `AppSection` type ('home' | 'projects' | 'assistant' | 'tasks')
+- Row 1: Projects widget (left, 60% → now 50% equal columns) + Connections tabbed widget (right)
+- Row 2: Tasks + Usage + Team widgets
+- Connections widget: Projects tab (project-scoped connections, project switcher) + Assistant tab (email accounts)
+- Team widget: plan-aware (upgrade prompt / setup prompt / member list)
+- loadFromDB() + loadProjectConnectionsFromDB(connProject) called on mount
+- allConnectionItems: project-scoped only for selected project
+
+### New: `src/stores/assistantStore.ts`
+- AssistantAccount type, AssistantMessage type, ProviderDefinition type
+- ASSISTANT_PROVIDERS list (Gmail + Outlook available, others hidden)
+- EMAIL_ACCOUNT_LIMITS plan map
+- loadAccounts (SQLite cache, fast), syncAccountsFromSupabase (background)
+- addAccount, removeAccount, updateAccountLabel
+- Selectors: selectEmailAccounts, selectCanAddEmailAccount, selectEmailAccountsRemaining
+
+### New: `src/components/assistant/AssistantSection.tsx`
+- Collapsible left panel (220px → 40px strip)
+- Loads accounts on mount: SQLite cache first, Supabase sync in background
+- ConnectAccountModal rendered when connectModalOpen
+
+### New: `src/components/assistant/AccountsPanel.tsx`
+- Email section with account rows (hover-reveal edit/delete)
+- Inline LabelEditor component
+- Plan limit warning badge
+- Connect section with provider buttons (disabled when limit hit)
+
+### New: `src/components/assistant/AssistantChatArea.tsx`
+- Uses assistantStore for messages (separate from project chatStore)
+- System prompt rebuilt per send with connected accounts context
+- Two empty states: no accounts / accounts connected (with suggestion prompts)
+
+### New: `src/components/assistant/ConnectAccountModal.tsx`
+- 4 steps: pick → connecting → success → error
+- Calls Tauri start_gmail_oauth / start_outlook_oauth (Rust commands pending)
+- Saves to Supabase + local cache on success
+- Uses getSupabase() from supabaseClient.ts (NOT named 'supabase' export)
+
+### Modified: `src/services/dbService.ts`
+- Schema v5 adds assistant_accounts_cache table
+- 5 new CRUD methods for assistant accounts
+- AssistantAccount type exported
+
+### Modified: `src/components/layout/MainLayout.tsx`
+- Assistant placeholder → <AssistantSection />
+
+### Modified: `src/components/settings/SettingsLayout.tsx`
+- "Connections" → "Project Connections" in nav
+
+### Modified: `src/components/settings/ConnectionsSettings.tsx`
+- Heading + subtitle updated to "Project Connections"
+
+---
+
+## PART 7: FILES BUILT (April 2, 2026)
+
+### New: `src/stores/notificationStore.ts`
+- AppNotification type, loading/error state, unreadCount
+- loadNotifications (SQLite cache), syncFromSupabase (background)
+- subscribeRealtime (Supabase postgres_changes INSERT listener)
+- markAsRead, markAllAsRead, clearAll
+- selectTopNotifications selector (for Topbar dropdown, limit 3)
+- getSourceLabel helper
+
+### New: `src/services/memoryService.ts`
+- loadUserContext / saveUserContext (SQLite user_memory table)
+- getMemorySettings / saveMemorySettings
+- extractObservations -- post-conversation hook, uses Haiku, JSON output, silent fire-and-forget
+- compressMemory -- merges observations into context, 3000 token cap, multi-phase prompt
+- buildMemoryBlock -- returns memory string to inject into system prompt, includes verification nudge
+- runIdleConsolidation -- idle-triggered consolidation (10+ observations, 4h cooldown)
+- getCheapestProvider -- finds Haiku or any configured provider for background calls
+- EXTRACTION_PROMPT (with derivability check + success gate) and COMPRESSION_PROMPT (4-phase) constants
+
+### New: `src/components/settings/MemorySettings.tsx`
+- 3 learning toggles + sync toggle with confirmation dialog
+- Stats bar: observation count + context size tokens
+- "Compress now" button (visible when observations > 0)
+- "Clear all memory" button with confirmation
+- Loads/saves via memoryService
+
+### New: `src/components/assistant/AboutMePanel.tsx`
+- Tab view in Assistant section (Brain icon toggles Chat/About Me)
+- Card view: parses context.md sections into styled cards
+- Raw edit mode: full text editor with save/discard
+- Placeholder detection (italicizes "[Not yet known]" text)
+
+### Modified: `src/components/layout/Topbar.tsx`
+- Avatar image from profile.avatar_url (falls back to initials, single letter for single names)
+- Notification badge dot on avatar (theme-colored via accentColorMap)
+- Notifications section at top of user dropdown (up to 3 items + "See all in Assistant →")
+- onAssistantClick prop for navigating from dropdown
+- Dropdown widened from w-64 to w-72
+
+### Modified: `src/components/settings/GeneralSettings.tsx`
+- Avatar upload section at top (Profile Photo)
+- AvatarCropModal component (circular preview, zoom slider, drag to reposition)
+- Uploads to Supabase Storage avatars/{user_id}/avatar.png
+- Updates profiles.avatar_url, refreshes authStore
+- Remove avatar button with confirmation
+
+### Modified: `src/services/dbService.ts`
+- Schema v6→v7: notifications_cache table + 4 CRUD methods
+- Schema v7→v8: user_memory + memory_observations + memory_settings tables + 9 CRUD methods
+- Schema v8→v9: last_consolidated_at column on memory_settings + getLastConsolidatedAt/setLastConsolidatedAt methods
+- DBNotification, DBUserMemory, DBMemoryObservation, DBMemorySettings types
+
+### Modified: `src/components/assistant/AssistantChatArea.tsx`
+- Imports + uses buildMemoryBlock() to append memory to system prompt
+- Post-conversation extraction hook (extractObservations, fire-and-forget, 4+ messages)
+- Omnirun elipse logo enlarged (w-8→w-10, ~25% bigger) on assistant messages
+- User messages show avatar from authStore profile (falls back to colored initials circle)
+- Removed generic User icon import
+
+### Modified: `src/components/chat/ChatArea.tsx`
+- Imports extractObservations from memoryService
+- Post-conversation extraction hook in finally block (after auto-save, 4+ messages, source: 'project')
+- Omnirun elipse logo enlarged (w-8→w-10, ~25% bigger) on assistant messages
+- User messages show avatar from authStore profile (falls back to colored initials circle)
+- Removed generic User icon import
+
+### Modified: `src/services/contextService.ts`
+- saveContext() guard: won't create .omnirun/context.md on disk until at least one AI-written section has content
+- Prevents empty placeholder files that confused the AI when reading
+- New "brief" write_context section (REPLACE semantics) for comprehensive project documents
+- ProjectContext interface: added brief (string[]) and sourceFiles ({ relativePath, label, content }[])
+- Source-of-truth file detection: loadSourceFiles() auto-detects and reads schema files (Prisma/SQL/Drizzle), tailwind/theme configs, .env.example, .omnirun/brief.md on every project open
+- .omnirun/docs/ scanning: loadSourceFiles Pass 2 reads any .md/.txt/.sql files saved by the AI as project knowledge
+- contextToPromptString includes source file content in code blocks (actual content, not summaries) + brief section
+- Source files capped at 8K chars each, 25K total (~6000 tokens), prompt-cached after first call
+- write_context guidance updated with "brief" section description
+
+### Modified: `src/services/aiService.ts`
+- Memory block injected into project chat via dynamic import in sendMessage() — avoids circular dependency with memoryService
+- Memory loads for Anthropic as a dynamic block (not cached), for other providers as string append
+- Skips memory loading for background calls (empty path) like extraction/compression
+- Kickoff step 3 updated: AI creates write_context("brief") with comprehensive project document before building
+- "brief" added to write_context sections list in both buildSystemPrompt and buildSystemPromptBlocks
+- PROJECT KNOWLEDGE PERSISTENCE instruction: AI proactively saves uploaded specs/schemas/designs to appropriate .omnirun/ files, routes content by type, mentions "💾 Saved to project knowledge", replaces existing content on updates, skips ephemeral content
+
+### Modified: `src/components/assistant/AssistantSection.tsx`
+- Brain icon in integrations panel header toggles activeView ('chat' | 'aboutme')
+- Renders AboutMePanel when activeView is 'aboutme'
+
+### Modified: `src/components/settings/SettingsLayout.tsx`
+- Added "Memory" tab with Brain icon (between Voice and Billing)
+- Imports + renders MemorySettings component
+
+---
+
+## DECISIONS MADE
+
+- [x] No email client -- AI layer via Gmail/Outlook API only
+- [x] No marketplace feature for now
+- [x] Top-level sidebar navigation: Home / Projects / Assistant / Tasks
+- [x] Projects/Files/Chats tabs become sub-nav within Projects section
+- [x] Launch behavior: remember last location (no forced homepage)
+- [x] Watching agents = new agent type, distinct from Scheduled Tasks
+- [x] Project Connections (Settings) = project services only (Vercel, GitHub, Stripe etc.) -- renamed from "Connections"
+- [x] Assistant connections = personal integrations (Gmail, Outlook etc.) -- completely separate from Settings, never mixed
+- [x] Home Connections widget: Projects tab = project-scoped only, Assistant tab = email accounts status (read-only both)
+- [x] Email widget removed from Home dashboard
+- [x] Team widget added to Home dashboard (plan-aware)
+- [x] Gmail + Outlook both at launch (both in ASSISTANT_PROVIDERS with available: true)
+- [x] OAuth: Omnirun registers one Google/Microsoft app (not BYOK for personal integrations)
+- [x] supabaseClient.ts exports getSupabase() function -- all imports must use { getSupabase }
+- [x] Memory system architecture agreed -- 3 layers, sqlite-vec, observation extraction, weekly compression, 3 toggles + sync option
+- [x] Memory default: all 3 learning toggles ON, sync OFF
+- [x] Memory stored locally in SQLite by default, optional encrypted Supabase sync with explicit warning
+- [x] Memory editable by user via "About me" panel in Assistant section
+- [x] Notifications live in user avatar dropdown (not a separate bell icon) -- keeps topbar clean
+- [x] Notification badge = dot (not count), theme-colored
+- [x] Up to 3 notification items in dropdown, "See all in Assistant →" for more
+- [x] Notifications use Supabase as source of truth -- works on both desktop and mobile via realtime
+- [x] Avatar upload in Settings → General (not in the dropdown)
+- [x] About Me is a tab view in Assistant section (Brain icon toggles Chat/About Me), not an overlay
+- [x] All ASSISTANT_PROVIDERS set to available: true -- OAuth backend is the blocker, not the UI
+- [x] Memory extraction uses cheapest provider (Haiku preferred), silent fire-and-forget
+- [x] Memory improvements inspired by Claude Code architecture analysis -- multi-phase compression, derivability rule, verification nudge, idle consolidation, success gate
+- [x] User memory block injected into BOTH Assistant and Project chat (not just Assistant)
+- [x] Verification nudge: preferences = trusted, architecture = hints requiring file verification
+- [x] Derivability rule: don't store facts readable from config files, save budget for human-only knowledge
+- [x] Context guard: .omnirun/context.md not created until AI has real content to save
+- [x] User avatar shown in both chat areas (falls back to colored initials, same style as Topbar)
+- [x] AI logo (Omnirun ellipse) enlarged ~25% in both chat areas (w-8→w-10)
+- [x] Source-of-truth files (schema, tailwind config, .env.example) auto-detected and included as actual content in every AI call — no summaries, real files
+- [x] .omnirun/docs/ directory for AI-saved project knowledge files — scanned automatically on project open
+- [x] "brief" write_context section: comprehensive project document created during kickoff, richer than "about"
+- [x] Project knowledge persistence: AI proactively saves uploaded specs/schemas/designs to .omnirun/ — no button, no prompt, AI just does it
+- [x] AI routes uploaded content by type: schema→write_context("schema"), design→write_context("styles"), specs→write_context("brief"), general docs→write_file to .omnirun/docs/
+- [x] User memory block injected into project chat via dynamic import in sendMessage() — both Anthropic (dynamic block) and other providers (string append)
+- [x] No separate "project knowledge panel" — chat IS the interface, AI handles persistence conversationally
+- [x] No "add to project knowledge" button — AI proactively saves relevant content and briefly mentions "💾 Saved to project knowledge"
+
+## OPEN / PENDING
+
+- [ ] Microsoft Azure OAuth app + credentials in .env (Outlook/Outlook Calendar)
+- [ ] Google OAuth verification (submit before public launch, 4-6 weeks)
+- [ ] Discord bot setup (needed for posting messages -- user OAuth can only read)
+- [ ] Services for other providers: calendarService.ts, slackService.ts, githubService.ts, notionService.ts, todoistService.ts, discordService.ts
+- [ ] Watching agents engine -- how they run, how they poll, how they write to assistant_notifications
+- [ ] Watching agents architecture -- how they run when app is closed
+- [ ] Weekly compression as Scheduled Task (register in task system, runs Sunday)
+- [ ] sqlite-vec vector store (Layer 3 of memory system, Rust crate)
+- [ ] Mobile app changes to support Assistant section + agent push notifications
+- [ ] Assistant chat history per conversation (same as Projects -- likely yes)
+- [ ] Memory onboarding step
+- [ ] "Memory updated" indicator after extraction
+- [ ] Supabase sync for memory (optional, encrypted)
+- [ ] Idle detection timers in ChatArea + AssistantChatArea (wire runIdleConsolidation after 30+ min idle)
+- [ ] Tiered context compaction (5-tier cascade replacing 10-pair hard limit -- see memory-system.txt Part 5A)
+- [ ] Derivability audit of contextService.ts (stop persisting tech stack detections into project context file)
+- [ ] Explicit forget command ("Forget that I mentioned X")
+- [ ] Split brief/schema/styles/routes into separate .omnirun/ files instead of sections in context.md (future refactor)

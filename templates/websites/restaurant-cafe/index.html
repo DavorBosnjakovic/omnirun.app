@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ember & Oak — Modern American Kitchen</title>
+  <meta name="description" content="Ember & Oak serves seasonal, locally-sourced dishes in a warm, inviting atmosphere. Reservations available.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="#hero" class="nav-logo">Ember <span>&</span> Oak</a>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="#menu">Menu</a></li>
+        <li><a href="#about">Our Story</a></li>
+        <li><a href="#visit">Visit</a></li>
+        <li><a href="#reservations" class="nav-cta">Reserve a Table</a></li>
+      </ul>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero" id="hero">
+    <div class="hero-overlay"></div>
+    <div class="container hero-content">
+      <span class="hero-badge">Est. 2018 · Portland, OR</span>
+      <h1 class="hero-title">Where fire meets <em>flavor</em></h1>
+      <p class="hero-subtitle">Seasonal ingredients, open-flame cooking, and a warm welcome. Every plate tells the story of the Pacific Northwest.</p>
+      <div class="hero-actions">
+        <a href="#reservations" class="btn btn-primary">Reserve a Table</a>
+        <a href="#menu" class="btn btn-outline">View Menu</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Menu -->
+  <section class="section" id="menu">
+    <div class="container">
+      <div class="section-header fade-in">
+        <span class="section-label">Our Menu</span>
+        <h2 class="section-title">Crafted with care, served with soul</h2>
+        <p class="section-subtitle">Our menu changes with the seasons. These are our current favorites.</p>
+      </div>
+
+      <!-- Menu Category Tabs -->
+      <div class="menu-tabs fade-in">
+        <button class="menu-tab active" data-tab="starters">Starters</button>
+        <button class="menu-tab" data-tab="mains">Mains</button>
+        <button class="menu-tab" data-tab="desserts">Desserts</button>
+        <button class="menu-tab" data-tab="drinks">Drinks</button>
+      </div>
+
+      <!-- Starters -->
+      <div class="menu-panel active" id="panel-starters">
+        <div class="menu-grid">
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Roasted Beet & Goat Cheese<span class="dietary">V GF</span></h3>
+              <span class="menu-item-price">$14</span>
+            </div>
+            <p class="menu-item-desc">Local beets, whipped chèvre, candied walnuts, honey-thyme vinaigrette</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Ember-Charred Oysters<span class="dietary">GF</span></h3>
+              <span class="menu-item-price">$18</span>
+            </div>
+            <p class="menu-item-desc">Half dozen Pacific oysters, garlic-herb butter, smoked paprika, grilled lemon</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Wild Mushroom Bruschetta<span class="dietary">VG</span></h3>
+              <span class="menu-item-price">$13</span>
+            </div>
+            <p class="menu-item-desc">Chanterelles, shiitake, sourdough, truffle oil, micro arugula</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Crispy Pork Belly Bites</h3>
+              <span class="menu-item-price">$16</span>
+            </div>
+            <p class="menu-item-desc">Apple-ginger glaze, pickled daikon, sesame, scallion</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mains -->
+      <div class="menu-panel" id="panel-mains">
+        <div class="menu-grid">
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Oak-Grilled Ribeye<span class="dietary">GF</span></h3>
+              <span class="menu-item-price">$42</span>
+            </div>
+            <p class="menu-item-desc">14oz prime ribeye, roasted bone marrow butter, charred broccolini, duck-fat potatoes</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Pan-Seared Salmon<span class="dietary">GF</span></h3>
+              <span class="menu-item-price">$34</span>
+            </div>
+            <p class="menu-item-desc">Wild Copper River salmon, miso glaze, forbidden rice, baby bok choy, ginger broth</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Forest Mushroom Risotto<span class="dietary">V GF</span></h3>
+              <span class="menu-item-price">$26</span>
+            </div>
+            <p class="menu-item-desc">Arborio rice, wild mushroom medley, aged parmesan, truffle oil, crispy sage</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Braised Short Rib</h3>
+              <span class="menu-item-price">$38</span>
+            </div>
+            <p class="menu-item-desc">12-hour braise, red wine reduction, creamy polenta, roasted root vegetables</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Herb-Crusted Rack of Lamb<span class="dietary">GF</span></h3>
+              <span class="menu-item-price">$44</span>
+            </div>
+            <p class="menu-item-desc">New Zealand lamb, pistachio-herb crust, mint chimichurri, roasted fingerlings</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Seasonal Harvest Bowl<span class="dietary">VG GF</span></h3>
+              <span class="menu-item-price">$22</span>
+            </div>
+            <p class="menu-item-desc">Roasted squash, quinoa, kale, avocado, tahini dressing, toasted pepitas</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Desserts -->
+      <div class="menu-panel" id="panel-desserts">
+        <div class="menu-grid">
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Smoked Chocolate Torte<span class="dietary">GF</span></h3>
+              <span class="menu-item-price">$14</span>
+            </div>
+            <p class="menu-item-desc">Dark chocolate, smoked sea salt, espresso cream, candied hazelnuts</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Lavender Crème Brûlée<span class="dietary">V GF</span></h3>
+              <span class="menu-item-price">$12</span>
+            </div>
+            <p class="menu-item-desc">Oregon lavender, vanilla bean, caramelized sugar, fresh berries</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Warm Apple Galette</h3>
+              <span class="menu-item-price">$13</span>
+            </div>
+            <p class="menu-item-desc">Honeycrisp apples, brown butter crust, cinnamon ice cream, caramel drizzle</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Drinks -->
+      <div class="menu-panel" id="panel-drinks">
+        <div class="menu-grid">
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Ember Old Fashioned</h3>
+              <span class="menu-item-price">$16</span>
+            </div>
+            <p class="menu-item-desc">Smoked bourbon, demerara, Angostura bitters, flamed orange peel</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Garden Spritz<span class="dietary">V</span></h3>
+              <span class="menu-item-price">$14</span>
+            </div>
+            <p class="menu-item-desc">Elderflower liqueur, cucumber-infused gin, prosecco, fresh mint</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Oregon Pinot Noir</h3>
+              <span class="menu-item-price">$18</span>
+            </div>
+            <p class="menu-item-desc">Willamette Valley, 2021 — cherry, earth, silky tannins. Glass pour.</p>
+          </div>
+          <div class="menu-item fade-in">
+            <div class="menu-item-header">
+              <h3 class="menu-item-name">Housemade Ginger Beer<span class="dietary">VG GF</span></h3>
+              <span class="menu-item-price">$7</span>
+            </div>
+            <p class="menu-item-desc">Fresh ginger, lime, raw honey, sparkling water. Non-alcoholic.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="menu-legend fade-in">
+        <span><strong>V</strong> Vegetarian</span>
+        <span><strong>VG</strong> Vegan</span>
+        <span><strong>GF</strong> Gluten Free</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- About -->
+  <section class="section section-warm" id="about">
+    <div class="container">
+      <div class="about-layout fade-in">
+        <div class="about-image-placeholder">🔥</div>
+        <div class="about-content">
+          <span class="section-label">Our Story</span>
+          <h2 class="section-title" style="text-align: left;">Built around the fire</h2>
+          <p class="about-text">Ember & Oak started with a simple idea: bring people together around an open flame. In 2018, chef Maya Torres and partner Liam Beckett converted a century-old warehouse in Portland's Pearl District into a space where the kitchen is the centerpiece.</p>
+          <p class="about-text">Everything we serve is cooked over wood fire or ember — no gas, no shortcuts. We source from farms within 50 miles, change the menu with the seasons, and treat every guest like a neighbor.</p>
+          <p class="about-text">Seven years in, the fire still burns. Come pull up a chair.</p>
+          <div class="about-signature">
+            <span class="signature-name">Maya Torres</span>
+            <span class="signature-title">Chef & Co-Founder</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Hours & Location -->
+  <section class="section" id="visit">
+    <div class="container">
+      <div class="section-header fade-in">
+        <span class="section-label">Visit Us</span>
+        <h2 class="section-title">Hours & Location</h2>
+      </div>
+      <div class="visit-layout">
+        <div class="visit-card card fade-in">
+          <h3 class="visit-card-title">📍 Location</h3>
+          <p class="visit-card-text">827 NW Flanders Street<br>Portland, OR 97209</p>
+          <p class="visit-card-text" style="color: var(--text-muted); font-size: 14px;">Pearl District — street parking + garage next door</p>
+        </div>
+        <div class="visit-card card fade-in">
+          <h3 class="visit-card-title">🕐 Hours</h3>
+          <div class="hours-list">
+            <div class="hours-row"><span>Tuesday – Thursday</span><span>5:00 PM – 10:00 PM</span></div>
+            <div class="hours-row"><span>Friday – Saturday</span><span>5:00 PM – 11:00 PM</span></div>
+            <div class="hours-row"><span>Sunday</span><span>10:00 AM – 3:00 PM</span></div>
+            <div class="hours-row closed"><span>Monday</span><span>Closed</span></div>
+          </div>
+          <p class="visit-card-text" style="margin-top: 12px; color: var(--text-muted); font-size: 14px;">Sunday is brunch only. Kitchen closes 30 min before.</p>
+        </div>
+        <div class="visit-card card fade-in">
+          <h3 class="visit-card-title">📞 Contact</h3>
+          <p class="visit-card-text">(503) 555-0147</p>
+          <p class="visit-card-text">hello@emberandoak.com</p>
+          <div class="visit-socials">
+            <a href="#">Instagram</a>
+            <a href="#">Facebook</a>
+            <a href="#">Yelp</a>
+          </div>
+        </div>
+      </div>
+      <div class="map-placeholder fade-in">
+        📍 Map embed goes here — Replace with Google Maps or Mapbox iframe
+      </div>
+    </div>
+  </section>
+
+  <!-- Reservations -->
+  <section class="section section-warm" id="reservations">
+    <div class="container">
+      <div class="section-header fade-in">
+        <span class="section-label">Reservations</span>
+        <h2 class="section-title">Save your seat</h2>
+        <p class="section-subtitle">Walk-ins welcome, but we recommend reserving for parties of 2 or more — especially weekends.</p>
+      </div>
+      <div class="reservation-form-wrap card fade-in">
+        <div class="reservation-form" id="reservationForm">
+          <div class="form-row-3">
+            <div class="form-group">
+              <label for="resName">Name</label>
+              <input type="text" id="resName" placeholder="Your name" required>
+            </div>
+            <div class="form-group">
+              <label for="resEmail">Email</label>
+              <input type="email" id="resEmail" placeholder="you@email.com" required>
+            </div>
+            <div class="form-group">
+              <label for="resPhone">Phone</label>
+              <input type="tel" id="resPhone" placeholder="(503) 555-0000">
+            </div>
+          </div>
+          <div class="form-row-3">
+            <div class="form-group">
+              <label for="resDate">Date</label>
+              <input type="date" id="resDate" required>
+            </div>
+            <div class="form-group">
+              <label for="resTime">Time</label>
+              <select id="resTime" required>
+                <option value="">Select...</option>
+                <option value="17:00">5:00 PM</option>
+                <option value="17:30">5:30 PM</option>
+                <option value="18:00">6:00 PM</option>
+                <option value="18:30">6:30 PM</option>
+                <option value="19:00">7:00 PM</option>
+                <option value="19:30">7:30 PM</option>
+                <option value="20:00">8:00 PM</option>
+                <option value="20:30">8:30 PM</option>
+                <option value="21:00">9:00 PM</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="resGuests">Guests</label>
+              <select id="resGuests" required>
+                <option value="">Select...</option>
+                <option value="1">1 Guest</option>
+                <option value="2">2 Guests</option>
+                <option value="3">3 Guests</option>
+                <option value="4">4 Guests</option>
+                <option value="5">5 Guests</option>
+                <option value="6">6 Guests</option>
+                <option value="7+">7+ (call us)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="resNotes">Special Requests</label>
+            <textarea id="resNotes" placeholder="Allergies, celebrations, seating preferences..."></textarea>
+          </div>
+          <button class="btn btn-primary" style="width: 100%;" onclick="handleReservation()">Request Reservation</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <a href="#hero" class="nav-logo footer-logo">Ember <span>&</span> Oak</a>
+        <p class="footer-text">827 NW Flanders Street, Portland, OR 97209 · (503) 555-0147</p>
+        <p class="footer-copy">&copy; 2025 Ember & Oak. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>

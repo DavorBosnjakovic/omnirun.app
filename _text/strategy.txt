@@ -1,0 +1,216 @@
+# Omnirun -- Strategy, Positioning & Business Plan
+# Last Updated: February 19, 2026
+# Source: Consolidated from early planning sessions (Jan 17-29, 2026)
+
+---
+
+## TARGET MARKET
+
+**Primary audience: Non-technical builders.** NOT developers.
+
+Why not devs:
+- Already use Claude Code (terminal), VS Code + Cursor
+- Comfortable with command line, want maximum control
+- Won't pay for a "simpler" version of what they already have
+- Hard to convert from free/cheap tools
+
+Who we're for:
+
+### 1. Non-Technical Founders / Entrepreneurs
+- Has a business idea, needs a website/app, can't code
+- Can't afford $10k+ for a developer
+- Currently uses: Bolt.new, Wix, Webflow, no-code tools
+- Willing to pay for results
+
+Example: Sarah owns a bakery. Needs a website with online ordering. Currently on Wix ($30/month) but can't customize it. With Omnirun: "Just tell me what you want, I'll build it." Gets a custom site for subscription + API costs. Market size: millions of small business owners.
+
+### 2. Marketing / Operations Professionals
+- Works at a company, needs internal tools or automation
+- IT won't prioritize their requests
+- Basic tech literacy (uses Slack, Notion, Sheets)
+- Has budget to solve problems
+
+Example: Mike, Marketing Manager. Needs a dashboard pulling data from 5 sources. Currently does 10 hours/week of manual Excel work. IT says "6 month wait." With Omnirun: "Build me a dashboard that pulls from these sources." Saves 500 hours/year. Market size: millions of professionals.
+
+### 3. Non-Developer Freelancers
+- Graphic designers, consultants, content creators
+- Need to build client sites or tools
+- Currently outsource dev work or use limited no-code tools
+- Would love to build it themselves if they could
+
+### 4. Aspiring Learners
+- Want to learn to code but find tutorials overwhelming
+- Omnirun's dual mode (Simple/Technical) lets them see what's happening under the hood
+- Gradual path from "just build it for me" to understanding the code
+
+---
+
+## COMPETITOR POSITIONING
+
+### Omnirun vs Bolt.new
+Bolt.new is for quick web prototyping in the browser. Omnirun is for building and maintaining real projects long-term.
+
+| Feature | Bolt.new | Omnirun |
+|---------|----------|---------|
+| Where it runs | Browser (limited) | Desktop (full access) |
+| Files | Sandboxed | Real files on your computer |
+| After building | Export & stuck | Maintain long-term |
+| Updates | Start over | "Update my site" |
+| Deployment | Confusing | One button |
+| Custom domains | Hard | Guided setup |
+| Project types | Web only | Anything |
+| For | Quick demos | Real businesses |
+| Feeling | Playground | Professional tool |
+| Work with existing projects | Can't | Yes |
+| Offline | No | Yes (after build) |
+| Data privacy | Cloud-based | Local-first |
+| Desktop app control | No | Yes (any app via screenshot + AI) |
+
+Pitch: "Bolt.new is amazing for trying ideas. We're for actually launching and running them."
+
+Alternate: "Bolt.new is a microwave. Omnirun is a full kitchen."
+
+### Omnirun vs Cursor / Copilot
+Cursor and Copilot are developer tools -- they assume you already know how to code.
+
+| Feature | Cursor | Omnirun |
+|---------|--------|---------|
+| Target user | Developers | Everyone |
+| Learning curve | Medium-high | Low |
+| Interface | Code editor | Chat + visual |
+| Requires coding knowledge | Yes | No |
+| Project setup | Manual | Automatic |
+| Deployment | DIY | Built-in |
+| Non-web projects | Limited | Yes |
+| Desktop app control | No | Yes (control any app by voice) |
+
+Pitch: "Cursor makes developers faster. Omnirun makes everyone a builder."
+
+### Omnirun vs Webflow / Wix
+No-code tools that lock you into their platform with limited customization.
+
+| Feature | Webflow/Wix | Omnirun |
+|---------|-------------|---------|
+| Cost | $30-50/month | Sub + API cost |
+| Custom code | Very limited | Unlimited |
+| Own your files | No (platform lock) | Yes (local files) |
+| Maintenance | Click-based | "Just ask" |
+| Flexibility | Template-based | Anything |
+| Export | Hard/impossible | It's already on your computer |
+| Desktop app control | No | Yes (automate any app) |
+
+Pitch: "Stop renting your website. Own it."
+
+### Cost Comparison (monthly)
+
+| | Bolt.new | Cursor | Replit | Omnirun |
+|--|---------|--------|--------|---------|
+| App cost | Free | $20/mo | $20/mo | $10-29/mo |
+| AI cost | Included | Included (limited) | Included | ~$10-30/mo (BYOK) |
+| Total | Free | $20-40/mo | $20-50/mo | ~$20-60/mo |
+| Desktop app | No | No | No | Yes |
+| Local files | No | Sort of | No | Yes |
+| Full projects | Limited | No | Sort of | Yes |
+| Long-term maintenance | No | No | Sort of | Yes |
+
+We cost more. We do more. The users who need what we offer will pay for it because the alternative is hiring a developer ($5k-50k).
+
+---
+
+## DISTRIBUTION
+
+**Decision: Direct download from omnirun.app. No app stores.**
+
+Why:
+- Our target users are comfortable downloading software
+- No 30% app store commission
+- No app store review delays or policy restrictions
+- Full control over updates and pricing
+- Figma, Notion, VS Code, Discord all distribute this way
+- Code signing (Mac + Windows) provides trust
+
+Later consideration: Mac App Store for discoverability, but primary channel stays direct.
+
+---
+
+## REVENUE PROJECTIONS (Solo Dev, Bootstrap)
+
+### Pricing Tiers (Solo)
+- Starter: $10/month or $100/year (1 project, basic features)
+- Pro: $29/month or $290/year (5 projects, all features)
+- Studio: $59/month or $590/year (15 projects, wake word, browser control)
+
+### Pricing Tiers (Teams)
+- Team: $99/month or $990/year (5 seats, 10 projects)
+- Business: $199/month or $1,990/year (15 seats, 30 projects, advanced admin)
+- Enterprise: custom pricing (unlimited seats, unlimited projects)
+
+All tiers are BYOK -- users bring their own AI API keys. No tokens included. This keeps our costs near zero per user.
+
+### Year 1 -- Conservative Growth
+
+Months 1-3 (launch):
+- ~100 free/trial users
+- ~5 paying users
+- Revenue: ~$150/month
+- Costs: ~$50/month (hosting, services)
+
+Months 4-6 (growing):
+- Revenue: $500-1,000/month
+- Starting to cover costs
+
+Months 6-9:
+- Revenue: $2,000-3,000/month
+- Profitable as side income
+
+Months 12-18:
+- Revenue: $5,000-8,000/month
+- Could replace a full-time job
+
+### Year 2+
+
+Months 18-24:
+- Revenue: $15,000+/month
+- Hire first employee or contractor
+
+Exit opportunities (if desired):
+- Small exit ($100k-500k): acquisition by larger tool company, 1-2x annual revenue
+- Larger exit: depends on growth trajectory and market position
+
+### Key Assumptions
+- 5-10% free-to-paid conversion
+- Low churn (tool becomes essential to workflow)
+- Word of mouth from non-technical users who finally built something
+- Near-zero per-user cost (BYOK model)
+
+---
+
+## KEY PITCH LINES
+
+- "Your AI-powered desktop platform -- build, automate, control."
+- "Bolt.new is for trying ideas. Omnirun is for launching them."
+- "Stop renting your website. Own it."
+- "Cursor makes developers faster. Omnirun makes everyone a builder."
+- "The full kitchen, not the microwave."
+- "Tell it what you want. It builds it. On your computer. You own everything."
+- "Your desktop is the brain. Your phone is the remote." (mobile companion)
+- "Any app. Not just ones with APIs." (desktop app control)
+
+---
+
+## DECISIONS LOG (from early planning)
+
+| Decision | What we chose | Why |
+|----------|--------------|-----|
+| Framework | Tauri (not Electron) | Lighter, faster, Rust backend |
+| Target market | Non-technical builders | Devs won't switch from CLI tools |
+| Revenue model | BYOK subscription | Near-zero per-user cost |
+| Distribution | Direct download | No store commissions, full control |
+| Offline mode | None | AI calls need internet anyway |
+| Data privacy | Local-first | Chat/code never leaves device |
+| Mobile approach | Native (React Native) | Better UX than PWA, app store presence |
+| App stores | Skip for launch | Direct download is enough |
+| Included AI tokens | None (BYOK only) | Simpler, no margin risk |
+| Trial | 7-day, card required | Filters tire-kickers |
+| Admin dashboard | Web app (Next.js) | Accessible from anywhere |
+| Desktop app control | Screenshot + input simulation (not accessibility APIs) | Works with any app, matches industry direction, simpler to build |

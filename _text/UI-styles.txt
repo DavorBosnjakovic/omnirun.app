@@ -1,0 +1,475 @@
+# Omnirun   UI Styles & Design
+
+---
+
+## COLOR PALETTE
+
+### Default Theme: Terminal
+
+```
+Background Primary:  #0A0A0A  (almost black)
+Background Surface:  #111111  (panels, cards)
+Background Panel:  #161616  (elevated surfaces)
+Border:  #1E1E1E  (subtle borders)
+Border Light:  #2A2A2A  (visible borders)
+```
+
+### Accent Colors (Green - Terminal Style)
+```
+Green Bright:  #00FF66  (glowing, active states)
+Green Main:  #00DD55  (primary accent)
+Green Muted:  #00AA44  (secondary accent)
+Green Dark:  #007733  (subtle, labels)
+Green Glow:  rgba(0, 255, 102, 0.15)
+```
+
+### Action Colors (Purple)
+```
+Purple Bright:  #A78BFA  (hover states)
+Purple Main:  #7C3AED  (buttons, CTAs)
+Purple Dark:  #5B21B6  (pressed states)
+Purple Glow:  rgba(124, 58, 237, 0.2)
+```
+
+### Text
+```
+Text Primary:  #E0E0E0  (main text)
+Text Secondary: #888888  (secondary text)
+Text Muted:  #555555  (hints, labels)
+```
+
+### Status Colors
+```
+Success:  #22C55E  (green - distinct from accent)
+Warning:  #F59E0B  (amber)
+Error:  #EF4444  (red)
+Info:  #3B82F6  (blue)
+```
+
+### Syntax Highlighting (Code)
+```
+Keyword:  #C678DD  (purple)
+String:  #98C379  (green)
+Number:  #D19A66  (orange)
+Comment:  #5C6370  (gray)
+Function:  #61AFEF  (blue)
+Variable:  #E06C75  (red)
+```
+
+---
+
+## TYPOGRAPHY
+
+### Per-Theme Font Families
+Each theme has a unique font, loaded via @font-face in App.css (woff2 variable fonts in src/assets/fonts/):
+```
+Omnirun (brand):  'Sora', sans-serif                    (font-sora)
+Dark:             'Inter', sans-serif                    (font-inter)
+Light:            'Plus Jakarta Sans', sans-serif        (font-jakarta)
+Sepia:            'Lora', serif                          (font-lora)
+Retro:            'JetBrains Mono', monospace            (font-jetbrains)
+Midnight:         'Space Grotesk', sans-serif            (font-grotesk)
+High Contrast:    'Atkinson Hyperlegible', sans-serif    (font-atkinson)
+```
+Font switching: App.tsx reads theme from settingsStore, maps to CSS font-family string, applies via inline style on root wrapper div.
+Tailwind config: custom font families registered in tailwind.config.js (font-sora, font-inter, etc.)
+
+### Mono (all themes)
+```
+Mono:  'JetBrains Mono', 'Fira Code', monospace
+```
+
+### Font Sizes
+```
+xs:  12px  (labels, hints)
+sm:  14px  (secondary text, buttons)
+base:  16px  (body text)
+lg:  18px  (emphasized text)
+xl:  20px  (headings)
+2xl:  24px  (section titles)
+3xl:  30px  (page titles)
+```
+
+### Font Weights
+```
+normal:  400
+medium:  500
+semibold: 600
+bold:  700
+```
+
+---
+
+## SPACING
+
+```
+1:  4px
+2:  8px
+3:  12px
+4:  16px
+5:  20px
+6:  24px
+8:  32px
+10:  40px
+12:  48px
+16:  64px
+```
+
+---
+
+## BORDER RADIUS
+
+```
+sm:  4px  (buttons, inputs)
+md:  8px  (cards, panels)
+lg:  12px  (modals)
+xl:  16px  (large containers)
+full:  9999px (pills, avatars)
+```
+
+---
+
+## SHADOWS
+
+```
+sm:  0 1px 2px rgba(0,0,0,0.05)
+md:  0 4px 6px rgba(0,0,0,0.1)
+lg:  0 10px 15px rgba(0,0,0,0.1)
+xl:  0 20px 25px rgba(0,0,0,0.15)
+```
+
+---
+
+## COMPONENTS
+
+### Buttons
+
+**Primary Button**
+```
+Background: #7C3AED
+Text: #FFFFFF
+Padding: 8px 16px
+Border Radius: 8px
+Hover: #5B21B6
+```
+
+**Secondary Button**
+```
+Background: transparent
+Border: 1px solid #2A2A2A
+Text: #FFFFFF
+Hover Background: #1A1A1A
+```
+
+**Ghost Button**
+```
+Background: transparent
+Text: #A3A3A3
+Hover Text: #FFFFFF
+```
+
+**Danger Button**
+```
+Background: #EF4444
+Text: #FFFFFF
+Hover: #DC2626
+```
+
+### Inputs
+
+```
+Background: #1A1A1A
+Border: 1px solid #2A2A2A
+Border Radius: 8px
+Padding: 10px 14px
+Focus Border: #7C3AED
+Placeholder: #525252
+```
+
+### Cards/Panels
+
+```
+Background: #1A1A1A
+Border: 1px solid #2A2A2A
+Border Radius: 12px
+Padding: 16px
+```
+
+### Toggle Switch
+
+```
+Track Off: #2A2A2A
+Track On: #7C3AED
+Thumb: #FFFFFF
+Size: 44px x 24px
+```
+
+### Mode Toggle (Simple/Technical)
+
+```
+Container Background: #1A1A1A
+Border Radius: 8px
+Active Tab: #7C3AED background
+Inactive Tab: transparent
+Padding: 6px 12px
+```
+
+---
+
+## ICONS
+
+Use: **Lucide Icons** (https://lucide.dev)
+
+Common icons:
+```
+Folder:  folder
+File:  file
+Settings:  settings
+Play:  play
+Pause:  pause
+Mic:  mic
+Mic Off:  mic-off
+Check:  check
+X:  x
+Plus:  plus
+Minus:  minus
+ChevronRight: chevron-right
+ChevronDown:  chevron-down
+Terminal:  terminal
+Code:  code
+Eye:  eye
+Globe:  globe
+Rocket:  rocket
+Clock:  clock
+Trash:  trash-2
+Edit:  edit-2
+Copy:  copy
+Download:  download
+Upload:  upload
+Link:  link
+Unlink:  unlink
+Volume:  volume-2
+VolumeOff:  volume-x
+Sun:  sun
+Moon:  moon
+```
+
+Icon sizes:
+```
+sm:  16px
+md:  20px
+lg:  24px
+xl:  32px
+```
+
+---
+
+## LAYOUT
+
+### Sidebar
+```
+Width Collapsed: 60px
+Width Expanded: 240px
+Background: #0F0F0F
+Border Right: 1px solid #2A2A2A
+```
+
+### Main Content
+```
+Background: #0F0F0F
+Padding: 0 (content manages own padding)
+```
+
+### Chat Area
+```
+Min Width: 400px
+Padding: 16px
+Message Gap: 16px
+```
+
+### Preview Area
+```
+Min Width: 300px
+Background: #FFFFFF (shows website preview)
+Border Left: 1px solid #2A2A2A
+```
+
+### Divider (Stretchable)
+```
+Width: 8px
+Background: #1A1A1A
+Hover: #2A2A2A
+Cursor: col-resize
+```
+
+### Top Bar
+```
+Height: 64px (h-16)
+Background: theme bgTertiary
+Border Bottom: 1px solid theme border
+Padding: 0 16px
+Native title bar: REMOVED (decorations: false in tauri.conf.json)
+Custom window chrome: minimize, maximize/restore, close buttons
+Drag region: data-tauri-drag-region on outer div + left section
+Logo: omnirun ellipse (ring mark), h-10, theme-aware (dark/light variants)
+Button sizing: all topbar buttons px-4 py-2, text-sm, bgTertiary, hover:bg-white/20
+User avatar: w-10 h-10
+Window controls: Minus (minimize), Square/overlap (maximize/restore), X (close, red hover)
+```
+
+---
+
+## ANIMATIONS
+
+### Transitions
+```
+Default: 150ms ease
+Slow: 300ms ease
+```
+
+### Hover Effects
+```
+Scale: transform: scale(1.02)
+Lift: translateY(-2px) + shadow
+Glow: box-shadow with brand color
+```
+
+### Loading States
+```
+Spinner: rotating circle
+Pulse: opacity animation
+Skeleton: gradient shimmer
+```
+
+---
+
+## THEMES
+
+### Pre-Built Themes (7 total)
+
+| Theme | Background | Accent | Action | Font |
+|-------|------------|--------|--------|------|
+| **Omnirun (default)** | #2F3238 | #2DB87A (green) | #5DE8A0 (green light) | Sora |
+| Terminal | #0A0A0A | #00DD55 (green) | #7C3AED (purple) | — |
+| Midnight | #0A1628 | #00D4FF (cyan) | #0EA5E9 (blue) | — |
+| Sunset | #1A0A0A | #FF9500 (orange) | #F97316 (amber) | — |
+| Monochrome | #0A0A0A | #FFFFFF (white) | #888888 (gray) | — |
+| Hacker | #000000 | #00FF00 (matrix) | #00CC00 (green) | — |
+| Dracula | #282A36 | #BD93F9 (purple) | #FF79C6 (pink) | — |
+| Light | #FFFFFF | #7C3AED (purple) | #5B21B6 (purple) | — |
+| Nord | #2E3440 | #88C0D0 (frost) | #5E81AC (blue) | — |
+
+### Omnirun Brand Theme (implemented in themes.ts)
+```
+Background Primary:  #2F3238  (dark silver)
+Background Surface:  #383C43  (panels, cards)
+Background Panel:    #262A2F  (elevated surfaces)
+Border:              #555B63  (visible borders)
+Text Primary:        #DCE0E4  (silver white)
+Text Muted:          #9CA3AF  (medium gray)
+Accent:              #2DB87A  (brand green)
+Accent Hover:        #5DE8A0  (green light)
+Font:                Sora Light 300
+```
+
+### Theme CSS Variables
+
+All themes use these variables:
+```css
+:root {
+  /* Backgrounds */
+  --bg-primary: ...;
+  --bg-surface: ...;
+  --bg-panel: ...;
+  --border: ...;
+  --border-light: ...;
+  
+  /* Accent (highlights, active states) */
+  --accent-bright: ...;
+  --accent: ...;
+  --accent-muted: ...;
+  --accent-dark: ...;
+  --accent-glow: ...;
+  
+  /* Action (buttons, CTAs) */
+  --action-bright: ...;
+  --action: ...;
+  --action-dark: ...;
+  --action-glow: ...;
+  
+  /* Text */
+  --text-primary: ...;
+  --text-secondary: ...;
+  --text-muted: ...;
+}
+```
+
+### Light Theme Override
+```
+Background Primary:  #FFFFFF
+Background Surface:  #F5F5F5
+Background Panel:  #EEEEEE
+Border:  #E0E0E0
+Text Primary:  #0F0F0F
+Text Secondary:  #737373
+```
+
+---
+
+## RESPONSIVE BREAKPOINTS
+
+Desktop app, but handle window resizing:
+
+```
+Compact:  < 800px  (hide preview, stack layout)
+Normal:  800-1200px (standard layout)
+Wide:  > 1200px (extra space for panels)
+```
+
+---
+
+## Z-INDEX SCALE
+
+```
+Base:  0
+Dropdown: 10
+Sticky:  20
+Modal:  30
+Popover:  40
+Toast:  50
+Tooltip:  60
+```
+
+---
+
+## ACCESSIBILITY
+
+- Minimum contrast ratio: 4.5:1
+- Focus visible on all interactive elements
+- Focus ring: 2px solid #7C3AED, 2px offset
+- Keyboard navigable
+- Screen reader labels
+
+---
+
+## VOICE INDICATOR
+
+### Listening State
+```
+Mic icon pulses with glow
+Color: #22C55E (green)
+Animation: pulse 1.5s infinite
+```
+
+### Wake Word Detected
+```
+Chime sound
+Brief full-screen flash (subtle)
+Mic icon solid green
+```
+
+### Processing
+```
+Animated dots or waveform
+Color: #7C3AED
+```

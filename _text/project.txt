@@ -1,0 +1,3939 @@
+# Omnirun  --  Complete Product Specification
+## AI-Powered Desktop Platform   Build, Automate, Control
+**Last Updated: February 19, 2026**
+**Status: Pre-Launch Planning**
+**Domain: omnirun.app**
+
+---
+
+# EXECUTIVE SUMMARY
+
+## What We're Building
+
+A desktop application that lets anyone build software, automate tasks, and control their computer -- by simply describing it (typing or voice). Websites, internal tools, automations, dashboards, apps. Describe it, build it, own it.
+
+No developers. No waiting. No monthly fees for software that almost does what you need.
+
+## The Problem We Solve
+
+You have ideas. Things you want to build. Tasks you want to automate. But you can't code.
+
+- You wish you could build that app you've been thinking about
+- You waste hours on repetitive tasks that could be automated
+- You want to organize 10,000 photos but it would take forever manually
+- You have a great idea for a personal tool but no way to create it
+- You want to control your computer by just talking to it
+- You need a website but can't afford a developer
+
+**The result:** Ideas stay ideas. Tasks stay manual. You're stuck.
+
+## Our Solution
+
+> **That tool you wish existed? Build it.**
+
+Describe what you need in plain English -- or just talk. The app builds it. You own it completely -- the code, the data, everything. When your needs change, you change it yourself.
+
+Start with something simple. Over time, you'll surprise yourself with what you can build.
+
+## Target Market
+
+**Everyone who wants to build or automate  --  no coding required.**
+
+### Entrepreneurs & Business Owners
+- Custom tools for their business
+- Websites and e-commerce
+- Internal dashboards
+- Automations that save time
+
+### Hobbyists & Makers
+- Personal projects for fun
+- Learn how software works
+- Build tools they've always wanted
+- Experiment and tinker
+
+### Regular People
+- Organize files and photos
+- Automate repetitive tasks
+- Build personal dashboards
+- Voice control their computer
+- Create tools for daily life
+
+### Power Users
+- Control computer with voice commands
+- Complex automations
+- System management
+- Batch file operations
+
+### Students & Learners
+- Build projects for school
+- Learn by doing
+- Understand how apps work
+- Portfolio projects
+
+### Technical Users
+- Claude Code with a better UI
+- Faster prototyping
+- Managing multiple projects
+- Team collaboration
+
+**Perfect Customer:** Anyone who's thought "I wish I could build that" or "I wish my computer could just do this for me."
+
+## Core Value Proposition
+
+**Build anything. Automate everything. Control your computer with your voice.**
+
+Whether you want to create an app, automate boring tasks, or just tell your computer what to do  --  describe it, and it happens.
+
+---
+
+# PRODUCT DETAILS
+
+## What You Can Build
+
+### Websites & Web Apps
+- Personal websites and portfolios
+- Business websites with booking, payments, forms
+- Landing pages and marketing sites
+- E-commerce stores
+- Blogs and content sites
+- Membership communities
+
+### Personal Tools
+- Budget and expense trackers
+- Habit trackers and goal apps
+- Recipe organizers
+- Workout and fitness apps
+- Personal dashboards
+- Journal and note-taking apps
+- Reading lists and media trackers
+
+### Business Tools
+- Inventory tracking systems
+- Order management dashboards
+- CRM systems built for how YOU work
+- Project management tools
+- Employee scheduling systems
+- Client portals
+
+### Automations & Scripts
+- File organization (sort 10,000 photos by date)
+- Data cleanup and processing
+- Report generation
+- Email sequences and follow-ups
+- Backup automations
+- Any repetitive task you do
+
+### Computer Control
+- Voice commands for anything
+- Clean up disk space
+- Find and delete old files
+- Organize downloads folder
+- Batch rename files
+- System maintenance tasks
+
+### Custom Calculators & Forms
+- Quote generators
+- Custom order forms
+- Survey and feedback systems
+- Grade calculators
+- Mortgage/loan calculators
+- Any calculation you need
+
+### Data & Analytics
+- Custom dashboards
+- Data visualization
+- Tracking and reporting
+- Spreadsheet processing
+- CSV/Excel manipulation
+
+### Games & Fun Projects
+- Simple games
+- Interactive stories
+- Quiz apps
+- Random generators
+- Creative experiments
+
+### And More
+- Mobile-friendly web apps
+- Chrome extensions
+- API integrations
+- Database applications
+- Python scripts
+- Anything you can describe
+
+---
+
+# WHY DESKTOP BEATS BROWSER TOOLS
+
+## The Problem with Bolt.new and Similar Tools
+
+Browser-based tools like Bolt.new run in a **sandbox**. They can only work within their own little box  --  a virtual environment that resets, can't access your real files, and has strict limitations.
+
+**What you get with browser tools:**
+- A temporary playground
+- Files stuck in their system
+- Can't work on existing projects
+- Limited to what their sandbox allows
+- Export/download headaches
+- Start over when you come back
+
+## Why Local File Access Changes Everything
+
+When you open Omnirun and point it to a folder on your computer, you're giving it **real access to real files**.
+
+```
+You: "Here's my project folder: /Users/me/my-bakery-website"
+
+Omnirun now has full access:
+* Read any file in that folder
+* Create new files
+* Edit existing files
+* Delete files (with your approval)
+* Run the project locally
+* See changes instantly
+* Work with your existing code
+```
+
+**This is how professional developers work.** Files on their computer, real tools, real environment.
+
+## The Real Difference
+
+| Capability | Bolt.new (Browser) | Omnirun (Desktop) |
+|------------|-------------------|-------------------|
+| Work on existing projects | x  Start fresh only | * Open any folder |
+| Files saved on your computer | x  In their cloud | * Your machine |
+| Use your own tools alongside | x  Sandboxed | * Full access |
+| Offline work | x  Need internet | * Works offline |
+| Project size limits | x  Restricted | * No limits |
+| Keep files forever | x  May expire | * Your files, forever |
+| Run real dev server | x  Simulated | * Real localhost |
+| Install any package | x  Limited | * Full npm/pip access |
+| Git integration | x  Limited | * Full git support |
+| Multiple projects open | x  One at a time | * Switch freely |
+| Maintain long-term | x  Hard to continue | * Pick up anytime |
+
+## What This Means For You
+
+### Work On What You Already Have
+
+Have an existing website? Just point Omnirun to the folder.
+
+```
+User: "Open /Users/me/existing-website"
+
+Omnirun: "I see this is a React project with 47 files.
+  You have a header, 5 pages, and a contact form.
+  What would you like to change?"
+```
+
+No exporting. No importing. No copy-paste. Just open and work.
+
+### Real Development Environment
+
+Your project runs on your actual computer:
+
+- **localhost:3000** shows your real site
+- Changes appear in real-time
+- Test on your actual browser
+- Use browser DevTools normally
+- Everything works like a real dev setup
+
+Because it IS a real dev setup.
+
+### No Limits
+
+- Build a 500-file application  --  no problem
+- Install any package from npm  --  no restrictions  
+- Use any framework  --  not limited to their templates
+- Work on multiple projects  --  switch with a click
+- Keep files forever  --  they're on YOUR computer
+
+### Come Back Anytime
+
+```
+6 months later...
+
+User opens Omnirun
+Clicks "My Bakery Website"
+
+Omnirun: "Welcome back! Last time we were working on
+  the online ordering feature. The cart was done,
+  we were starting on checkout. Continue?"
+```
+
+Your project is right where you left it. Files on your computer. Memory of what you were doing. No "session expired" or "project deleted."
+
+## The Simple Explanation
+
+**Browser tools** = Working in someone else's sandbox
+
+**Omnirun** = Your computer, your files, your control
+
+You give access to a folder. The app can do whatever you tell it to do within that folder. That's it. Simple, powerful, and yours.
+
+---
+
+# FILE ACCESS & GENERAL COMPUTER ASSISTANT
+
+## More Than Project Building
+
+With broader file access, Omnirun isn't just for building websites and apps  --  it's an **AI assistant for your computer**.
+
+### What You Can Do
+
+**File Organization:**
+- "Find all PDFs older than 2 years and move them to Archive"
+- "Clean up my Downloads  --  delete anything over 6 months old"
+- "Organize my photos by year and month"
+
+**File Cleanup:**
+- "Find and delete all 0KB files on my drive"
+- "Empty my recycle bin"
+- "Remove duplicate files in my Documents folder"
+
+**Batch Operations:**
+- "Rename all these images to include the date taken"
+- "Convert all .png files in this folder to .jpg"
+- "Compress all files larger than 100MB"
+
+**System Tasks:**
+- "Show me what's taking up space on my C: drive"
+- "Find large files I haven't opened in a year"
+- "Back up my project folders to my external drive"
+
+### File Access Settings
+
+Users control how much access to grant:
+
+```
+Settings  ->  File Access
+
+  o Project folders only (default)
+  Select a specific folder for each project.
+  Safest option.
+  
+  o Workspace folder
+  Access everything in one folder:
+  [/Users/me/Projects  ] [Change]
+  Good for power users with multiple projects.
+  
+  o Broad access (advanced)
+  Access most of my user folder.
+  Enables general file management tasks.
+  System files always protected.
+```
+
+### Safety Guardrails
+
+**Always protected (cannot access):**
+- Windows/System32 and OS files
+- Application internals
+- Other users' folders
+- Hidden system folders
+
+**Destructive actions require confirmation:**
+```
++-------------------------------------------------------------+
+|  Confirm Deletion  |
++-------------------------------------------------------------+
+|  |
+| I found 247 files matching "0KB files on C:"  |
+|  |
+| [View Full List]  |
+|  |
+| Examples:  |
+|  C:/Users/You/Documents/empty.txt (0 KB)  |
+|  C:/Users/You/Downloads/temp.log (0 KB)  |
+|  ... and 245 more  |
+|  |
+| These will be moved to Recycle Bin first.  |
+| You can restore them if needed.  |
+|  |
+| [Cancel]  [Delete All 247 Files]  |
++++------------------------------------------------------------+
+```
+
+**Safe deletion process:**
+1. Move to Recycle Bin first (not permanent)
+2. User can restore if mistake
+3. Permanent delete only on explicit request
+
+**Preview before action:**
+- Show exactly what will happen
+- List affected files
+- Explain the operation
+- Wait for approval
+
+---
+
+# MODEL SELECTION (SAVE MONEY)
+
+## Let Users Choose AI Model
+
+Different tasks need different power levels. Let users pick:
+
+| Model | Best For | Cost |
+|-------|----------|------|
+| **Haiku** | Quick questions, small edits, explanations | ~$0.25/M tokens |
+| **Sonnet** | Most building tasks, features, debugging | ~$3/M tokens |
+| **Opus** | Complex architecture, difficult problems | ~$15/M tokens |
+
+## Smart Defaults
+
+```
+Settings  ->  AI Model
+
+Default model: [Sonnet -] (recommended)
+
+["] Auto-switch to Haiku for simple questions
+["] Suggest Opus for complex tasks
+[ ] Always ask before using Opus
+```
+
+## In-Chat Selection
+
+User can override per-message:
+
+```
++-------------------------------------------------------------+
+| [Type message...]  |
+|  |
+| Model: [Sonnet -]  []  [+]  [Send ]  |
++++------------------------------------------------------------+
+```
+
+## Cost Savings
+
+Typical user without model selection: ~$30/month
+With smart model selection: ~$15/month
+
+**50% savings** just by using Haiku for quick stuff.
+
+---
+
+# PROJECT TEMPLATES
+
+## Pre-Built Starting Points
+
+```
+New Project  ->  Start from Template
+
++-------------------------------------------------------------+
+| Choose a Template  |
++-------------------------------------------------------------+
+|  |
+| WEBSITES  |
+| +-------------  +-------------  +-------------  |
+| |  | |  | | '  |  |
+| | Business  | | Landing  | | E-commerce  |  |
+| | Website  | | Page  | | Store  |  |
+| +++------------  +++------------  +++------------  |
+| +-------------  +-------------  |
+| | '  | | +  |  |
+| | Portfolio  | | Blog  |  |
+| +++------------  +++------------  |
+|  |
+| PERSONAL TOOLS  |
+| +-------------  +-------------  +-------------  |
+| | '  | | *  | |  |  |
+| | Budget  | | Habit  | | Recipe  |  |
+| | Tracker  | | Tracker  | | Organizer  |  |
+| +++------------  +++------------  +++------------  |
+| +-------------  +-------------  |
+| | '  | | +  |  |
+| | Workout  | | Reading  |  |
+| | Log  | | List  |  |
+| +++------------  +++------------  |
+|  |
+| BUSINESS TOOLS  |
+| +-------------  +-------------  +-------------  |
+| | +  | | +  | | '  |  |
+| | Admin  | | Inventory  | | CRM  |  |
+| | Dashboard  | | Tracker  | | System  |  |
+| +++------------  +++------------  +++------------  |
+|  |
+| AUTOMATIONS  |
+| +-------------  +-------------  +-------------  |
+| | +  | | +  | | +  |  |
+| | File  | | Report  | | Photo  |  |
+| | Organizer  | | Generator  | | Organizer  |  |
+| +++------------  +++------------  +++------------  |
+|  |
+| FUN & LEARNING  |
+| +-------------  +-------------  +-------------  |
+| | "  | |  | |  |  |
+| | Quiz  | | Flashcards  | | Random  |  |
+| | App  | |  | | Generator  |  |
+| +++------------  +++------------  +++------------  |
+|  |
+| +-------------  |
+| | -  |  |
+| | Start  |  |
+| | Empty  |  |
+| +++------------  |
+|  |
++++------------------------------------------------------------+
+```
+
+## Template Categories
+
+**Websites:**
+- Business Website  --  Company site with pages, contact form
+- Landing Page  --  Single page, conversion focused
+- E-commerce Store  --  Products, cart, checkout
+- Portfolio  --  Showcase your work
+- Blog  --  Articles, categories, comments
+
+**Personal Tools:**
+- Budget Tracker  --  Income, expenses, categories, charts
+- Habit Tracker  --  Daily habits, streaks, progress
+- Recipe Organizer  --  Recipes, ingredients, meal planning
+- Workout Log  --  Exercises, sets, progress tracking
+- Reading List  --  Books, status, notes, ratings
+
+**Internal/Business Tools:**
+- Admin Dashboard  --  Data tables, charts, user management
+- Inventory Tracker  --  Stock levels, alerts, history
+- CRM System  --  Contacts, deals, pipeline, tasks
+- Booking System  --  Calendar, appointments, reminders
+
+**Automations:**
+- File Organizer  --  Sort files by rules, clean up folders
+- Report Generator  --  Pull data, create formatted reports
+- Email Automation  --  Sequences, templates, scheduling
+- Photo Organizer  --  Sort by date, remove duplicates
+- Backup Script  --  Automated backups to cloud/drive
+
+**Data & Utilities:**
+- Data Cleanup  --  Fix messy spreadsheets, remove duplicates
+- CSV Processor  --  Transform and clean data files
+- Media Converter  --  Batch convert images/videos
+
+**Fun & Learning:**
+- Quiz App  --  Questions, scoring, categories
+- Flashcards  --  Study tool with spaced repetition
+- Random Generator  --  Names, ideas, prompts
+- Simple Game  --  Basic game mechanics
+
+## What Templates Include
+
+**Websites:**
+- Basic structure and pages
+- Common components
+- Styling foundation
+- Placeholder content
+
+**Personal Tools:**
+- Data storage setup
+- Basic UI components
+- Charts and visualizations
+- Sample data to start
+
+**Business Tools:**
+- Database schema
+- UI components (tables, forms, charts)
+- Basic auth setup
+- Sample data
+
+**Automations:**
+- Script structure
+- Common functions
+- Configuration files
+- Example workflows
+
+**Fun & Learning:**
+- Game/app logic
+- User interaction handling
+- Scoring/progress tracking
+- Sample content
+
+## Benefits
+
+- Faster starts (skip boilerplate)
+- Lower initial API cost
+- Proven patterns and structure
+- Less "blank page" paralysis
+- Learn from well-organized examples
+- Ready to customize immediately
+
+---
+
+# TIME MACHINE (VERSION HISTORY)
+
+## Every Change is Saved
+
+Every single change creates a snapshot. Unlimited history. Never lose anything.
+
+## Non-Technical Interface
+
+Simple timeline instead of confusing git commands:
+
+```
++-------------------------------------------------------------+
+| --> Time Machine  |
++-------------------------------------------------------------+
+|  |
+| Today  |
+| +  3:42 PM  Added contact form  |
+| |  3 files changed  [Restore]  |
+| +  2:15 PM  Fixed header alignment  |
+| |  1 file changed  [Restore]  |
+| +  1:30 PM  Changed colors to blue  |
+| |  2 files changed  [Restore]  |
+| ++| 11:00 AM Added menu page  |
+|  4 files changed  [Restore]  |
+|  |
+| Yesterday  |
+| +  5:20 PM  Set up online ordering  |
+| +  3:45 PM  Created product cards  |
+| ++| 1:00 PM  Initial project setup  |
+|  |
+| Last Week  |
+| ++| [View older history...]  |
+|  |
++++------------------------------------------------------------+
+```
+
+## How Restore Works
+
+```
+User clicks [Restore] on "Changed colors to blue"
+
++-------------------------------------------------------------+
+|  Restore to "Changed colors to blue"?  |
++-------------------------------------------------------------+
+|  |
+| This will undo everything after 1:30 PM today:  |
+|  |
+|  Fixed header alignment  |
+|  Added contact form  |
+|  |
+| Don't worry  --  those changes are still saved.  |
+| You can restore to them again anytime.  |
+|  |
+| [Cancel]  [Restore to 1:30 PM]  |
++++------------------------------------------------------------+
+```
+
+## Key Features
+
+**Unlimited snapshots:**
+- Every change saved forever
+- No limit on history
+- Storage is cheap
+
+**Never destructive:**
+- Restore doesn't delete future snapshots
+- Can always go forward again
+- Full timeline always preserved
+
+**Branching made simple:**
+- Restore to old point
+- Make different changes
+- Both paths preserved
+
+```
+Timeline View:
+
+11:00 AM +-  1:30 PM +-  2:15 PM +-  3:42 PM (current)
+  |
+  +++-  1:30 PM +-  New direction... (branch)
+```
+
+**Compare versions:**
+```
++-------------------------------------------------------------+
+| Compare: 1:30 PM vs Now  |
++-------------------------------------------------------------+
+|  |
+| 1:30 PM (Blue)  |  Now (Blue + Form)  |
+| +---------------------  | +---------------------  |
+| | [Header]  | | | [Header - aligned]  |  |
+| | [Content]  | | | [Content]  |  |
+| |  | | | [Contact Form]  |  |
+| +++--------------------  | +++--------------------  |
+|  |
+| [Restore 1:30 PM]  [Keep Current]  [Merge Parts]  |
++++------------------------------------------------------------+
+```
+
+## Technical Implementation
+
+- Git underneath (automatic commits)
+- Friendly UI on top
+- User never sees git commands
+- Works offline
+- Syncs when connected
+
+---
+
+# SCHEDULED TASKS
+
+## Automate Recurring Work
+
+```
+Settings  ->  Scheduled Tasks
+
++-------------------------------------------------------------+
+| Scheduled Tasks  |
++-------------------------------------------------------------+
+|  |
+| +---------------------------------------------------------  |
+| | * Weekly backup  | |
+| |  Every Sunday at 2:00 AM  | |
+| |  Back up all projects to external drive  | |
+| |  [Edit] [Disable]  | |
+| +++--------------------------------------------------------  |
+|  |
+| +---------------------------------------------------------  |
+| | * Deploy staging  | |
+| |  Every Friday at 5:00 PM  | |
+| |  Deploy "Bakery Website" to staging  | |
+| |  [Edit] [Disable]  | |
+| +++--------------------------------------------------------  |
+|  |
+| +---------------------------------------------------------  |
+| | * Cost summary  | |
+| |  Every Monday at 9:00 AM  | |
+| |  Email weekly API cost report  | |
+| |  [Edit] [Disable]  | |
+| +++--------------------------------------------------------  |
+|  |
+| [+ Add Scheduled Task]  |
+|  |
++++------------------------------------------------------------+
+```
+
+## Example Tasks
+
+**Backups:**
+- "Back up my projects every night"
+- "Sync to Google Drive every Sunday"
+
+**Deployments:**
+- "Deploy to staging every Friday"
+- "Deploy to production first Monday of month"
+
+**Maintenance:**
+- "Run health check weekly"
+- "Clean up temp files every night"
+
+**Reports:**
+- "Email me weekly cost summary"
+- "Send project status report to client every Friday"
+
+## Task Creation
+
+```
++-------------------------------------------------------------+
+| New Scheduled Task  |
++-------------------------------------------------------------+
+|  |
+| What should I do?  |
+| [Back up all projects to my external drive  ]  |
+|  |
+| How often?  |
+|  o Daily  o Weekly  o Monthly  o Custom  |
+|  |
+| When?  |
+| Day: [Sunday -]  Time: [2:00 AM -]  |
+|  |
+| Notify me?  |
+| ["] When task completes  |
+| ["] If task fails  |
+|  |
+| [Cancel]  [Create Task]  |
++++------------------------------------------------------------+
+```
+
+---
+
+# PROJECT HEALTH CHECKS
+
+## Automatic Scans
+
+App periodically scans projects for issues:
+
+```
++-------------------------------------------------------------+
+|  Health Check: My Bakery Website  |
++-------------------------------------------------------------+
+|  |
+| Last scan: 2 hours ago  |
+|  |
+| Found 3 issues:  |
+|  |
+|  SECURITY (1)  |
+| +  API key exposed in code  |
+| |  File: src/config.js line 12  |
+| |  [Fix Automatically]  |
+|  |
+|  PERFORMANCE (1)  |
+| +  Large image not optimized (2.4 MB)  |
+| |  File: public/hero-image.png  |
+| |  [Optimize Now]  --  Will reduce to ~200 KB  |
+|  |
+|  ACCESSIBILITY (1)  |
+| +  Images missing alt text (4 images)  |
+| |  [Add Alt Text]  --  I'll suggest descriptions  |
+|  |
+| * SEO: All good  |
+| * Broken Links: None found  |
+|  |
+| [Fix All Issues]  [Ignore]  [Configure Checks]  |
++++------------------------------------------------------------+
+```
+
+## What It Checks
+
+**Security:**
+- Exposed API keys or secrets
+- Insecure dependencies
+- HTTPS issues
+- CORS misconfigurations
+
+**Performance:**
+- Large images (offers compression)
+- Unminified code
+- Missing lazy loading
+- Slow database queries
+
+**Accessibility:**
+- Missing alt text
+- Color contrast issues
+- Keyboard navigation
+- Screen reader problems
+
+**SEO:**
+- Missing meta tags
+- Missing sitemap
+- Broken structured data
+- Title/description issues
+
+**Code Quality:**
+- Broken links
+- Unused code
+- Common bugs
+- Deprecated functions
+
+## Auto-Fix
+
+Most issues can be fixed automatically:
+
+```
+User clicks [Fix All Issues]
+
++-------------------------------------------------------------+
+| + Fixing 3 issues...  |
++-------------------------------------------------------------+
+|  |
+| * Moved API key to environment variables  |
+| * Compressed hero-image.png (2.4 MB  ->  180 KB)  |
+| * Added alt text to 4 images  |
+|  |
+| All issues fixed!  |
+|  |
+| [View Changes]  [Done]  |
++++------------------------------------------------------------+
+```
+
+## Scheduled Health Checks
+
+```
+Settings  ->  Health Checks
+
+["] Run automatically: [Weekly -]
+["] Notify me of critical issues immediately
+["] Include in weekly summary email
+[ ] Auto-fix low-risk issues (security issues always need approval)
+```
+
+---
+
+# MOBILE COMPANION APP
+
+## Simple Phone App for On-The-Go
+
+### Features
+
+**Voice Commands:**
+- "Deploy my website"
+- "What's my API usage this week?"
+- "Add a note to my project"
+
+**Notifications:**
+- Deployment complete
+- Build failed
+- Approval needed
+- Cost alerts
+
+**Quick Approvals:**
+```
++-----------------------------+
+| "" Omnirun  |
++-----------------------------+
+|  |
+| Deploy to production?  |
+|  |
+| Project: Bakery Website  |
+| Target: mybakery.com  |
+|  |
+| [Reject]  [Approve "]  |
++++----------------------------+
+```
+
+**Status Dashboard:**
+- All projects at a glance
+- Recent activity
+- Cost summary
+- Health status
+
+### Use Cases
+
+- Approve deployments while away from desk
+- Monitor costs on the go
+- Get notified of issues immediately
+- Quick voice commands hands-free
+
+### Implementation
+
+- React Native (iOS + Android)
+- Syncs with desktop app
+- Push notifications
+- Minimal features  --  not full app replacement
+
+---
+
+# QUICK COMMAND (GLOBAL ACCESS)
+
+## Use Omnirun From Anywhere
+
+Don't need to switch windows. Command Omnirun while it runs in the background.
+
+## Three Voice Modes
+
+### Mode 1: Push-to-Talk (Default)
+
+Hold customizable hotkey  ->  Speak  ->  Release  ->  Done
+
+```
+Hold Ctrl+Space (or your custom key):
++-------------------------------------------------+
+|  Listening...  |
+|  |
+| "Clean up my downloads folder"  |
++++------------------------------------------------+
+
+Release key  ->  command executes
+```
+
+### Mode 2: Always-On Listening -
+
+Wake word activates  --  like Alexa or Siri, but for your computer.
+
+```
+Settings  ->  Voice  ->  Always-On Mode
+
+["] Enable always-on listening
+Wake word: ["Hey Omnirun" -]
+
+Options:
+ "Hey Omnirun"
+ "Hey Dev"  
+ "Computer"
+ "Okay Omnirun"
+ [Custom phrase...]
+
+["] Play sound when activated
+["] Show visual indicator when listening
+["] Pause when video/music is playing
+```
+
+**Use from across the room:**
+
+```
+You're on the sofa...
+
+You: "Hey Omnirun"
+App: *chime* 
+You: "Play my chill playlist on Spotify"
+App: *opens Spotify, plays playlist*
+You: "Turn down the volume a bit"
+App: *adjusts system volume*
+You: "What's the weather tomorrow?"
+App: *shows notification with weather*
+```
+
+**Privacy Controls:**
+
+```
++-------------------------------------------------------------+
+| "' Always-On Privacy  |
++-------------------------------------------------------------+
+|  |
+| ["] Only listen for wake word (not full audio)  |
+| ["] Process voice locally when possible  |
+| ["] Auto-pause in sensitive apps (banking, etc.)  |
+| ["] Show indicator when microphone is active  |
+|  |
+| Quick toggle: [ Listening]  Click to mute  |
+|  |
+| Keyboard shortcut to mute: [F9]  |
++++------------------------------------------------------------+
+```
+
+### Mode 3: Continuous Conversation
+
+Voice mode stays on during a task:
+
+```
+You: "Hey Omnirun, let's work on my website"
+App: "Ready! What do you want to change?"
+You: "Make the header blue"
+App: *shows preview* "Like this?"
+You: "Darker"
+App: *adjusts* "Better?"
+You: "Perfect, save it"
+App: "Done! Anything else?"
+You: "That's all for now"
+App: *exits voice mode*
+```
+
+---
+
+# BROWSER CONTROL -
+
+## Your AI Controls the Browser
+
+Omnirun can see and control your browser  --  click, type, navigate, fill forms, anything.
+
+### What It Can Do
+
+**Play Media:**
+```
+"Open YouTube and play lo-fi hip hop"
+"Play my Discover Weekly on Spotify"
+"Find that song that goes 'never gonna give you up'"
+```
+
+**Shopping:**
+```
+"Go to Amazon and find wireless earbuds under $50"
+"Add that to my cart"
+"Show me the reviews first"
+```
+
+**Booking & Reservations:**
+```
+"Book a table for 2 at Olive Garden for Friday 7pm"
+"Find me a flight to Miami next weekend"
+"Schedule a dentist appointment"
+```
+
+**Research:**
+```
+"Find the best rated Italian restaurants near me"
+"Look up how to fix a leaky faucet"
+"Compare iPhone 15 vs Samsung S24"
+```
+
+**Social Media:**
+```
+"Open Twitter and show me what's trending"
+"Post to my LinkedIn: 'Excited to announce...'"
+"Check my Instagram messages"
+```
+
+**Productivity:**
+```
+"Open Google Docs and create a new document"
+"Fill out this form with my information"
+"Download all images from this page"
+```
+
+**System + Browser Combined:**
+```
+"Download this video and save it to my Videos folder"
+"Take a screenshot of this page and email it to John"
+"Find a recipe for lasagna and add ingredients to my grocery list"
+```
+
+### How It Works
+
+Uses browser automation (like Playwright/Puppeteer) to:
+- See what's on screen
+- Click buttons and links
+- Type in forms
+- Navigate pages
+- Read content
+- Download files
+
+**You stay in control:**
+- Watch it work in real-time
+- Pause or cancel anytime
+- Approve sensitive actions (purchases, posts, etc.)
+
+### Safety Features
+
+```
+Settings  ->  Browser Control
+
+["] Ask before making purchases
+["] Ask before posting to social media
+["] Ask before submitting forms
+["] Ask before downloading files
+["] Never save passwords
+["] Show what it's doing in real-time
+
+Blocked sites (never access):
+[Banking sites auto-blocked  ]
+[+ Add site]
+```
+
+### The Browser Control UI
+
+```
++-------------------------------------------------------------+
+|  Browser Control Active  |
++-------------------------------------------------------------+
+|  |
+| Task: "Book a table at Olive Garden for Friday"  |
+|  |
+| +---------------------------------------------------------  |
+| | [Browser view - watching Omnirun work]  | |
+| |  | |
+| |  Olive Garden  | |
+| |  +---------------------------------  | |
+| |  | Party size: [2  -]  |  Filling in  | |
+| |  | Date: [Friday, Jan 31 -]  |  | |
+| |  | Time: [7:00 PM -]  |  | |
+| |  |  |  | |
+| |  | [Find a Table]  |  | |
+| |  +++--------------------------------  | |
+| +++--------------------------------------------------------  |
+|  |
+| Status: Selecting time slot...  |
+|  |
+| [Pause]  [Cancel]  [Let me take over]  |
++++------------------------------------------------------------+
+```
+
+### Approval for Sensitive Actions
+
+```
++-------------------------------------------------------------+
+|  Confirm Action  |
++-------------------------------------------------------------+
+|  |
+| I'm about to complete this reservation:  |
+|  |
+| + Olive Garden - Times Square  |
+| "... Friday, January 31, 2026  |
+| --> 7:00 PM  |
+| '  2 people  |
+| + Confirmation to: you@email.com  |
+|  |
+| [Cancel]  [Confirm Reservation]  |
++++------------------------------------------------------------+
+```
+
+### Example Session
+
+```
+You: "Hey Omnirun"
+App: *chime* 
+
+You: "I'm hungry. Find me good Thai food nearby that's open now"
+App: *opens browser*
+  *searches Google Maps*
+  *filters by Thai, open now, good ratings*
+  
+  "Found 3 options:
+  1. Thai Basil - 4.5 stars, 10 min away
+  2. Siam Kitchen - 4.3 stars, 15 min away  
+  3. Bangkok Express - 4.1 stars, 5 min away
+  
+  Want me to show more details or make a reservation?"
+
+You: "Thai Basil looks good. Can they deliver?"
+
+App: *checks website*
+  "Yes! They deliver through DoorDash. 
+  Want me to open it and start an order?"
+
+You: "Yes, get me pad thai, medium spicy"
+
+App: *opens DoorDash*
+  *navigates to Thai Basil*
+  *adds pad thai to cart*
+  *selects medium spicy*
+  
+  "Pad Thai added. It's $15.99.
+  Delivery in about 35-45 minutes.
+  Ready to checkout?"
+
+You: "Add spring rolls too"
+
+App: *adds spring rolls*
+  "Added. Total is $22.47 with delivery.
+  Should I place the order?"
+
+You: "Yes, use my usual card"
+
+App: "Order placed! Arriving by 8:15 PM.
+  I'll let you know when it's close."
+
+*40 minutes later*
+App: *notification* "Your Thai food is 5 minutes away! "
+```
+
+---
+
+# WHAT OMNIRUN CAN CONTROL
+
+## Full Computer Control
+
+| Area | Examples |
+|------|----------|
+| **Files & Folders** | Create, move, delete, organize, search |
+| **Applications** | Open, close, switch, control |
+| **System** | Volume, brightness, settings, updates |
+| **Browser** | Navigate, click, fill forms, download |
+| **Media** | Play, pause, skip, volume, playlists |
+| **Clipboard** | Copy, paste, history |
+| **Notifications** | Read, dismiss, respond |
+| **Calendar** | Events, reminders, scheduling |
+
+### How Application Control Works
+
+**Browser apps:** Playwright automation (fast, cheap, direct DOM access). Used for anything in Chrome, Firefox, Safari, Edge.
+
+**Desktop apps (v2):** Screenshot + input simulation. Omnirun takes a screenshot, sends it to Claude Vision, Claude says where to click/type, Omnirun simulates the mouse/keyboard. Works with ANY app — Figma, Photoshop, Excel, anything visible on screen. See desktop-app-control.txt for full spec.
+
+**Auto-routing:** If the active window is a browser, use Playwright. If it's a desktop app, use screen control. User doesn't need to choose.
+
+## Example Commands
+
+**Just Living Life:**
+```
+"What's on my calendar today?"
+"Remind me to call mom at 5"
+"Play some jazz music"
+"Turn on do not disturb"
+"What's the weather this weekend?"
+"Set a timer for 20 minutes"
+```
+
+**Getting Work Done:**
+```
+"Open my project folder"
+"Find that PDF I downloaded yesterday"
+"Email this document to Sarah"
+"Take a screenshot and save it"
+"Zip these files and upload to Google Drive"
+```
+
+**Browsing Hands-Free:**
+```
+"Open Netflix"
+"Search for action movies"
+"Play Stranger Things"
+"Skip intro"
+"Pause"
+"Turn on subtitles"
+```
+
+**Smart Home Vibes (without smart home):**
+```
+"Computer, play my morning playlist"
+"Show me the news"
+"Open my work email"
+"Start my day"  ->  *custom routine: email + calendar + news + music*
+```
+
+---
+
+## System Tray / Menu Bar
+
+App minimizes to:
+- System tray (Windows)
+- Menu bar (Mac)
+
+Shows listening status and quick access:
+
+```
++-------------------------------------------------+
+|  Omnirun (Listening for "Hey Omnirun")  |
++-------------------------------------------------+
+|  o Push-to-Talk: Ctrl+Space  |
+|  o Always-On: Active  |
++-------------------------------------------------+
+| Open Omnirun  |
+| Quick Command...  |
++-------------------------------------------------+
+| Recent Projects  ->  |
++-------------------------------------------------+
+| + Mute Microphone  |
+| Settings  |
++-------------------------------------------------+
+| Quit  |
++++------------------------------------------------+
+```
+
+---
+
+# CUSTOM ROUTINES
+
+## One Command, Multiple Actions
+
+Create custom voice commands that trigger a sequence of actions.
+
+### Examples
+
+**"Good morning"**
+```
+1. Open weather app
+2. Read today's calendar
+3. Open email inbox
+4. Play morning playlist
+5. Set brightness to 70%
+```
+
+**"Start work"**
+```
+1. Open Slack
+2. Open project folder
+3. Open VS Code
+4. Start dev server
+5. Play focus music
+6. Enable do not disturb
+```
+
+**"Movie time"**
+```
+1. Dim screen brightness
+2. Close all work apps
+3. Open Netflix
+4. Turn volume to 80%
+```
+
+**"Going to bed"**
+```
+1. Save all work
+2. Close all apps
+3. Enable night mode
+4. Set reminder for morning
+5. Play sleep sounds
+```
+
+### Creating Routines
+
+```
+Settings  ->  Routines
+
++-------------------------------------------------------------+
+| Routines  [+ New]  |
++-------------------------------------------------------------+
+|  |
+| +---------------------------------------------------------  |
+| | "Good morning"  | |
+| | 5 actions  Created Jan 15  [Edit] [-]  | |
+| +++--------------------------------------------------------  |
+|  |
+| +---------------------------------------------------------  |
+| | "Start work"  | |
+| | 6 actions  Created Jan 20  [Edit] [-]  | |
+| +++--------------------------------------------------------  |
+|  |
+| +---------------------------------------------------------  |
+| | "Movie time"  | |
+| | 4 actions  Created Jan 22  [Edit] [-]  | |
+| +++--------------------------------------------------------  |
+|  |
++++------------------------------------------------------------+
+```
+
+### Natural Creation
+
+Just describe what you want:
+
+```
+You: "Create a routine called 'end of day'. 
+  I want it to save all my work, close Slack, 
+  send me a summary of what I did today, 
+  and play some relaxing music."
+
+App: "Got it! Created 'end of day' routine with:
+  1. Save all open documents
+  2. Close Slack
+  3. Generate daily summary notification
+  4. Play relaxing playlist
+  
+  Say 'end of day' anytime to run it.
+  Want to test it now?"
+```
+
+---
+
+# TWO MODES: TECHNICAL & NON-TECHNICAL
+
+## The Core Idea
+
+One app serves both audiences with a simple toggle  --  like Preview/Code toggle in Claude artifacts.
+
+Users can switch freely between modes at any time.
+
+## Non-Technical Mode (Default for new users)
+
+**Default view:** Visual preview
+**Chat style:** Guided, friendly, explains what's happening
+**Changes shown as:** Plain English descriptions + visual before/after
+**Code:** Hidden by default, but always accessible via toggle
+**Terminal:** Hidden
+**Guidance:** Active (contextual help when needed)
+
+```
++-------------------------------------------------------------+
+| Making the header larger and adding your logo  |
+|  |
+| +---------------------------------------------------------  |
+| | BEFORE  ->  AFTER  | |
+| | [Small header]  [Large header with logo]  | |
+| +++--------------------------------------------------------  |
+|  |
+| [Looks Good "]  [Try Different]  [Show Code]  |
++++------------------------------------------------------------+
+```
+
+## Technical Mode
+
+**Default view:** Code
+**Chat style:** Direct, minimal hand-holding
+**Changes shown as:** Code diffs
+**Terminal:** Visible, can run commands directly
+**File tree:** Full access, can browse and edit
+**Git:** Visible status, branches, commits
+
+```
++-------------------------------------------------------------+
+| src/components/Header.jsx  |
++-------------------------------------------------------------+
+|  - <h1 className="text-xl">Welcome</h1>  |
+|  + <h1 className="text-4xl font-bold">Welcome</h1>  |
+|  + <img src={logo} alt="Logo" className="h-12" />  |
+|  |
+| [Approve] [Reject] [Edit]  |
++++------------------------------------------------------------+
+```
+
+## Toggle Between Modes
+
+Simple toggle button always visible:
+
+```
+['  Simple]  ['" Technical]
+  ->  Currently active
+```
+
+- Non-tech users can peek at code when curious (learning path)
+- Tech users can switch to simple view to see visual preview
+- Preference saved, persists between sessions
+
+---
+
+# MAIN INTERFACE LAYOUT
+
+## Overview
+
+```
++----------------------------------------------------------------------------+
+| []  Omnirun  ['  Simple] ['" Technical]  '  $0.47  |
++----------------------------------------------------------------------------+
+|  |  |
+|  S  |  |
+|  I  |  CHAT AREA  |  PREVIEW AREA  |
+|  D  |  |  |
+|  E  |  (Stretchable divider - user decides  |  (Live preview)  |
+|  B  |  how much space each takes)  |  |
+|  A  |  |  [Open in Browser] |
+|  R  |  |  |
+|  |  |
+|  +-------------------------------------------------------------------+
+|  | [Type message... ]  []  [+]  [Send]  |
++++---------------------------------------------------------------------------+
+```
+
+## Collapsible Left Sidebar
+
+The sidebar has two layers: top-level section navigation, then project sub-navigation
+that only appears when the Projects section is active.
+
+```
++--------------------+
+|  ⌂  Home          |  Dashboard, morning brief, widgets
++--------------------+
+|  ⬡  Projects      |  ← active section (green highlight)
++--------------------+
+|  ✦  Assistant     |  Email agents, personal integrations
++--------------------+
+|  ◷  Tasks    [2]  |  Scheduled tasks (red badge if failed)
++--------------------+
+|  ─────────────── |  divider
++--------------------+
+|  (Only shown when in Projects section:)
+|  [Projects][Files][Chats]
++--------------------+
+|  My Bakery Site   |  Click to open project
+|  Inventory Tool   |
+|  Client Portal    |
++--------------------+
+|  Settings         |
+|  Help             |
+|  [+ New Project]  |
++++-------------------+
+```
+
+**Section behavior:**
+- Home: dashboard view, no chat
+- Projects: full existing experience unchanged (chat, preview, file tree, terminal)
+- Assistant: global chat for email/personal agents, not project-scoped
+- Tasks: Scheduled Tasks view (same as Tools → Scheduled Tasks, now top-level)
+
+**Launch behavior:** Opens to last section used. First-ever launch opens Home.
+
+## Chat Area
+
+- Messages between user and Claude
+- Inline previews of changes
+- Approve/reject buttons embedded in chat
+- File attachments shown inline
+- Voice transcript shown as user speaks
+
+## Preview Area
+
+- Live preview of web projects (localhost in embedded browser)
+- Updates in real-time as changes are made
+- "Open in Browser" button for full-screen view
+- For non-web projects: file output, terminal output, etc.
+
+## Stretchable Divider
+
+- User drags to resize Chat vs Preview areas
+- Can collapse either side completely
+- Preference saved per project
+
+## Input Area
+
+```
++-----------------------------------------------------------------+
+| [Type your message here...  ]  |
+|  |
+| [ Voice]  [+ Attach]  [Send ]  |
++++----------------------------------------------------------------+
+```
+
+---
+
+# VOICE INPUT
+
+## Why Voice
+
+- 3x faster than typing
+- Natural for non-technical users
+- Perfect for mobile/tablet use
+- Great for accessibility
+- Captures nuance ("make it feel more professional")
+
+## Three Modes
+
+### Mode 1: Push-to-Talk (Default -- all plans)
+
+```
+User holds mic button (or keyboard shortcut)
+ ->  Recording starts
+ ->  Transcript appears in real-time above input
+ ->  User releases button
+ ->  Message sends to Claude
+
+Like a walkie-talkie
+```
+
+### Mode 2: Always-On Wake Word (Studio+ plans)
+
+Uses Picovoice Porcupine for local-only wake word detection.
+Zero audio leaves the device until wake word is detected.
+
+```
+Idle: Porcupine runs locally, processes 30ms audio frames,
+      discards all audio in real-time, zero network traffic
+
+Wake word detected: "Hey Omnirun"
+ ->  Chime plays
+ ->  Web Speech API activates (audio now goes to Google for transcription)
+ ->  User speaks command
+ ->  Silence timeout -> command sent to Claude
+ ->  Back to idle (Porcupine only)
+
+Privacy: Pre-wake-word audio is NEVER stored, buffered, or sent anywhere.
+         Porcupine processes each frame and immediately discards it.
+```
+
+Wake word options: "Hey Omnirun" (default), "Hey Dev", "Computer", "OK Omnirun"
+
+### Mode 3: Continuous Conversation (Studio+ plans)
+
+Voice stays on during a task:
+
+```
+You: "Hey Omnirun, let's work on my website"
+App: "Ready! What do you want to change?"
+You: "Make the header blue"
+App: *shows preview* "Like this?"
+You: "Darker"
+App: *adjusts* "Better?"
+You: "Perfect, save it"
+App: "Done! Anything else?"
+You: "That's all for now"
+App: *exits voice mode*
+```
+
+Exit phrase configurable (default: "that's all").
+
+## Implementation
+
+- Push-to-talk + continuous: Web Speech API (free, runs in Tauri WebView)
+- Wake word detection: Picovoice Porcupine WASM SDK (~2MB, runs 100% locally)
+- Custom "Hey Omnirun" wake word model trained via Picovoice console
+- Global mute hotkey: F9 (via Tauri GlobalShortcutManager, works even when unfocused)
+- Supports 13 languages
+- Audio feedback: sine wave tones via Web Audio API (start/stop/wake chime)
+
+## Privacy Controls
+
+```
++-------------------------------------------------------------+
+| Always-On Privacy                                           |
++-------------------------------------------------------------+
+|                                                             |
+| [x] Only listen for wake word (not full audio)              |
+|     -> Porcupine processes locally, discards all audio      |
+| [x] Auto-pause in sensitive apps (banking, etc.)            |
+|     -> Polls active window every 3s, auto-mutes if match    |
+| [x] Show indicator when microphone is active                |
+|     -> VoiceIndicator in topbar shows state at all times     |
+|                                                             |
+| Quick toggle: [Mute] Click or press F9                      |
+|                                                             |
+| Sensitive apps: [1Password] [Chase] [Bitwarden] [+ Add]    |
++-------------------------------------------------------------+
+```
+
+## Built Files
+
+```
+src/services/voiceService.ts    -- Web Speech API wrapper, all 3 modes, mute, audio feedback
+src/stores/voiceStore.ts        -- Zustand store, settings persistence (localStorage), callbacks
+src/components/voice/VoiceButton.tsx          -- Push-to-talk button for chat input areas
+src/components/voice/VoiceIndicator.tsx       -- Global mic status in topbar
+src/components/voice/VoiceTranscriptOverlay.tsx -- Real-time transcript above input while recording
+src/components/settings/VoiceSettings.tsx     -- Full settings page (mode, language, privacy, mic test)
+src-tauri/src/lib.rs            -- register_voice_mute_hotkey / unregister_voice_mute_hotkey commands
+```
+
+## Integration Points
+
+- App.tsx: voiceStore.init() called after app ready
+- ChatArea.tsx: VoiceButton + VoiceTranscriptOverlay in input area, auto-send wired
+- Topbar.tsx: VoiceIndicator after UsageIndicator
+- Settings: Voice tab already existed, VoiceSettings.tsx replaced with full version
+
+## UI
+
+```
+Input area (ChatArea + AssistantChatArea):
++-------------------------------------------------------------+
+| [Paperclip] [Mic] [Type message here...        ] [Send]     |
++-------------------------------------------------------------+
+
+When recording (push-to-talk):
++-------------------------------------------------------------+
+| Listening...                            Release to send      |
+| "I want to add a contact form with..."                      |
++-------------------------------------------------------------+
+| [Paperclip] [Mic] [Type message here...        ] [Send]     |
++-------------------------------------------------------------+
+```
+
+## Still TODO
+
+- [ ] Picovoice Porcupine WASM integration (local wake word -- replaces Web Speech API for wake detection)
+- [ ] Custom "Hey Omnirun" wake word model (train via Picovoice console)
+- [ ] Wire VoiceButton + VoiceTranscriptOverlay into AssistantChatArea.tsx (same as ChatArea)
+- [ ] Plan gating: wake-word and continuous modes restricted to Studio+ plans
+- [ ] Voice transcript parsing optimization (Haiku call to clean up before sending -- token optimization)
+- [ ] Voice command debouncing (wait for user to finish before sending)
+
+---
+
+# FILE ATTACHMENTS
+
+## Drag and Drop
+
+Users can drag files directly into chat:
+- Images (for design reference)
+- Documents (PDFs, Word docs)
+- Spreadsheets (CSV, Excel)
+- Code files
+- Any file relevant to their project
+
+## Attach Button
+
+Click + to open file picker.
+
+## What Happens
+
+```
+User drags invoice.pdf into chat
+
++-------------------------------------------------------------+
+| + invoice.pdf  |
+| "Create a form that looks like this invoice"  |
+|  [Send ]  |
++++------------------------------------------------------------+
+
+Claude analyzes the attachment and uses it as reference.
+```
+
+---
+
+# REAL-TIME PREVIEW
+
+## How It Works
+
+1. App detects project type (React, Vue, plain HTML, etc.)
+2. Runs appropriate dev server in background (`vite`, `next dev`, etc.)
+3. Shows `localhost:3000` in preview panel
+4. Hot reload  --  changes appear in 1-2 seconds
+
+## User Experience
+
+- User never types terminal commands
+- Dev server starts automatically when project opens
+- Preview updates live as Claude makes changes
+- "Open in Browser" opens same localhost in real browser
+
+## For Non-Web Projects
+
+- Python scripts: Show output
+- Data tools: Show results/charts
+- Automations: Show logs
+
+---
+
+# TOKEN & COST TRACKING
+
+## Why This Matters
+
+BYOK model means users pay Anthropic directly. They need visibility into costs.
+
+## Always-Visible Indicator
+
+Top-right corner of app:
+
+```
+'  $0.47
+```
+
+Click for details:
+
+```
++-----------------------------------------+
+| This Session: $0.47  |
+| Tokens: 18,945  |
+|  |
+| This Month: $12.83  |
+| Tokens: 847,293  |
+|  |
+| [View Details  -> ]  |
++++----------------------------------------+
+```
+
+## Per-Task Cost Display
+
+After each Claude response:
+
+```
++-------------------------------------------------------------+
+| * Header updated  |
+|  |
+| '  This step: $0.04 (1,523 tokens)  |
+| + Session total: $0.47  |
++++------------------------------------------------------------+
+```
+
+## Pre-Build Estimates
+
+For multi-step projects:
+
+```
++-------------------------------------------------------------+
+| + Project Plan: Restaurant Website  |
++-------------------------------------------------------------+
+|  |
+| Phase 1: Basic pages ............... ~$0.30  |
+| Phase 2: Menu system ............... ~$0.25  |
+| Phase 3: Online ordering ........... ~$0.35  |
+| Phase 4: Admin panel ............... ~$0.20  |
+|  |
+| Estimated total: ~$1.10  |
+|  |
+| [Start Building]  [Adjust Plan]  |
++++------------------------------------------------------------+
+```
+
+## Budget Alerts
+
+In Settings:
+
+```
+ API Budget
+
+["] Warn me at: $25/month
+["] Stop at: $50/month
+
+Current: $12.83 / $25
+
+Alerts at:
+ 75% ($18.75)  --  Warning
+ 90% ($22.50)  --  Urgent
+ 100% ($25.00)  --  Notification
+ Hard stop at $50
+```
+
+## Usage Dashboard
+
+Full page in sidebar showing:
+- Daily/weekly/monthly costs
+- Cost by project
+- Trend charts
+- Efficiency tips
+- Export reports (CSV, PDF)
+
+---
+
+# TOKEN OPTIMIZATION (INVISIBLE COST REDUCTION)
+
+## Why This Matters
+
+Omnirun is BYOK -- users pay Anthropic directly for API usage. Our job is to make their API bill as small as possible WITHOUT making them think about it, configure it, or compromise on features.
+
+**The goal:** Users see transparent pricing (token tracking UI) AND pay 60-80% less than they would with a naive implementation.
+
+**Naive baseline:** ~$1.50 per medium task
+**After optimization:** ~$0.30-0.50 per medium task
+
+This is a **massive competitive advantage** -- users get the same features at 1/5th the cost without configuring anything.
+
+---
+
+## OPTIMIZATION CATEGORIES
+
+### 1. Context Management (Biggest Savings)
+
+#### 1.1 Context Compaction / Rolling Summarization
+
+**What:** Instead of carrying full conversation + tool result history forward into every API call, periodically summarize completed work into a short block and discard raw history.
+
+**How:** After every N turns (or when tokens cross threshold), run a summarization pass with Haiku. Replace history with output like:
+```
+"Auth model created at /models/auth.js. Migration run.
+Login route added to /routes/auth. Tests passing."
+```
+
+**Why:** By turn 8 of a loop, we're re-sending 60k+ tokens of history that Claude already acted on. The summary is ~500 tokens.
+
+**Savings:** 40-60% on input tokens across a full task loop.
+
+**Implementation:**
+- Trigger after every 5 turns OR when context exceeds 50k tokens
+- Use Haiku for summarization (cheap)
+- Run in background between turns (user never waits)
+- Keep summaries in project memory for session continuity
+
+---
+
+#### 1.2 Clear Tool Results After Consumption
+
+**What:** When a tool returns a result and Claude has already acted on it (e.g., read a file, wrote code based on it), strip that raw tool result from message history before next API call. Keep only a short note.
+
+**How:** Track which tool_result blocks have been "consumed" by a subsequent assistant message. Remove them. Replace with 1-line summary.
+
+**Why:** File reads can be 5,000-30,000 tokens each. Don't keep sending them once Claude has used them.
+
+**Example:**
+```
+Before: [full 8,000 token file content in history]
+After:  "Read auth.js (342 lines) -- used for login implementation"
+```
+
+**Savings:** 20-40% on input tokens.
+
+---
+
+#### 1.3 Blocklist Dangerous Directories
+
+**What:** Maintain hardcoded blocklist of directories/files that should NEVER be read or sent to Claude.
+
+**Always block:**
+```
+node_modules/
+dist/
+build/
+.git/
+.next/
+coverage/
+__pycache__/
+.venv/
+target/
+vendor/
+*.lock
+*.log
+.DS_Store
+```
+
+**Why:** If Claude accidentally tries to read node_modules, it can instantly blow 50k+ tokens on garbage.
+
+**Savings:** Prevents catastrophic single-turn blowouts.
+
+**Implementation:** Apply filter before ANY file read operation in the app.
+
+---
+
+#### 1.4 File-Level Targeting (Only Send What's Relevant)
+
+**What:** Before each API call, figure out which files the current task actually needs. Only include those.
+
+**How:** 
+- Use Haiku (cheap) to analyze user request and identify relevant files
+- Or use simple heuristics: import graph, file user mentioned, recently modified files
+- For voice commands: "fix the auth bug" -> only load auth-related files
+
+**Why:** A medium project has 30-50 files. Claude only needs 2-5 for any given task.
+
+**Savings:** 60-80% on initial context load.
+
+---
+
+#### 1.5 Persistent Project Manifest
+
+**What:** Maintain lightweight summary file describing project structure, key files, modules, conventions. Send THIS instead of full files initially.
+
+**Contents:**
+```
+/project-manifest.md
+- File tree overview
+- Module responsibilities  
+- Tech stack (React, Tailwind, Supabase)
+- Naming conventions
+- Key patterns used
+- What's been built so far
+```
+
+**Why:** Claude can plan and route based on manifest without reading every file. It only deep-reads files it needs to modify.
+
+**Savings:** 30-50% on exploration turns.
+
+**Implementation:** Auto-generate at project init, update after major changes.
+
+---
+
+### 2. Tool / Integration Optimization (Second Biggest Waste)
+
+#### 2.1 Meta-Tool Pattern (CRITICAL)
+
+**What:** Instead of exposing 20 raw Supabase tools + 15 Vercel tools + 10 GitHub tools individually, expose ONE tool per service.
+
+**Before (100+ tools = 30,000-50,000 tokens):**
+```
+vercel_deploy()
+vercel_list_projects()
+vercel_set_env()
+vercel_get_domains()
+supabase_create_table()
+supabase_insert_row()
+supabase_run_query()
+stripe_create_product()
+stripe_create_price()
+... (90 more)
+```
+
+**After (8-10 tools = 2,000-3,000 tokens):**
+```
+vercel(action, params)  // ~300 tokens
+supabase(action, params)  // ~300 tokens  
+stripe(action, params)  // ~300 tokens
+github(action, params)  // ~300 tokens
+files(action, params)  // ~300 tokens
+browser(action, params)  // ~300 tokens
+system(action, params)  // ~300 tokens
+```
+
+**How:** Define single tool per integration with short description. Parse action param on our end and route to real underlying API.
+
+**Savings:** 90-96% on tool definition overhead.
+
+**This is the single highest-ROI optimization.**
+
+---
+
+#### 2.2 Lazy Tool Loading
+
+**What:** Don't load ALL integrations at startup. Only load tools relevant to current task.
+
+**How:** Infer from user's voice/text command which integrations are needed:
+```
+"deploy to vercel"  -> load: files, vercel
+"fix the bug"  -> load: files, bash
+"add stripe checkout"  -> load: files, stripe, supabase
+"organize my photos"  -> load: files, system
+"book a restaurant"  -> load: browser
+```
+
+**Why:** Even with meta-tools, every tool definition is tokens on every turn.
+
+**Savings:** 30-50% on tool overhead (on top of meta-tool savings).
+
+---
+
+#### 2.3 Truncate Large Tool Results
+
+**What:** Before tool result goes back into context, cap it. If bash outputs 5,000 lines of logs, send last 50 + note.
+
+**Limits:**
+- File reads: Max 3,000 tokens, truncate middle if longer
+- Bash output: Last 100 lines + "truncated from X lines"
+- Directory listings: Top 50 items + count of remaining
+- Error logs: First 20 + last 20 lines
+
+**Savings:** 10-30% on tool-heavy tasks.
+
+---
+
+#### 2.4 Prefer CLI Over MCP Where Possible
+
+**What:** For services with CLI (gh for GitHub, vercel for Vercel, aws for AWS), use bash + CLI commands instead of dedicated tools.
+
+**Why:** CLI commands don't add persistent tool definitions to context. They're just bash calls.
+
+**Savings:** Eliminates tool definition overhead for those services.
+
+---
+
+### 3. Prompt Caching (Anthropic's Built-In Cost Reduction)
+
+#### 3.1 Cache Stable Content
+
+**What:** Mark parts of prompt that don't change between turns as cacheable. Anthropic caches server-side and charges 0.1x (90% off) on subsequent reads.
+
+**What to cache:**
+- System prompt + instructions
+- Meta-tool definitions
+- Project manifest
+- Unchanged source files in context
+- User preferences and conventions
+
+**What NOT to cache:**
+- User's current message
+- Tool results from current turn
+- Anything that changes every turn
+
+**How:** Add `cache_control: { type: "ephemeral" }` to stable content blocks. Place BEFORE dynamic content (cache must be contiguous from top).
+
+**Savings:** 30-60% on total input cost.
+
+**TTL options:** 5 minutes (auto-refreshes on use) or 1 hour. Use 1-hour for longer sessions.
+
+---
+
+#### 3.2 Cache Project Config Files
+
+**What:** Files like package.json, tsconfig.json, project manifest rarely change. Always cache them.
+
+**Why:** These are often 2,000-10,000 tokens combined. If cached, almost free to include.
+
+---
+
+### 4. Model Routing (Use Right Model for Right Turn)
+
+#### 4.1 Auto-Route to Haiku for Cheap Tasks
+
+**What:** Automatically use Haiku ($0.25/$1.25 per 1M) instead of Sonnet ($3/$15) for:
+- Exploration turns (reading files, grepping)
+- Voice intent parsing
+- Context summarization/compaction
+- Simple questions ("what does this file do?")
+- File targeting decisions
+
+**How:** Route based on task type, not user choice:
+```
+Task: "Read these files first"  -> Haiku
+Task: "What does this function do" -> Haiku
+Task: "Add login form"  -> Sonnet
+Task: "Debug this race condition"  -> Opus (escalate)
+```
+
+**Savings:** 60% on exploration turns (which are ~25% of total). Net: 15-20%.
+
+---
+
+#### 4.2 Smart Escalation to Opus
+
+**What:** Only use Opus for genuinely hard problems:
+- Architecture decisions
+- Complex debugging (tests fail 2+ times on same issue)
+- Tasks involving multiple interconnected modules
+- User explicitly asks for "best possible" quality
+
+**Savings:** 30-40% if currently defaulting to expensive models.
+
+---
+
+#### 4.3 Consider Opus for Very Long Tasks
+
+**What:** Paradoxically, Opus sometimes costs LESS on complex tasks because it solves them in fewer turns.
+
+**Why:** Fewer turns = less history bloat = less total cost, even at higher per-token rate.
+
+**When:** Tasks predicted to take 15+ turns on Sonnet -- try Opus, may finish in 8 turns.
+
+**Savings:** Potentially 20-40% on complex tasks.
+
+---
+
+### 5. Output Token Optimization (Output is 5x More Expensive)
+
+#### 5.1 Output Diffs, Not Full Files
+
+**What:** When Claude modifies code, output only changed lines with context, not entire file rewritten.
+
+**System prompt instruction:**
+```
+"When modifying existing files, output only the changed sections 
+with surrounding context lines. Use format:
+  FILE: path/to/file.js
+  CHANGE: lines 45-52
+  [new code]
+Never rewrite a file from scratch unless it's new or <20 lines."
+```
+
+**Why:** Full file = 3,000 output tokens. Diff = 200-500 tokens.
+
+**Savings:** 50-70% on output tokens for modification tasks.
+
+**Implementation:** App applies diffs to files using str_replace logic.
+
+---
+
+#### 5.2 Set max_tokens Tight Per Turn
+
+**What:** Don't set max_tokens to 8192 on every call. Estimate what each turn needs:
+- Exploration turns: max_tokens = 1000
+- Code-writing turns: max_tokens = 2000-3000
+- Summary turns: max_tokens = 500
+
+**Savings:** 10-20% on output tokens.
+
+---
+
+#### 5.3 Skip Explanations in Agentic Mode
+
+**What:** When Claude is autonomously working, it doesn't need to explain each step.
+
+**System prompt:**
+```
+"You are in autonomous coding mode. Do not explain your actions. 
+Do not summarize what you did. Just execute. Only output tool 
+calls and code. Speak only when you have a question that blocks 
+progress or when the task is complete."
+```
+
+**Savings:** 10-30% on output tokens.
+
+---
+
+### 6. Voice-Specific Optimizations
+
+#### 6.1 Parse Voice Into Structured Minimal Prompt
+
+**What:** Don't send raw voice transcript as user message. Parse it first.
+
+**Before:**
+```
+"hey can you like add a dark mode toggle to the settings page 
+and uh make sure it saves to local storage or whatever"
+```
+
+**After:**
+```
+"Add dark mode toggle to settings page. Persist preference to localStorage."
+```
+
+**How:** Run Haiku call to parse and clean voice input before main request.
+
+**Savings:** 20-40% on user message tokens + clearer intent = fewer retries.
+
+---
+
+#### 6.2 Debounce Voice Commands
+
+**What:** Wait for user to finish speaking before sending. "Add a login page... wait actually make it dark mode too" = ONE task.
+
+**How:** Wait 500ms-1s after user stops speaking before processing.
+
+**Savings:** Prevents 2-3x cost multiplication from fragmented commands.
+
+---
+
+#### 6.3 Cache Repeated Voice Commands
+
+**What:** Hash common commands, cache parsed intent. "Run tests" said 10 times = parse once.
+
+**Savings:** Small per-instance, but "run tests" is most repeated command.
+
+---
+
+### 7. API-Level Optimizations
+
+#### 7.1 Enable token-efficient-tools Beta Flag
+
+**What:** Add beta header to API requests:
+```
+anthropic-beta: token-efficient-tools-2025-02-19
+```
+
+**Savings:** 14% average on output tokens, up to 70%. Zero effort.
+
+---
+
+#### 7.2 Enable Streaming + Cancel on Interrupt
+
+**What:** Use streaming (stream: true) on all calls. If user interrupts, cancel immediately.
+
+**Why:** If Claude is 60% done with 3,000-token response when user says "wait, actually...", canceling saves 1,200 output tokens.
+
+**Savings:** 15-25% on tasks where users course-correct.
+
+---
+
+#### 7.3 Enable Parallel Tool Calls
+
+**What:** Let Claude call multiple tools in one turn. Execute via Promise.all().
+
+**Why:** Sequential "read A -> wait -> read B -> wait" = 2 turns = 2x history bloat. Parallel = 1 turn.
+
+**Savings:** 30-50% on exploration-heavy tasks.
+
+---
+
+#### 7.4 Use Token Counting Endpoint
+
+**What:** Before expensive calls, run token count first (POST /v1/messages/count_tokens). It's free.
+
+**Why:** Catches bloat before it costs money. Great for debugging.
+
+---
+
+#### 7.5 Batch API for Non-Real-Time Tasks
+
+**What:** Tasks that don't need instant response can use Batch API at 50% cost.
+
+**When to use:**
+- Pre-generating project scaffolds
+- Running lints/health checks
+- Generating documentation
+- Scheduled tasks
+
+**Savings:** 50% on eligible tasks.
+
+---
+
+### 8. Invisible Optimizations (Users Never Notice)
+
+#### 8.1 Prefetch Likely-Needed Files
+
+**What:** When user says "fix the auth bug", immediately start reading auth-related files BEFORE first API call.
+
+**How:** Parse voice -> identify likely files -> read them -> include in first call with caching.
+
+**User perception:** "It just knew what I needed."
+
+**Savings:** Eliminates 1-2 turns from most tasks.
+
+---
+
+#### 8.2 Background Compaction
+
+**What:** Run context compaction async between turns, not blocking.
+
+**How:** Turn completes -> kick off async Haiku summarization -> next turn starts with uncompacted -> swap in compacted for turn N+2.
+
+**User perception:** No lag. Feels instant.
+
+---
+
+#### 8.3 Synthetic Assistant Messages (Skip Turns)
+
+**What:** Inject fake "assistant" messages into history to skip unnecessary confirmation turns.
+
+**Instead of:**
+```
+User: "read auth.js"
+[API call -> Claude reads and confirms]
+User: "now fix the bug"
+[API call with full history]
+```
+
+**Do:**
+```
+User: "read auth.js"  
+Synthetic assistant: "I've read auth.js. Ready to proceed."
+User: "fix the bug"
+[Single API call, one turn saved]
+```
+
+**Savings:** Eliminates 20-30% of "acknowledge and proceed" turns.
+
+---
+
+#### 8.4 Prefill Claude's Response
+
+**What:** Start Claude's response to constrain output format.
+
+**Example:**
+```javascript
+messages: [
+  {role: "user", content: "Which file handles auth?"},
+  {role: "assistant", content: "The file is: /src/"}  // prefill
+]
+// Claude completes: "/src/auth/login.js" (not long explanation)
+```
+
+**Savings:** 50-90% on output for constrained responses.
+
+---
+
+#### 8.5 Deduplicate File Reads
+
+**What:** If Claude asks to read same file twice in one task, return cached result.
+
+**Savings:** 5-10% on tasks with redundant operations.
+
+---
+
+#### 8.6 Haiku Preflight Check
+
+**What:** Before expensive tasks, do quick Haiku sanity check: "Can this be done? Are prerequisites met?"
+
+**Example:** User says "deploy to AWS Lambda" but no AWS credentials configured. Haiku catches this ($0.02) instead of Sonnet failing after 8 turns ($1.50).
+
+**Savings:** Prevents $1-2 waste on tasks doomed to fail.
+
+---
+
+#### 8.7 Suggest Task Splitting
+
+**What:** If user says "refactor the entire app", detect this is massive. Suggest breaking into subtasks.
+
+**Response:**
+```
+"This is a big task. Want me to break it into:
+1. Refactor auth module
+2. Refactor API routes  
+3. Refactor UI components"
+```
+
+**Why:** One massive task = one giant loop = $5-10. Three smaller tasks = 3 focused loops = $3-5 total + user can stop after task 1.
+
+**Savings:** 30-50% by avoiding oversized loops.
+
+---
+
+### 9. File & Project Structure Guidance
+
+#### 9.1 Encourage Small Files
+
+**What:** If Claude detects file > 500 lines, suggest splitting.
+
+**Why:** When Claude reads a file, smaller = fewer tokens. 2,000-line file = 8,000+ tokens. Split into 4 files = only send 1-2 relevant ones.
+
+---
+
+#### 9.2 Support .omnirunignore
+
+**What:** Let users define which folders/files app should never touch.
+
+**Why:** Users might have huge data folders, old backups, sensitive files. Never touch them.
+
+---
+
+### 10. Extended Thinking Optimization
+
+#### 10.1 Only Enable When Needed
+
+**What:** Extended thinking (budget_tokens) costs money as output. Only enable for:
+- Architecture decisions
+- Complex bug diagnosis
+- Tasks where Claude failed once already
+
+**Savings:** 30-50% on thinking tokens.
+
+---
+
+#### 10.2 Start Low, Increase If Needed
+
+**What:** Start thinking budget at minimum (1,024 tokens). Increase only if first attempt fails.
+
+**Savings:** 20-40% on thinking tokens.
+
+---
+
+## IMPLEMENTATION PRIORITY
+
+### Priority 1 -- Quick Wins
+- [ ] Blocklist node_modules/dist/.git/etc (1.3)
+- [ ] Enable token-efficient-tools beta header (7.1)
+- [ ] Enable streaming + cancel on interrupt (7.2)
+- [ ] Enable parallel tool calls (7.3)
+- [ ] System prompt: output diffs not full files (5.1)
+- [ ] System prompt: skip explanations in agentic mode (5.3)
+- [ ] Set max_tokens per turn type (5.2)
+- [ ] Use Haiku for voice intent parsing (4.1, 6.1)
+
+### Priority 2 -- Core Optimizations
+- [ ] Meta-tool pattern for all integrations (2.1)
+- [ ] Lazy tool loading (2.2)
+- [ ] Prompt caching on system prompt + tools (3.1)
+- [ ] Auto model routing (Haiku for exploration) (4.1)
+- [ ] Truncate large tool results (2.3)
+- [ ] Clear tool results after consumption (1.2)
+
+### Priority 3 -- Advanced
+- [ ] Context compaction/rolling summarization (1.1)
+- [ ] Background compaction (8.2)
+- [ ] File-level targeting (1.4)
+- [ ] Project manifest (1.5)
+- [ ] Synthetic assistant messages (8.3)
+- [ ] Prefetch likely-needed files (8.1)
+- [ ] Haiku preflight checks (8.6)
+
+### Priority 4 -- Polish
+- [ ] Voice command caching (6.3)
+- [ ] Task splitting suggestions (8.7)
+- [ ] Extended thinking optimization (10.1, 10.2)
+- [ ] Batch API for scheduled tasks (7.5)
+
+---
+
+## COMBINED SAVINGS ESTIMATE
+
+| Optimization | Estimated Savings |
+|--------------|-------------------|
+| Meta-tool pattern | 90-96% on tool defs |
+| Lazy tool loading | 30-50% additional |
+| Prompt caching | 30-60% on stable content |
+| Context compaction | 40-60% on long tasks |
+| Auto model routing | 15-20% overall |
+| Output diffs | 50-70% on output tokens |
+| Voice parsing | 20-40% on voice input |
+| Quick wins (beta flags, etc.) | 15-30% |
+
+**Naive baseline:** $1.50/medium task
+**After MVP quick wins:** $0.55-0.70/task
+**After full optimization:** $0.30-0.45/task
+
+**Heavy user doing 10 tasks/day:**
+- Naive: $15/day ($330/month)
+- Optimized: $3-5/day ($66-110/month)
+
+---
+
+## UX PRINCIPLE
+
+**Users should NEVER think about tokens.**
+
+Every optimization above is invisible:
+- Same Time Machine / Undo functionality
+- Same real-time cost display (but lower numbers!)
+- Same features, same ease of use
+- Just cheaper
+
+If users are asking "how do I reduce my token usage?" -- we've already lost. The app should do it for them, invisibly.
+
+---
+
+## WHAT DOESN'T ACTUALLY SAVE TOKENS (Common Myths)
+
+**"Shorter system prompts"** -- Only if redundant. Clear instructions REDUCE tokens by preventing mistakes and retries.
+
+**"Using fewer tools"** -- Only if loading unused tools. Meta-tool pattern is the answer, not removing functionality.
+
+**"Avoiding file reads"** -- You have to read files to modify them. The trick is reading ONLY the right files.
+
+**"Shorter user messages"** -- Already parsing voice into structured prompts. Clarity > brevity.
+
+---
+
+# PROJECT MEMORY
+
+## The Problem
+
+Without memory, every conversation starts fresh. Claude forgets:
+- What tech stack you chose
+- Decisions you made
+- Your preferences
+- Project history
+
+## The Solution
+
+App maintains project context that persists across sessions.
+
+## What Gets Remembered
+
+- Tech stack decisions ("We're using React with Tailwind")
+- Architecture choices ("PostgreSQL for database")
+- User preferences ("Always use dark mode in UI")
+- File structure understanding
+- Previous conversation summaries
+- What's been built so far
+
+## How It Works
+
+1. After each session, app summarizes key decisions
+2. Stored locally with the project
+3. When user returns, context is loaded
+4. Claude picks up where you left off
+
+## User Experience
+
+```
+User opens project after 2 months
+
+Claude: "Welcome back to your bakery website! 
+Last time we finished the menu page and started 
+on online ordering. The Stripe integration is 
+set up but we haven't tested it yet. 
+Want to continue with checkout?"
+```
+
+---
+
+# CONNECTIONS HUB
+
+## Purpose
+
+Connect once to external services, automate everything after.
+
+Users never need to see Vercel, GitHub, Namecheap, etc. interfaces.
+
+## Supported Services
+
+### Hosting & Deployment
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Vercel** | OAuth | Deploy, domains, SSL, env variables, previews |
+| **Netlify** | OAuth | Deploy, domains, SSL, forms, functions |
+| **Railway** | OAuth | Deploy, databases, env variables |
+| **Render** | OAuth | Deploy, databases, cron jobs |
+| **Cloudflare Pages** | OAuth | Deploy, CDN, domains |
+| **GitHub Pages** | OAuth | Static site deployment |
+| **Fly.io** | API key | Global deployment, scaling |
+| **DigitalOcean** | API key | Droplets, App Platform |
+
+### Domain Registrars
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Namecheap** | API key | DNS records, domain management |
+| **Cloudflare** | API key | DNS, CDN, security rules |
+| **GoDaddy** | API key | DNS records |
+| **Google Domains** | OAuth | DNS records |
+| **Porkbun** | API key | DNS records |
+| **Hover** | API key | DNS records |
+| **Name.com** | API key | DNS records |
+
+### Databases
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Supabase** | OAuth | Tables, auth, storage, functions |
+| **Firebase** | OAuth | Firestore, auth, storage |
+| **PlanetScale** | OAuth | MySQL databases, branches |
+| **Neon** | OAuth | Postgres databases |
+| **MongoDB Atlas** | API key | Collections, indexes |
+| **Upstash** | API key | Redis, Kafka |
+| **Turso** | API key | SQLite edge databases |
+| **Xata** | API key | Serverless database |
+
+### Payments
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Stripe** | OAuth | Products, prices, checkout, subscriptions |
+| **PayPal** | OAuth | Payments, subscriptions |
+| **LemonSqueezy** | API key | Digital products, subscriptions |
+| **Square** | OAuth | Payments, invoices |
+| **Paddle** | API key | Subscriptions, taxes |
+
+### Email
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **SendGrid** | API key | Transactional email, templates |
+| **Resend** | API key | Transactional email |
+| **Postmark** | API key | Transactional email |
+| **Mailgun** | API key | Email sending, tracking |
+| **Amazon SES** | API key | Bulk email |
+| **Mailchimp** | OAuth | Marketing emails, lists |
+| **ConvertKit** | API key | Email sequences, forms |
+
+### Authentication
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Clerk** | API key | User management, auth UI |
+| **Auth0** | OAuth | Login, SSO, MFA |
+| **Supabase Auth** | (via Supabase) | Email/social auth |
+| **Firebase Auth** | (via Firebase) | Email/social auth |
+
+### Storage & Media
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **AWS S3** | API key | File storage, buckets |
+| **Cloudflare R2** | API key | Object storage |
+| **Cloudinary** | API key | Image optimization, transforms |
+| **Uploadthing** | API key | File uploads |
+| **Backblaze B2** | API key | Backup storage |
+| **imgix** | API key | Image CDN |
+
+### Version Control
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **GitHub** | OAuth | Repos, commits, branches, PRs |
+| **GitLab** | OAuth | Repos, CI/CD |
+| **Bitbucket** | OAuth | Repos, pipelines |
+
+### Analytics
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Google Analytics** | OAuth | Tracking setup |
+| **Plausible** | API key | Privacy-friendly analytics |
+| **Fathom** | API key | Simple analytics |
+| **PostHog** | API key | Product analytics, feature flags |
+| **Mixpanel** | API key | Event tracking |
+| **Amplitude** | API key | Product analytics |
+
+### CMS & Content
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Sanity** | API key | Content schemas, studio |
+| **Contentful** | OAuth | Content models, entries |
+| **Strapi** | API key | Self-hosted CMS |
+| **Notion** | OAuth | Pages as content source |
+| **Prismic** | API key | Content slices |
+
+### Communication
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Twilio** | API key | SMS, voice, WhatsApp |
+| **Slack** | OAuth | Notifications, bots |
+| **Discord** | OAuth | Webhooks, bots |
+
+### Scheduling & Booking
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Cal.com** | API key | Booking pages, availability |
+| **Calendly** | OAuth | Scheduling links |
+| **Google Calendar** | OAuth | Events, availability |
+
+### Search
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Algolia** | API key | Search indexes, UI |
+| **Meilisearch** | API key | Self-hosted search |
+| **Typesense** | API key | Search setup |
+
+### Forms
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Typeform** | OAuth | Forms, responses |
+| **Tally** | API key | Forms, embeds |
+| **Formspree** | API key | Form endpoints |
+
+### Monitoring & Error Tracking
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Sentry** | API key | Error tracking setup |
+| **LogRocket** | API key | Session replay |
+| **Datadog** | API key | Monitoring, logs |
+
+### Automation & Integration
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Zapier** | OAuth | Workflow triggers |
+| **Make** | API key | Automations |
+| **n8n** | API key | Self-hosted workflows |
+
+### AI & ML
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **OpenAI** | API key | GPT, DALL-E, Whisper |
+| **Replicate** | API key | AI models |
+| **Hugging Face** | API key | ML models |
+| **ElevenLabs** | API key | Voice synthesis |
+| **Stability AI** | API key | Image generation |
+
+### E-commerce
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Shopify** | OAuth | Products, orders, themes |
+| **Snipcart** | API key | Add cart to any site |
+| **Medusa** | API key | Open-source commerce |
+| **WooCommerce** | API key | WordPress commerce |
+
+### Cloud Providers (Advanced)
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **AWS** | API key | EC2, Lambda, S3, RDS, etc. |
+| **Google Cloud** | OAuth | Compute, Functions, Storage |
+| **Azure** | OAuth | VMs, Functions, Storage |
+| **Linode** | API key | Servers, Kubernetes |
+
+### Maps & Location
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Google Maps** | API key | Maps, places, geocoding |
+| **Mapbox** | API key | Maps, navigation |
+
+### Video
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Mux** | API key | Video hosting, streaming |
+| **Cloudflare Stream** | API key | Video delivery |
+| **YouTube** | OAuth | Uploads, embeds |
+| **Vimeo** | OAuth | Video hosting |
+
+### Social Media
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Twitter/X** | OAuth | Post, read, embed |
+| **Instagram** | OAuth | Feed, embeds |
+| **LinkedIn** | OAuth | Posts, company pages |
+| **Facebook** | OAuth | Pages, posts |
+
+### Documentation
+
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| **Mintlify** | API key | Auto-generate docs |
+| **ReadMe** | API key | API documentation |
+| **GitBook** | OAuth | Documentation sites |
+
+---
+
+**Total: 100+ integrations**
+
+## Cost to Us
+
+**$0**  --  All free APIs. Usage billed to user's own accounts.
+
+## Integration Count by Category
+
+| Category | Count |
+|----------|-------|
+| Hosting & Deployment | 8 |
+| Domain Registrars | 7 |
+| Databases | 8 |
+| Payments | 5 |
+| Email | 7 |
+| Authentication | 4 |
+| Storage & Media | 6 |
+| Version Control | 3 |
+| Analytics | 6 |
+| CMS & Content | 5 |
+| Communication | 3 |
+| Scheduling & Booking | 3 |
+| Search | 3 |
+| Forms | 3 |
+| Monitoring | 3 |
+| Automation | 3 |
+| AI & ML | 5 |
+| E-commerce | 4 |
+| Cloud Providers | 4 |
+| Maps & Location | 2 |
+| Video | 4 |
+| Social Media | 4 |
+| Documentation | 3 |
+| **Total** | **100+** |
+
+## Launch Connections
+
+Start with the most essential:
+- **Hosting:** Vercel, Netlify
+- **Domains:** Namecheap, Cloudflare
+- **Database:** Supabase
+- **Payments:** Stripe
+- **Email:** SendGrid
+- **Version Control:** GitHub
+- **Storage:** AWS S3, Cloudinary
+
+## Additional Connections (Add Based on User Demand)
+1. More hosting (Railway, Render, Fly.io)
+2. More databases (Firebase, PlanetScale, MongoDB)
+3. More payments (PayPal, Lemon Squeezy)
+4. CMS (Sanity, Contentful, Notion)
+5. Communication (Twilio, Slack)
+6. Analytics (Plausible, PostHog)
+7. E-commerce (Shopify)
+8. Everything else based on requests
+
+## Connections Page UI
+
+```
+Settings  ->  Connections
+
++-------------------------------------------------------------+
+| Connections  |
++-------------------------------------------------------------+
+|  |
+| [All] [Hosting] [Domains] [Database] [Payments] [Email]  |
+| [Storage] [Auth] [Analytics] [CMS] [More...]  |
+|  |
+| HOSTING  |
+| +---------------------------------------------------------  |
+| | * Vercel  | |
+| |  Connected as sarah@email.com  | |
+| |  3 projects deployed  [Disconnect]  | |
+| +++--------------------------------------------------------  |
+| +---------------------------------------------------------  |
+| |  o Netlify  [Connect]  | |
+| +++--------------------------------------------------------  |
+| +---------------------------------------------------------  |
+| |  o Railway  [Connect]  | |
+| +++--------------------------------------------------------  |
+|  |
+| DOMAINS  |
+| +---------------------------------------------------------  |
+| | * Namecheap  | |
+| |  2 domains connected  | |
+| |  mybakery.com, portfolio.com  [Disconnect]  | |
+| +++--------------------------------------------------------  |
+| +---------------------------------------------------------  |
+| |  o Cloudflare  [Connect]  | |
+| +++--------------------------------------------------------  |
+|  |
+| PAYMENTS  |
+| +---------------------------------------------------------  |
+| | * Stripe  | |
+| |  Connected  [Disconnect]  | |
+| +++--------------------------------------------------------  |
+|  |
+| DATABASE  |
+| +---------------------------------------------------------  |
+| |  o Supabase  [Connect]  | |
+| +++--------------------------------------------------------  |
+| +---------------------------------------------------------  |
+| |  o Firebase  [Connect]  | |
+| +++--------------------------------------------------------  |
+| +---------------------------------------------------------  |
+| |  o PlanetScale  [Connect]  | |
+| +++--------------------------------------------------------  |
+|  |
+| [Show all 70+ integrations...]  |
+|  |
++++------------------------------------------------------------+
+```
+
+## In-Context Connection
+
+When user needs a service that isn't connected:
+
+```
+User: "Deploy this to mybakery.com"
+
++-------------------------------------------------------------+
+| To deploy with a custom domain, I need to connect to  |
+| your hosting and domain services.  |
+|  |
+| Hosting:  |
+|  o Vercel  |
+|  o Netlify  |
+|  o Other (coming soon)  |
+|  |
+| Domain registrar:  |
+|  o Namecheap  |
+|  o Cloudflare  |
+|  o GoDaddy  |
+|  o Google Domains  |
+|  o Other (coming soon)  |
+|  |
+| [Connect Selected Services]  |
+|  |
+| This only takes a few seconds.  |
++++------------------------------------------------------------+
+```
+
+If they already have one connected:
+
+```
+User: "Deploy this to mybakery.com"
+
++-------------------------------------------------------------+
+| I'll deploy to Vercel (connected ")  |
+|  |
+| For the domain mybakery.com, which registrar do you use?  |
+|  |
+|  o Namecheap  |
+|  o Cloudflare  |
+|  o GoDaddy  |
+|  o Google Domains  |
+|  o Other (coming soon)  |
+|  |
+| [Connect & Deploy]  |
++++------------------------------------------------------------+
+```
+
+After connecting, deployment is fully automated.
+
+---
+
+# DEPLOYMENT FLOW
+
+## Fully Automated (Once Connected)
+
+```
+User: "Deploy this"
+
++-------------------------------------------------------------+
+|  Deploying...  |
++-------------------------------------------------------------+
+|  |
+| * Uploading files  |
+| * Building  |
+|  o Going live...  |
+|  |
+| Usually takes 30-60 seconds  |
++++------------------------------------------------------------+
+```
+
+Then:
+
+```
++-------------------------------------------------------------+
+|  You're Live!  |
++-------------------------------------------------------------+
+|  |
+| Your site is online at:  |
+| "-- my-bakery.vercel.app  |
+|  |
+| [Open Site]  [Copy Link]  |
+|  |
+| Want to use mybakery.com instead?  |
+| [Set Up Custom Domain]  |
++++------------------------------------------------------------+
+```
+
+## Custom Domain (Also Automated)
+
+If Namecheap/Cloudflare is connected:
+
+```
+User: "Use mybakery.com"
+
+App automatically:
+1. Adds domain to Vercel
+2. Creates DNS records at Namecheap
+3. Waits for propagation
+4. Confirms SSL active
+
+User sees: "* mybakery.com is live!"
+```
+
+No screenshots. No manual steps. No leaving the app.
+
+---
+
+# INVISIBLE GUIDANCE SYSTEM
+
+## Philosophy
+
+Guide users when they need help  --  stay invisible when they don't.
+
+Not tutorials. Not documentation. Just timely help during actual work.
+
+## When Something Breaks
+
+```
++-------------------------------------------------------------+
+| + Something's not working right  |
++-------------------------------------------------------------+
+|  |
+| I can see there's a problem. To fix it faster:  |
+|  |
+| What did you expect to happen?  |
+| [________________________________]  |
+|  |
+| What actually happened?  |
+| [________________________________]  |
+|  |
+| [Try Auto-Fix]  |
+|  |
+| '  Tip: If you check your browser console  |
+| (Right-click  ->  Inspect  ->  Console) and paste  |
+| any red text, I can usually fix it immediately.  |
++++------------------------------------------------------------+
+```
+
+## When Request is Vague
+
+```
+User: "Make it look better"
+
++-------------------------------------------------------------+
+| '  I can definitely improve it! It would help to know:  |
+|  |
+| - More whitespace and breathing room?  |
+| - More modern/professional colors?  |
+| - Cleaner typography?  |
+| - Better on mobile?  |
+|  |
+| Pick any that apply, or describe what you have in mind.  |
++++------------------------------------------------------------+
+```
+
+## After Fixing Something
+
+```
++-------------------------------------------------------------+
+| * Fixed!  |
++-------------------------------------------------------------+
+|  |
+| The order form wasn't showing the total because it  |
+| tried to calculate before you selected items.  |
+|  |
+| I added a check that waits until items are selected.  |
+|  |
+| '  Next time: "Cannot read property of undefined"  |
+| usually means something hasn't loaded yet. You can  |
+| tell me "add a loading check" and I'll know what to do.  |
+|  |
+| [Got it]  |
++++------------------------------------------------------------+
+```
+
+## Contextual Micro-Lessons (First Time Only)
+
+When new concept appears:
+
+```
++-------------------------------------------------------------+
+| + New concept: Components  |
++-------------------------------------------------------------+
+|  |
+| I created a "component" called ProductCard.  |
+|  |
+| Think of components like LEGO blocks:  |
+|  Build once, use many times  |
+|  Change one, all copies update  |
+|  |
+| [Makes sense]  [Tell me more]  |
+| - Don't explain concepts anymore  |
++++------------------------------------------------------------+
+```
+
+## Key Principles
+
+1. **Never block workflow**  --  All guidance is skippable
+2. **Show once, then disappear**  --  Don't repeat explanations
+3. **Explain only when asked**  --  [What's this?] buttons available
+4. **Never make them feel stupid**  --  Blame the system, not the user
+
+---
+
+# ONBOARDING
+
+## First Launch
+
+```
++-------------------------------------------------------------+
+|  |
+|  Welcome to Omnirun  |
+|  |
+|  Build anything. Automate everything.  |
+|  Just describe it.  |
+|  |
+| +---------------------------------------------------------  |
+|  |
+| Quick question: How technical are you?  |
+|  |
+| +---------------------------------------------------------  |
+| | '  Not technical  | |
+| | I describe what I want, you handle the rest  | |
+| +++--------------------------------------------------------  |
+|  |
+| +---------------------------------------------------------  |
+| | '" Technical / Developer  | |
+| | I want to see code, run commands, full control  | |
+| +++--------------------------------------------------------  |
+|  |
+| (You can change this anytime)  |
+|  |
++++------------------------------------------------------------+
+```
+
+## API Key Setup
+
+```
++-------------------------------------------------------------+
+|  |
+|  Connect Your AI  |
+|  |
+| Omnirun uses Claude AI to build your projects.  |
+| You'll need an Anthropic API key.  |
+|  |
+| +---------------------------------------------------------  |
+| | API Key: [sk-ant-________________________]  | |
+| +++--------------------------------------------------------  |
+|  |
+| [Get an API key  -> ] (opens Anthropic website)  |
+|  |
+| '  You pay Anthropic directly for AI usage.  |
+|  Typical cost: $10-30/month  |
+|  We never see or store your conversations.  |
+|  |
+|  [Continue  -> ]  |
+|  |
++++------------------------------------------------------------+
+```
+
+## Optional: Guided Tips
+
+```
++-------------------------------------------------------------+
+|  |
+|  Want guided tips?  |
+|  |
+| I can show helpful hints as you work  --  explaining  |
+| things along the way.  |
+|  |
+| +---------------------------------------------------------  |
+| | * Yes, show me tips  | |
+| +++--------------------------------------------------------  |
+|  |
+| +---------------------------------------------------------  |
+| |  o No thanks, I'll figure it out  | |
+| +++--------------------------------------------------------  |
+|  |
+| (You can change this in Settings)  |
+|  |
++++------------------------------------------------------------+
+```
+
+## Sample Project Option
+
+```
++-------------------------------------------------------------+
+|  |
+|  Try a sample project?  |
+|  |
+| See how Omnirun works with a pre-built example.  |
+|  |
+| +---------------  +---------------  +---------------  |
+| |  Business  |  | + Dashboard  |  | ' Store  |  |
+| |  Website  |  |  |  |  |  |
+| +++--------------  +++--------------  +++--------------  |
+|  |
+| [Skip  --  Start fresh]  |
+|  |
++++------------------------------------------------------------+
+```
+
+---
+
+# OFFLINE CAPABILITY
+
+## What Works Offline
+
+- Browse and edit project files
+- View previous conversations
+- Access project memory
+- Use file tree and editor
+- Technical mode features
+
+## What Needs Internet
+
+- Claude AI responses (requires API call)
+- Deployment
+- Service connections
+- Voice recognition (first use)
+
+## User Experience
+
+When offline:
+
+```
++-------------------------------------------------------------+
+| + You're offline  |
+|  |
+| You can browse your project and make manual edits.  |
+| AI features will resume when you're back online.  |
+|  |
+| [Dismiss]  |
++++------------------------------------------------------------+
+```
+
+---
+
+# SETTINGS
+
+## Settings Page Structure
+
+```
+Settings
++-  Profile
+|  +++  Name, email, preferences
++-  Subscription
+|  +++  Plan, billing, upgrade/downgrade
++-  API Configuration
+|  +++  Anthropic API key
++-  Connections
+|  +++  Vercel, GitHub, Stripe, etc.
++-  Budget & Usage
+|  +++  Limits, alerts, history
++-  Appearance
+|  +++  Theme selection, custom themes
++-  Interface
+|  +++  Default mode, tips on/off
++-  Voice
+|  +++  Voice mode settings, language, wake word
++-  Quick Command
+|  +++  Global hotkey settings
++-  File Access
+|  +++  Access level (project/workspace/broad)
++++  Privacy
+  +++  Data storage, analytics opt-in
+```
+
+---
+
+# THEMES
+
+## Pre-Built Themes
+
+| Theme | Description |
+|-------|-------------|
+| **Terminal** (default) | Dark grey + green accents + purple actions |
+| **Midnight** | Deep navy blue + cyan accents |
+| **Sunset** | Dark + warm orange/amber tones |
+| **Monochrome** | Pure grays + white accents |
+| **Hacker** | Matrix-style green on pure black |
+| **Dracula** | Popular developer color scheme |
+| **Light** | Clean white background + purple accents |
+| **Nord** | Cool, arctic blue tones |
+
+## How Themes Work
+
+Themes are CSS variable sets. Switching themes = applying different values.
+
+```css
+/* Terminal Theme (default) */
+:root {
+  --bg-primary: #0A0A0A;
+  --bg-surface: #111111;
+  --bg-panel: #161616;
+  --border: #1E1E1E;
+  --accent: #00DD55;
+  --accent-bright: #00FF66;
+  --action: #7C3AED;
+  --action-bright: #A78BFA;
+  --text-primary: #E0E0E0;
+  --text-secondary: #888888;
+  --text-muted: #555555;
+}
+```
+
+## Theme Selector UI
+
+```
+Settings  ->  Appearance
+
++-------------------------------------------------------------+
+| Theme  |
++-------------------------------------------------------------+
+|  |
+| +----------  +----------  +----------  +----------  |
+| | Terminal | | Midnight | | Sunset  | | Mono  |  |
+| | -------- | | -------- | | -------- | | -------- |  |
+| |  "  | |  | |  | |  |  |
+| +++---------  +++---------  +++---------  +++---------  |
+|  |
+| +----------  +----------  +----------  +----------  |
+| | Hacker  | | Dracula  | | Light  | | Nord  |  |
+| | -------- | | -------- | | -------- | | -------- |  |
+| +++---------  +++---------  +++---------  +++---------  |
+|  |
+| MY THEMES  |
+| +----------  +----------  |
+| | My Theme | | + Create |  |
+| | -------- | |  New  |  |
+| +++---------  +++---------  |
+|  |
++++------------------------------------------------------------+
+```
+
+## Custom Theme Creator
+
+```
+Settings  ->  Appearance  ->  Create Theme
+
++-------------------------------------------------------------+
+| Create Custom Theme  |
++-------------------------------------------------------------+
+|  |
+| Theme Name: [  ]  |
+|  |
+| BACKGROUNDS  |
+| Primary  [- #0A0A0A] [Pick]  |
+| Surface  [- #111111] [Pick]  |
+| Panel  [- #161616] [Pick]  |
+| Border  [- #1E1E1E] [Pick]  |
+|  |
+| ACCENTS  |
+| Main  [- #00DD55] [Pick]  (highlights, active)  |
+| Action  [- #7C3AED] [Pick]  (buttons, CTAs)  |
+|  |
+| TEXT  |
+| Primary  [- #E0E0E0] [Pick]  |
+| Secondary  [- #888888] [Pick]  |
+| Muted  [- #555555] [Pick]  |
+|  |
+| +-------------------------------------------------------  |
+|  |
+| LIVE PREVIEW  |
+| +---------------------------------------------------------  |
+| |  [Mini version of app with theme applied]  | |
+| +++--------------------------------------------------------  |
+|  |
+| [Cancel]  [Save Theme]  |
++++------------------------------------------------------------+
+```
+
+## Theme Storage
+
+- Pre-built themes: Bundled with app
+- Custom themes: Saved as JSON in `~/.omnirun/themes/`
+- Sync: Optional cloud sync for Pro/Business users
+
+## Implementation
+
+- ~15-20 CSS variables define entire theme
+- Themes are JSON objects
+- Switching is instant (no reload)
+- Low complexity (~1-2 days work)
+
+## API Configuration
+
+```
++-------------------------------------------------------------+
+| API Configuration  |
++-------------------------------------------------------------+
+|  |
+| Anthropic API Key  |
+| +---------------------------------------------------------  |
+| | sk-ant-************************  | |
+| +++--------------------------------------------------------  |
+| [Show] [Change Key]  |
+|  |
+| "' Stored securely on your device  |
+| Never sent to our servers  |
+|  |
+| +-------------------------------------------------------  |
+|  |
+| Usage This Month: $12.47  |
+| (Billed directly by Anthropic)  |
+|  |
+| [View Anthropic Dashboard  -> ]  |
+|  |
++++------------------------------------------------------------+
+```
+
+---
+
+# TECHNICAL CAPABILITIES
+
+## How It Works
+
+### The "Explore First" Pattern
+
+Before making ANY change, the app analyzes context:
+
+```
+User: "Add a shopping cart"
+
+Behind the scenes (3-5 seconds):
+1. Scan project structure
+2. Find where products are defined
+3. Identify styling patterns
+4. Check navigation structure
+5. Plan where cart should integrate
+
+Then shows plan before building.
+```
+
+### File System Operations
+
+```
+Your project folder: /Users/you/my-project/
+
+App can:
+* Read all files
+* Create new files and folders
+* Modify existing files
+* Delete files (with confirmation)
+* Watch for external changes
+```
+
+### Safety Features
+
+- **Backups** before every change
+- **Undo** last 10 changes
+- **Git integration** (automatic commits optional)
+- **Review everything** before it happens
+
+### Languages & Frameworks
+
+**Languages:**
+- JavaScript/TypeScript
+- Python
+- HTML/CSS
+- PHP, Ruby, Go
+- SQL
+- Shell scripts
+
+**Frameworks:**
+- React, Vue, Svelte
+- Next.js, Nuxt, SvelteKit
+- Node.js, Express, FastAPI
+- Django, Flask, Laravel
+- Tailwind CSS, Bootstrap
+
+**Databases:**
+- PostgreSQL, MySQL, SQLite
+- MongoDB, Firebase, Supabase
+
+---
+
+# MULTI-STEP PROJECT MANAGEMENT
+
+## Automatic Planning
+
+For complex projects:
+
+```
+User: "Build an e-commerce store"
+
++-------------------------------------------------------------+
+| + Project Plan  |
++-------------------------------------------------------------+
+|  |
+| Phase 1: Product Catalog .................. ~$0.30  |
+|  Product listing page  |
+|  Product details  |
+|  Categories and search  |
+|  |
+| Phase 2: Shopping Cart .................... ~$0.25  |
+|  Add to cart  |
+|  Cart page  |
+|  Quantity management  |
+|  |
+| Phase 3: Checkout ......................... ~$0.35  |
+|  Shipping info  |
+|  Stripe payment  |
+|  Order confirmation  |
+|  |
+| Phase 4: User Accounts .................... ~$0.20  |
+|  Login/signup  |
+|  Order history  |
+|  |
+| Total estimate: ~$1.10  |
+|  |
+| [Start Building]  [Customize Plan]  |
++++------------------------------------------------------------+
+```
+
+## Progress Tracking
+
+```
++-------------------------------------------------------------+
+| Building: E-commerce Store  |
++-------------------------------------------------------------+
+|  |
+| Progress: [-------------'-'-'-'-'-'-'] 60%  |
+|  |
+| * Phase 1: Product Catalog ($0.28)  |
+| * Phase 2: Shopping Cart ($0.24)  |
+|  Phase 3: Checkout (in progress...)  |
+|  Phase 4: User Accounts  |
+|  |
+| Time: 18 min | Cost: $0.61  |
+|  |
+| [Pause]  [Skip Phase]  [View Files]  |
++++------------------------------------------------------------+
+```
+
+---
+
+# TEAM COLLABORATION
+
+Teams are available on Business and Enterprise plans only.
+Starter and Pro are single-user plans   no team features.
+
+## How It Works
+
+- Project-level locking   one person works on a project at a time
+- No real-time collaborative editing, no file-level locking, no merge conflicts
+- AI needs full control of the project folder, so simultaneous editing is not supported
+- When a member opens a project and starts chatting with AI, the project locks
+- Other members see it grayed out: "Sarah is working on this"
+- When the member finishes / switches / goes idle 15min, it unlocks automatically
+- Other members get notified: "Project X is now available"
+
+## Roles (MVP)
+
+Two roles only:
+- **Owner**   the person who pays. Manages members, invitations, billing, team settings.
+- **Member**   everyone else. Can access team projects, chat with AI, deploy.
+
+Granular permissions (Admin/Editor/Viewer) not included  --  just Owner + Member.
+
+## API Key Policy
+
+Owner chooses one of two modes in Team Settings:
+- **Shared key**   Owner's API key used for all members. Members don't set up keys.
+- **Individual keys (BYOK per member)**   Each member brings their own API key.
+
+## Team Settings Tab
+
+Lives in Settings   Team (visible only for Business+ plans).
+Owner view: team name, API key policy toggle, member list, invite button, activity log.
+Member view: read-only member list and activity log. No billing, no invite.
+
+## Invitations
+
+- Owner invites via email
+- Invitee gets email with download link + accept link
+- Invitation expires after 7 days, can be resent
+- One team per account (MVP)
+
+## Activity Log
+
+- Simple chronological list on Team Settings page
+- Logs: who worked on what, deployments, joins, removals, project created/deleted
+- Last 30 days, grouped by day
+- Refreshes on page open (not real-time)
+
+## Notifications
+
+Minimal, in-app only:
+- "Project X is now available" (on unlock)
+- "You've been invited to join [Team Name]"
+- Small dot on bell icon, no email/sound/toast notifications
+
+## Member Removal
+
+- Owner clicks remove   immediate access revoked
+- Nothing deleted, projects stay intact
+- Seat freed up for new invite
+
+## Billing
+
+- Only Owner sees Billing tab
+- Members don't see plan, pricing, or payment info
+
+## What's NOT in MVP
+
+- Granular roles (Admin/Editor/Viewer)
+- File-level locking or collaborative editing
+- Real-time sync via WebSockets
+- In-line code comments between members
+- Team chat / messaging
+- Project-level permissions (all members see all team projects)
+- Multiple teams per account
+- Email notifications
+- Usage analytics per member
+
+See team-features.txt for full spec and development checklist.
+
+---
+
+# PRICING
+
+All plans: BYOK (Bring Your Own Key). Users pay AI providers directly.
+No tokens included. No API markup. 100% transparent.
+
+Two tracks: Solo (1 user) and Teams. 7-day free trial on all plans (full Pro access, credit card required).
+
+---
+
+## SOLO PLANS (single user)
+
+---
+
+### STARTER -- $10/month (or $100/year)
+
+**For:** Individuals -- hobbyists, creators, students, solopreneurs trying it out
+
+* 1 project (lifetime — removing doesn't free the slot)
+* Single user (no team features)
+* 3 project integrations (user picks which)
+* 3 assistant integrations (user picks which)
+* Voice control (push to talk)
+* Web search (via Anthropic API or Brave)
+* Project templates (5 basic)
+* Chat history (last 10 chats)
+* Scheduled tasks: up to 3 (app must be open to run)
+* Time Machine: last 7 days
+* No memory system
+* Community support
+
+---
+
+### PRO -- $29/month (or $290/year)
+
+**For:** Freelancers, power users, serious builders
+
+Everything in Starter, plus:
+* Up to 5 projects (lifetime — removing doesn't free slots)
+* 10 project integrations (user picks which)
+* 10 assistant integrations (user picks which)
+* Voice control (push to talk)
+* Full template library
+* Unlimited chat history
+* Scheduled tasks: up to 10 (runs when app is closed)
+* Time Machine: unlimited
+* Memory system (local only)
+* Watching agents: up to 3
+* Email support
+
+---
+
+### STUDIO -- $59/month (or $590/year)
+
+**For:** Power users, serious builders, multi-project creators
+
+Everything in Pro, plus:
+* Up to 15 projects (lifetime — removing doesn't free slots)
+* 25 project integrations (user picks which)
+* 25 assistant integrations (user picks which)
+* Voice control + always-on wake word ("Hey Omnirun")
+* Browser control (navigate, click, fill forms, book, shop by voice)
+* Scheduled tasks: up to 25 (runs when app is closed)
+* Memory system: local + optional encrypted sync across devices
+* Watching agents: up to 10
+* Priority email support
+
+---
+
+## TEAM PLANS (multiple users)
+
+---
+
+### TEAM -- $99/month (or $990/year)
+
+**For:** Small teams & startups
+
+* 5 team seats (Owner + Members)
+* 10 projects (lifetime)
+* All project integrations
+* All assistant integrations
+* Pro-level features per member
+* Voice control (push to talk) per member
+* Scheduled tasks: up to 10 per project (runs when app is closed)
+* Time Machine: unlimited
+* Activity log
+* Shared or individual API key policy
+* Email support
+
+---
+
+### BUSINESS -- $199/month (or $1,990/year)
+
+**For:** Agencies & growing companies
+
+Everything in Team, plus:
+* 15 team seats (Owner + Members)
+* 30 projects (lifetime)
+* Studio-level features per member
+* Voice control + always-on wake word per member
+* Scheduled tasks: unlimited (runs when app is closed)
+* Advanced admin controls & audit logs
+* Priority email support
+
+---
+
+### ENTERPRISE -- Contact us
+
+**For:** Larger organizations with custom needs
+
+Everything in Business, plus:
+* Unlimited team seats
+* Unlimited projects
+* Unlimited scheduled tasks
+* Unlimited watching agents
+* SSO
+* Custom integrations
+* Dedicated support
+* Custom onboarding & training
+
+Pricing is case-by-case. No public price -- enterprise buyers expect to talk to sales.
+
+---
+
+## Free Trial
+
+**7 days, full Pro access, credit card required:**
+- All Pro features (voice, 5 projects, 10 integrations, full templates, memory)
+- BYOK -- user enters their own API key
+- No charge during trial, auto-charges selected plan on day 8
+- Can cancel anytime before day 8
+- Keep everything you build
+- Credit card required to prevent abuse (infinite trial with throwaway emails)
+
+---
+
+## Project Limit Enforcement
+
+Project counts are **lifetime**, not concurrent. Removing a project from the sidebar does NOT free up a slot. This prevents users from cycling through unlimited projects on a 1-project Starter plan.
+
+**How it works:**
+- Adding a project folder registers it in Supabase (path_hash + machine_id)
+- Removing a project marks it as "inactive" but keeps counting toward the limit
+- Re-adding the same folder reactivates the existing record (no double-counting)
+- Limit checked server-side via `register_project()` Supabase function
+- Desktop app shows "Upgrade your plan" modal when limit reached
+- Project files stay on disk regardless (we only track metadata in Supabase)
+
+**Limits per plan:** Starter=1, Pro=5, Studio=15, Team=10, Business=30, Enterprise=unlimited
+
+---
+
+# TECHNOLOGY STACK
+
+## Desktop App
+
+- **Framework:** Tauri (Rust backend, web frontend)
+- **Frontend:** React + TypeScript
+- **Styling:** Tailwind CSS
+- **Bundler:** Vite
+
+### Why Tauri over Electron
+
+| Factor | Tauri | Electron |
+|--------|-------|----------|
+| Download size | ~10-20MB | ~150-200MB |
+| Memory usage | ~30-80MB | ~150-300MB |
+| Startup speed | <1 second | 2-4 seconds |
+| Native feel | More native | Feels like web app |
+
+### Preview Strategy
+
+Users preview their projects in **real browsers** (Chrome, Firefox, Safari, Edge) rather than an embedded WebView. This approach:
+- Provides more accurate previews (test in actual target browsers)
+- Teaches good development habits (test in multiple browsers)
+- Eliminates WebView inconsistency issues across platforms
+- Turns a technical limitation into a product feature
+
+The embedded preview panel serves as a quick glance --  real testing happens in real browsers.
+
+## Distribution
+
+- Direct download (no app store fees)
+- Platforms: Mac (.dmg), Windows (.exe), Linux (.AppImage)
+- Auto-updates via tauri-updater
+- Code signing for Mac & Windows
+
+## Backend Services
+
+- **Payments:** Stripe
+- **Email:** SendGrid/Postmark
+- **Analytics:** Plausible (optional, privacy-focused)
+- **Error Tracking:** Sentry
+
+## Security
+
+- API key encrypted on device (Keychain/Credential Manager)
+- Never sent to our servers
+- All code stays local
+- Optional anonymous analytics (opt-in)
+
+---
+
+# GO-TO-MARKET
+
+## Messaging
+
+**Primary:**
+> **Build anything. Automate everything. Just describe it.**
+>
+> That app you've always wanted? That task you do every week? That messy folder you've been meaning to organize? Just tell Omnirun what you want. It happens.
+
+**For Different Audiences:**
+
+*Hobbyists & Makers:*
+> Finally build that project you've been thinking about. No coding required.
+
+*Regular People:*
+> Control your computer with your voice. Automate the boring stuff.
+
+*Business Owners:*
+> Stop paying for software that almost works. Build exactly what you need.
+
+*Power Users:*
+> Claude Code with a better interface. Plus voice control and automations.
+
+*The Lazy Genius (rich kids on the sofa):*
+> "Hey Omnirun, play my playlist. Now order Thai food. And book that restaurant for Friday." All without getting up.
+
+**Taglines:**
+- "Describe it. Build it. Done."
+- "Your computer, your way."
+- "Ideas  ->  Reality. No code required."
+- "Talk to your computer. It actually listens."
+- **"Your computer finally listens."**  New hero tagline
+- "Alexa for your computer. But way smarter."
+- "Control everything with your voice."
+
+## Launch Channels
+
+**Initial Launch:**
+- Product Hunt
+- Reddit (r/SideProject, r/Entrepreneur, r/selfhosted, r/automation, r/learnprogramming)
+- Twitter/X (build in public)
+- YouTube tutorials
+- Hacker News
+- Indie Hackers
+
+**Growth Phase:**
+- Content marketing (blog, tutorials)
+- SEO
+- Discord communities
+- Partnerships with creators
+- Referral program
+
+**Scale Phase:**
+- Paid ads (YouTube, Reddit)
+- Influencer partnerships
+- Affiliate program
+- Tech podcasts
+
+---
+
+# KEY DECISIONS
+
+## Confirmed
+
+* Desktop app (Tauri --  lightweight, native-feeling)
+* BYOK model (users bring own API key)
+* Two modes: Technical and Non-Technical (toggle)
+* Voice input support
+* Live preview in real browsers (Chrome, Firefox, Safari, Edge)
+* Connections hub for full automation (project services only -- Vercel, GitHub, Stripe etc.)
+* Token/cost tracking
+* Project memory across sessions
+* Invisible guidance system
+* No free tier (7-day Pro trial, credit card required)
+* Direct distribution (no app stores)
+* Model selection (Haiku/Sonnet/Opus)
+* Project templates
+* Time Machine (unlimited version history)
+* Scheduled tasks
+* Project health checks
+* Quick Command (global hotkey access)
+* File access tiers (project/workspace/broad)
+* General computer assistant capabilities
+* Always-on voice (wake word like "Hey Omnirun")
+* Browser control (navigate, click, fill forms, book, shop)
+* Custom routines ("Good morning"  ->  runs 5 actions)
+* Customizable themes (8 pre-built + custom creator)
+* Invisible token optimization (60-80% cost reduction for users)
+* Meta-tool pattern for integrations (90%+ tool definition savings)
+* Auto model routing (Haiku for cheap tasks, Sonnet for building, Opus for hard problems)
+* Context compaction (rolling summarization to reduce history bloat)
+* Prompt caching on stable content
+* .omnirunignore support (user-defined blocklist)
+* Desktop app control (screenshot + input simulation -- control any app, not just browsers)
+* Top-level sidebar navigation: Home / Projects / Assistant / Tasks
+* Home dashboard with Morning Brief, Projects, Email, Tasks, Usage, Connections, Activity widgets
+* Assistant section -- global AI chat for personal integrations (email, calendar), NOT project-scoped
+* Email agent -- AI layer on top of Gmail/Outlook API, no full email client built
+* Two connection types: project connections (Settings) vs personal integrations (Assistant section) -- never mixed
+* Watching agents (new type) -- event-driven, always-on, distinct from scheduled tasks
+* Assistant integrations plan-gated (not email-only -- any personal integration): Starter=3, Pro=10, Studio=25, Team=all, Business=all, Enterprise=all
+* Scheduled tasks plan-gated: Starter=3 (app open only), Pro=10 (app closed), Studio=25 (app closed), Team=10/project (app closed), Business=unlimited (app closed), Enterprise=unlimited
+* Voice control on all plans; always-on wake word ("Hey Omnirun") + browser control on Studio and Team Business/Enterprise only
+* Memory system: Pro+ (local); Studio+ (local + optional encrypted sync across devices)
+
+---
+
+# NAME HISTORY
+
+Previously known as "omnirun" during early planning. Renamed to **Omnirun** to better reflect the product's full scope   not just development, but running anything: builds, automations, tasks, voice commands, computer control. "Omni" = everything, "Run" = execute.
+
+---
+
+# SUMMARY
+
+**Omnirun** is a desktop app that lets anyone build software, automate tasks, and control their computer  --  by simply describing what they want. Type or talk. It just works.
+
+**For everyone:**
+- Hobbyists building passion projects
+- Regular people automating boring tasks
+- Business owners creating custom tools
+- Power users controlling their computer with voice
+- Developers who want a better Claude Code
+
+**Killer Features:**
+- **Always-on voice**  --  "Hey Omnirun, play my chill playlist" from across the room
+- **Browser control**  --  Book restaurants, shop online, fill forms, all by voice
+- **Full computer control**  --  Files, apps, system, browser, everything
+- **Desktop app control**  --  Control Figma, Photoshop, Excel, any app by voice or chat (v2)
+- **Custom routines**  --  "Good morning" triggers email + calendar + music + weather
+- **Build anything**  --  Websites, tools, automations, scripts
+- **100+ integrations**  --  Deploy, payments, databases, all automated
+- **Time Machine**  --  Unlimited undo, never lose work
+- **Email agent**  --  Reads, summarizes, drafts replies via Gmail/Outlook API
+- **Assistant section**  --  Personal AI for email, calendar, cross-app automations
+
+**The promise:** If you can describe it, you can do it.
+
+**The advantage:** BYOK users see transparent costs AND pay 1/5th what they would with unoptimized apps.
+
+---
+
+*"Your computer finally listens."*

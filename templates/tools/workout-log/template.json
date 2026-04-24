@@ -1,0 +1,30 @@
+{
+  "name": "Workout Log",
+  "slug": "workout-log",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "react",
+  "description": "Log exercises, sets, reps, and weight. Track progress over time with workout history.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "pro",
+  "category": "personal-tools",
+  "tags": ["react", "vite", "workout", "exercise", "fitness", "gym", "tracker"],
+  "icon": "🏋️",
+  "defaultProjectName": "My Workout Log",
+  "files": [
+    "template.json",
+    "index.html",
+    "package.json",
+    "vite.config.js",
+    "src/main.jsx",
+    "src/App.jsx",
+    "src/App.css"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a React + Vite workout log. Single-file App.jsx contains all logic. Features: log workouts (name, date, exercises), each exercise has sets with reps and weight, quick-add common exercises, workout history list, current workout builder with live set tracking, stats (total workouts, this week, exercises logged, total volume), sample workout history pre-loaded. All data persisted in localStorage. CSS custom properties in App.css for theming. The user will likely ask to: add exercise library, add progress charts, add personal records tracking, add rest timer, add workout templates/routines, add body measurements, add calendar view, export data, add muscle group tags, add workout duration timer, etc."
+}

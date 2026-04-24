@@ -1,0 +1,30 @@
+{
+  "name": "Recipe Organizer",
+  "slug": "recipe-organizer",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "react",
+  "description": "Save, organize, and browse your favorite recipes with ingredients, steps, and cook times.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "pro",
+  "category": "personal-tools",
+  "tags": ["react", "vite", "recipes", "cooking", "meal-planning", "organizer"],
+  "icon": "🍳",
+  "defaultProjectName": "My Recipe Book",
+  "files": [
+    "template.json",
+    "index.html",
+    "package.json",
+    "vite.config.js",
+    "src/main.jsx",
+    "src/App.jsx",
+    "src/App.css"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a React + Vite recipe organizer. Single-file App.jsx contains all logic. Features: browse recipes as cards (gradient placeholders for images), full recipe detail view (ingredients list with servings scaler, numbered steps, prep/cook time, difficulty, dietary tags), add/edit recipes via modal form, category filter (All/Breakfast/Lunch/Dinner/Snacks/Desserts), search by name or ingredients, 4 sample recipes pre-loaded. All data persisted in localStorage. CSS custom properties in App.css for theming. The user will likely ask to: add photo uploads, add meal planning calendar, add shopping list generator, add nutritional info, add recipe sharing, import from URLs, add cooking timers, add ratings/favorites, connect to recipe APIs, etc."
+}

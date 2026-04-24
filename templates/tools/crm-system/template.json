@@ -1,0 +1,30 @@
+{
+  "name": "CRM System",
+  "slug": "crm-system",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "react",
+  "description": "Manage contacts, deals, pipeline stages, and tasks in one place.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "pro",
+  "category": "business-tools",
+  "tags": ["react", "vite", "crm", "contacts", "deals", "pipeline", "sales"],
+  "icon": "🤝",
+  "defaultProjectName": "My CRM",
+  "files": [
+    "template.json",
+    "index.html",
+    "package.json",
+    "vite.config.js",
+    "src/main.jsx",
+    "src/App.jsx",
+    "src/App.css"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a React + Vite CRM system. Single-file App.jsx contains all logic. Features: tabbed navigation (Contacts, Pipeline, Tasks), contacts table with search/filter by status (lead/prospect/customer/churned), add/delete contacts, deal pipeline with Kanban-style columns (Lead/Qualified/Proposal/Negotiation/Won/Lost), deal cards with value and company, task list with priority badges and due dates, add tasks with contact linking, summary stats (total contacts, deal value, active tasks, conversion rate). All data in localStorage with sample data pre-loaded. The user will likely ask to: add email integration, add activity timeline, add notes per contact, add deal value forecasting, add CSV import/export, add custom fields, add tags/labels, add follow-up reminders, connect to email provider, add reporting dashboard, etc."
+}

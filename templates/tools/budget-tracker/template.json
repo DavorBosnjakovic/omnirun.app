@@ -1,0 +1,30 @@
+{
+  "name": "Budget Tracker",
+  "slug": "budget-tracker",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "react",
+  "description": "Track income and expenses with categories, monthly breakdown, and visual charts.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "basic",
+  "category": "personal-tools",
+  "tags": ["react", "vite", "budget", "finance", "expenses", "income", "tracker"],
+  "icon": "💰",
+  "defaultProjectName": "My Budget Tracker",
+  "files": [
+    "template.json",
+    "index.html",
+    "package.json",
+    "vite.config.js",
+    "src/main.jsx",
+    "src/App.jsx",
+    "src/App.css"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a React + Vite budget tracker. Single-file App.jsx contains all logic. Features: add income/expense transactions (amount, description, category, date), category icons and color coding, monthly filter (navigate months), summary cards (income, expenses, balance), transaction list sorted by date with delete, spending by category breakdown bar, sample transactions pre-loaded. All data persisted in localStorage. CSS custom properties in App.css for theming. The user will likely ask to: add charts/pie charts, add recurring transactions, add CSV export/import, add multiple accounts, add budget goals per category, add yearly overview, add currency formatting options, connect to bank API, add tags, etc."
+}

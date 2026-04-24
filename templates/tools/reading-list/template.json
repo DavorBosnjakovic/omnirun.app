@@ -1,0 +1,30 @@
+{
+  "name": "Reading List",
+  "slug": "reading-list",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "react",
+  "description": "Track books you want to read, are reading, and have finished with ratings and notes.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "basic",
+  "category": "personal-tools",
+  "tags": ["react", "vite", "books", "reading", "tracker", "library"],
+  "icon": "📚",
+  "defaultProjectName": "My Reading List",
+  "files": [
+    "template.json",
+    "index.html",
+    "package.json",
+    "vite.config.js",
+    "src/main.jsx",
+    "src/App.jsx",
+    "src/App.css"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a React + Vite reading list tracker. Single-file App.jsx contains all logic. Features: add books (title, author, genre), three status columns (Want to Read / Reading / Finished) displayed as a kanban-style board, drag-free — click to move between columns, star rating (1-5) for finished books, notes per book, search/filter by title or author, genre filter pills, stats summary (total books, currently reading, finished count, average rating). 5 sample books pre-loaded. All data persisted in localStorage. CSS custom properties in App.css for theming. The user will likely ask to: add book cover images, connect to Google Books API for auto-fill, add reading progress (page numbers), add yearly reading goals, add tags, export to CSV, add a timeline view, add recommendations, etc."
+}

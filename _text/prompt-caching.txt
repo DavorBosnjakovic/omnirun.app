@@ -1,0 +1,273 @@
+# Phase 1.6: Prompt Caching (Anthropic Only)
+
+## Overview
+
+Add `cache_control: { type: "ephemeral" }` to stable system prompt content so Anthropic caches it server-side. Cached tokens cost **0.1x** on reads (90% off), with a **1.25x** write cost on first call. Pays for itself after 2 calls per session.
+
+**Only file to modify: `aiService.ts`**
+
+---
+
+## Change 1: System prompt must be an array of content blocks
+
+Anthropic's `cache_control` only works when `system` is an **array of content block objects**, not a plain string. Your `buildSystemPrompt()` currently returns a string   we need to change the Anthropic code path to send it as structured blocks.
+
+### Current (string-based):
+
+```typescript
+// In sendMessage(), Anthropic path:
+body: JSON.stringify({
+  model: modelId,
+system: systemPrompt,  //   plain string, can't cache
+  messages: formattedMessages,
+  max_tokens: maxTokens,
+  tools: toolDefinitions,
+  stream: true,
+})
+```
+
+### New approach   add `buildSystemPromptBlocks()`:
+
+```typescript
+/**
+ * Build system prompt as structured content blocks for Anthropic prompt caching.
+ * Static instructions go FIRST with cache_control on the last static block.
+ * Dynamic context (project-specific) goes LAST without caching.
+ */
+function buildSystemPromptBlocks(
+  contextString: string,
+  hasConnections: boolean,
+  projectPath: string
+): Array<{ type: string; text: string; cache_control?: { type: string } }> {
+  const blocks: Array<{ type: string; text: string; cache_control?: { type: string } }> = [];
+
+//   BLOCK 1: Static instructions (identical across all projects/sessions)
+// This is the big win   these never change between calls.
+  const staticInstructions = `You are an expert software developer assistant. You help users build and modify web applications.
+
+When using tools, be concise. Do not explain what you're about to do or narrate your actions.
+Do not run npm install, npm run dev, npm start, or any long-running dev server commands   the app handles these automatically.
+Use edit_file (str_replace) for small changes instead of rewriting entire files.
+Use list_directory to explore the project when needed   do not ask the user for file paths.
+Use write_context to save important decisions or preferences so they persist across sessions.`;
+
+  blocks.push({ type: "text", text: staticInstructions });
+
+//   BLOCK 2: Tools prompt (static per session   tool definitions don't change)
+  const toolsPrompt = buildToolsPrompt(hasConnections);
+  if (toolsPrompt) {
+// This is the last static block   mark it for caching
+  blocks.push({
+  type: "text",
+  text: toolsPrompt,
+  cache_control: { type: "ephemeral" },
+  });
+  } else {
+  // If no tools prompt, mark the instructions block as cache endpoint
+  blocks[0].cache_control = { type: "ephemeral" };
+  }
+
+//   BLOCK 3: Dynamic project context (changes per project, per session)
+// This goes AFTER the cache breakpoint   not cached, but it's tiny (~100-150 tokens)
+  if (contextString) {
+  blocks.push({
+  type: "text",
+  text: `Project: ${projectPath}\n${contextString}`,
+  });
+  }
+
+//   BLOCK 4: Connection summary (only if active connections)
+  if (hasConnections) {
+  const connectionSummary = getConnectionsSummary();
+  if (connectionSummary) {
+  blocks.push({ type: "text", text: connectionSummary });
+  }
+  }
+
+  return blocks;
+}
+```
+
+---
+
+## Change 2: Use blocks in the Anthropic API call
+
+```typescript
+// In sendMessage(), Anthropic code path:
+
+const isAnthropic = provider === 'anthropic';
+
+// Build system prompt
+if (isAnthropic) {
+  // Structured blocks with caching
+  const systemBlocks = buildSystemPromptBlocks(contextString, hasConnections, projectPath);
+
+  const requestBody: any = {
+  model: modelId,
+system: systemBlocks,  //   array of content blocks, not string
+  messages: formattedMessages,
+  max_tokens: maxTokens,
+  tools: toolDefinitions,
+  stream: true,
+  };
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  method: 'POST',
+  headers: {
+  'Content-Type': 'application/json',
+  'x-api-key': apiKey,
+  'anthropic-version': '2023-06-01',
+  'anthropic-beta': 'token-efficient-tools-2025-02-19',  // already have this
+  },
+  body: JSON.stringify(requestBody),
+  });
+} else {
+// DeepSeek / OpenAI / Google   keep plain string
+  const systemPrompt = buildSystemPrompt(contextString, hasConnections, projectPath);
+  // ... existing code
+}
+```
+
+---
+
+## Change 3: Track cache metrics in usage
+
+The Anthropic response includes cache-specific fields. Update your usage tracking:
+
+```typescript
+// When parsing Anthropic streaming usage (in the message_delta or message_stop event):
+
+interface AnthropicUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number;  // tokens written to cache (1.25x cost)
+  cache_read_input_tokens?: number;  // tokens read from cache (0.1x cost)
+}
+
+// In your usage capture code:
+if (usageData) {
+  const usage = {
+  input_tokens: usageData.input_tokens || 0,
+  output_tokens: usageData.output_tokens || 0,
+  cache_creation_input_tokens: usageData.cache_creation_input_tokens || 0,
+  cache_read_input_tokens: usageData.cache_read_input_tokens || 0,
+  };
+
+  // For cost calculation (update calculateCost if you have one):
+  // Cached read tokens are already included in input_tokens, but charged at 0.1x
+  // cache_creation tokens are charged at 1.25x
+  // So effective cost = (input_tokens - cache_read) * base_rate
+  //  + cache_read * base_rate * 0.1
+  //  + cache_creation * base_rate * 1.25
+  //  + output_tokens * output_rate
+
+  console.log(
+  `Tokens: ${usage.input_tokens} in, ${usage.output_tokens} out | ` +
+  `Cache: ${usage.cache_read_input_tokens} read, ${usage.cache_creation_input_tokens} created`
+  );
+}
+```
+
+---
+
+## Change 4 (Optional): Cache the last user message in multi-turn
+
+For multi-turn conversations, you can also add `cache_control` to the **second-to-last user message** so the conversation history prefix gets cached too. This is a bigger win for long sessions:
+
+```typescript
+// In formatAnthropicMessages(), before returning:
+function formatAnthropicMessages(messages: Message[]): any[] {
+  const formatted = messages.map((msg, index) => {
+  // ... existing formatting logic
+  });
+
+  // Add cache breakpoint on second-to-last user message
+  // This caches the entire conversation prefix up to that point
+  const userMessages = formatted.filter(m => m.role === 'user');
+  if (userMessages.length >= 2) {
+  const secondToLast = userMessages[userMessages.length - 2];
+  if (typeof secondToLast.content === 'string') {
+  secondToLast.content = [{
+  type: 'text',
+  text: secondToLast.content,
+  cache_control: { type: 'ephemeral' },
+  }];
+  } else if (Array.isArray(secondToLast.content)) {
+  const lastBlock = secondToLast.content[secondToLast.content.length - 1];
+  lastBlock.cache_control = { type: 'ephemeral' };
+  }
+  }
+
+  return formatted;
+}
+```
+
+---
+
+## How it works visually
+
+```
+API Request Structure (Anthropic):
+system: [
+{ text: "static instructions..." }       CACHED (same every call)
+{ text: "tools prompt...",       CACHED (cache_control here)
+cache_control: { type: "ephemeral" }
+{ text: "Project: /path\ncontext..." }      NOT cached (tiny, ~100 tokens)
+messages: [
+{ user: "previous msg",       CACHED (2nd-to-last user)
+cache_control: { type: "ephemeral" }
+{ assistant: "previous response" }
+{ user: "current message" }       NOT cached (new each call)
+
+Call 1: cache_creation = ~800 tokens (1.25x cost = pays 1000 token equivalent)
+Call 2+: cache_read = ~800 tokens (0.1x cost = pays 80 token equivalent)
+  ^^^^^^^^
+  90% savings on the static portion!
+```
+
+---
+
+## Expected savings
+
+| Metric | Before | After |
+|--------|--------|-------|
+| System prompt tokens billed at full rate | ~800-1000 | ~100-150 (dynamic only) |
+| Cached portion | 0 | ~700-850 tokens at 0.1x |
+| First call overhead | none | +25% on cached tokens (one-time) |
+| Calls 2-10 savings | 0% | ~60-70% on system prompt |
+| Net per-session savings (10 calls) | $0 | ~$0.01-0.02 per session |
+
+Combined with history caching (Change 4), longer sessions save significantly more since conversation history also gets cached.
+
+---
+
+## Checklist
+
+- [ ] Add `buildSystemPromptBlocks()` function to aiService.ts
+- [ ] Update Anthropic `sendMessage()` path to use blocks instead of string
+- [ ] Keep DeepSeek/OpenAI/Google paths using plain string (unchanged)
+- [ ] Track `cache_creation_input_tokens` and `cache_read_input_tokens` in usage
+- [ ] (Optional) Add cache breakpoint to second-to-last user message
+- [ ] Test: First call shows `cache_creation_input_tokens > 0`
+- [ ] Test: Second call shows `cache_read_input_tokens > 0`, `cache_creation = 0`
+- [ ] Update token-optimization-checklist.txt: mark Phase 1.6 as DONE
+---
+
+## Future: Desktop App Control Prompt Caching (v2)
+
+### See desktop-app-control.txt for full feature spec
+
+When desktop app control is implemented, the screen control system prompt (~1,000 tokens of instructions telling Claude how to read screenshots and output CLICK/TYPE/KEY actions) is static and identical every call. This is a perfect caching candidate.
+
+**How it fits into existing caching:**
+- The screen control prompt would be added as another static block BEFORE the cache breakpoint
+- Same `cache_control: { type: "ephemeral" }` pattern as the current tools prompt
+- Combined with the existing system prompt cache, the entire static portion (instructions + tools + screen control) gets cached together
+
+**Savings estimate:**
+- Screen control prompt: ~1,000 tokens
+- At full rate: $0.003 per call (Sonnet)
+- At cached rate (0.1x): $0.0003 per call
+- Over a 7-step desktop control task: saves ~$0.019
+
+**No additional code changes needed** -- the existing `buildSystemPromptBlocks()` architecture handles this. Just add the screen control text to the static blocks array.

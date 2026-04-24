@@ -1,0 +1,628 @@
+# Omnirun — Team Parallel Collaboration Spec
+
+**Status:** Planned
+**Created:** April 5, 2026
+**Depends on:** team-features.txt (must be built first — DONE)
+
+---
+
+## THE PROBLEM
+
+Current system: one person per project at a time (project-level locking).
+This works for small projects or teams where everyone has their own project.
+It doesn't work for teams that need multiple people on the same project.
+
+Competitors (Cursor, Lovable, Bolt) don't solve this either — none support
+multi-user on the same project. This is Omnirun's opportunity for a real
+competitive moat.
+
+---
+
+## THE SOLUTION
+
+Multiple team members work on the same project simultaneously. Each has
+their own AI conversation. The AI sessions coordinate automatically
+through a shared edit log and file-level micro-locks. Users never see
+merge conflicts, diff views, or technical decisions. The AI handles
+everything behind the scenes.
+
+---
+
+## KEY PRINCIPLES
+
+1. **Users never resolve conflicts.** If two AIs need to edit the same
+   file, the AI figures it out. No diffs, no approval prompts, no
+   merge UI. Non-technical users should never know conflicts existed.
+
+2. **Chat is private, context is shared.** Each member's conversation
+   with the AI is their own. But project context (what the project is,
+   what's been built, what's being worked on) is shared so every AI
+   session has full situational awareness.
+
+3. **Reads are free, writes are serialized.** Anyone can read any file
+   at any time. Writes go through a brief micro-lock (milliseconds)
+   to prevent corruption. The AI always re-reads a file immediately
+   before writing to ensure it has the latest version.
+
+4. **Intent awareness > file diffing.** The AI doesn't need to diff
+   files to resolve conflicts. It needs to know WHY the other person's
+   AI changed a file. The edit log provides this.
+
+---
+
+## WHAT GETS SHARED (Team Plans Only)
+
+### Shared — stored in Supabase
+- **Project context** — .omnirun/context.md content (about, brief, styles, conventions, tech stack)
+- **Edit log** — structured log of every AI file operation (who, what file, what they did, why)
+- **Active intents** — what each member's AI is currently working on ("Sarah's AI is building auth")
+- **File locks** — brief write-level locks during file operations
+
+### Private — stays on each member's device (local SQLite)
+- **Chat history** — full conversation with the AI
+- **Personal memory** — user_context.md, observations, preferences
+- **API keys** — unless shared key mode is enabled
+- **Settings** — theme, mode, voice preferences
+
+### User disclosure
+Team project data (context, edit history) is stored on Omnirun's servers
+so your team can collaborate. Your conversations with the AI stay private
+and local. This is communicated:
+- On team plan upgrade: brief explanation in onboarding
+- In Team Settings: "Project context is synced across your team" notice
+- In project context panel: "Shared with team" badge
+
+---
+
+## ARCHITECTURE OVERVIEW
+
+```
+Member A (desktop app)              Member B (desktop app)
+    |                                    |
+    |-- AI Chat (private, local)         |-- AI Chat (private, local)
+    |-- toolService.ts                   |-- toolService.ts
+    |      |                             |      |
+    |      |-- read_file (always OK)     |      |-- read_file (always OK)
+    |      |-- write_file:               |      |-- write_file:
+    |      |   1. Acquire micro-lock     |      |   1. Acquire micro-lock
+    |      |   2. Re-read current file   |      |   2. Re-read current file
+    |      |   3. Apply edit             |      |   3. Apply edit
+    |      |   4. Write to disk          |      |   4. Write to disk
+    |      |   5. Log to edit_log        |      |   5. Log to edit_log
+    |      |   6. Release micro-lock     |      |   6. Release micro-lock
+    |      |                             |      |
+    +------+-------- Supabase -----------+------+
+           |                             |
+           |-- project_edit_log (shared) |
+           |-- project_context (shared)  |
+           |-- active_intents (shared)   |
+           |-- file_locks (shared)       |
+           |                             |
+           +-- Realtime subscriptions ---+
+               (instant sync both ways)
+```
+
+---
+
+## SUPABASE SCHEMA
+
+### Table: project_edit_log
+
+Append-only log of every AI file operation within a team project.
+This is the critical piece — it gives each AI session awareness of
+what other sessions have done.
+
+```sql
+CREATE TABLE public.project_edit_log (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  project_name TEXT NOT NULL,          -- matches local project name
+  user_id UUID NOT NULL REFERENCES profiles(id),
+  file_path TEXT NOT NULL,             -- relative path within project
+  operation TEXT NOT NULL,             -- 'create', 'edit', 'delete', 'rename'
+  summary TEXT NOT NULL,               -- AI-generated: "Added useAuth provider wrapper and protected route logic"
+  lines_affected TEXT,                 -- e.g. "15-42" or null for full file creates
+  related_files TEXT[],                -- other files changed in the same logical unit
+  created_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+
+-- Fast lookups: recent edits per project, per file
+CREATE INDEX idx_edit_log_project ON project_edit_log (team_id, project_name, created_at DESC);
+CREATE INDEX idx_edit_log_file ON project_edit_log (team_id, project_name, file_path, created_at DESC);
+
+-- RLS
+ALTER TABLE project_edit_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Team members read project edits"
+  ON project_edit_log FOR SELECT
+  USING (is_team_member(team_id));
+
+CREATE POLICY "Team members insert own edits"
+  ON project_edit_log FOR INSERT
+  WITH CHECK (is_team_member(team_id) AND user_id = auth.uid());
+
+-- Retention: keep 7 days (older edits are no longer relevant for conflict awareness)
+CREATE OR REPLACE FUNCTION cleanup_old_edit_logs() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  DELETE FROM project_edit_log WHERE created_at < NOW() - INTERVAL '7 days';
+END;
+$$;
+```
+
+### Table: project_active_intents
+
+Shows what each member's AI is currently working on. Updated at the
+start of each AI task and cleared when the task completes or the user
+goes idle. This lets other AIs plan around in-progress work.
+
+```sql
+CREATE TABLE public.project_active_intents (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  project_name TEXT NOT NULL,
+  user_id UUID NOT NULL REFERENCES profiles(id),
+  intent TEXT NOT NULL,                -- AI-generated: "Building user authentication flow"
+  target_files TEXT[],                 -- files the AI expects to create/modify
+  started_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+  last_heartbeat TIMESTAMPTZ DEFAULT now() NOT NULL,
+  UNIQUE (team_id, project_name, user_id)
+);
+
+-- RLS
+ALTER TABLE project_active_intents ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Team members read intents"
+  ON project_active_intents FOR SELECT
+  USING (is_team_member(team_id));
+
+CREATE POLICY "Members manage own intents"
+  ON project_active_intents FOR ALL
+  USING (is_team_member(team_id) AND user_id = auth.uid());
+```
+
+### Table: project_shared_context
+
+Stores the shared .omnirun/context.md for team projects. Replaces
+local-only context for team plan users.
+
+```sql
+CREATE TABLE public.project_shared_context (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  project_name TEXT NOT NULL,
+  context_content TEXT NOT NULL DEFAULT '',   -- full .omnirun/context.md content
+  updated_by UUID REFERENCES profiles(id),
+  updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+  UNIQUE (team_id, project_name)
+);
+
+-- RLS
+ALTER TABLE project_shared_context ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Team members read shared context"
+  ON project_shared_context FOR SELECT
+  USING (is_team_member(team_id));
+
+CREATE POLICY "Team members update shared context"
+  ON project_shared_context FOR ALL
+  USING (is_team_member(team_id));
+
+-- Enable Realtime so context changes propagate instantly
+ALTER PUBLICATION supabase_realtime ADD TABLE project_shared_context;
+```
+
+### Table: file_locks (replaces project_locks)
+
+Granular per-file locks instead of per-project. Held only during
+active file write operations (milliseconds, not minutes).
+
+```sql
+CREATE TABLE public.file_locks (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  project_name TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  locked_by UUID NOT NULL REFERENCES profiles(id),
+  locked_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+  UNIQUE (team_id, project_name, file_path)
+);
+
+-- RLS
+ALTER TABLE file_locks ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Team members see file locks"
+  ON file_locks FOR SELECT
+  USING (is_team_member(team_id));
+
+CREATE POLICY "Members create own file locks"
+  ON file_locks FOR INSERT
+  WITH CHECK (is_team_member(team_id) AND locked_by = auth.uid());
+
+CREATE POLICY "Lock holder releases lock"
+  ON file_locks FOR DELETE
+  USING (locked_by = auth.uid());
+
+-- Safety net: clean up locks older than 30 seconds (should never happen,
+-- but protects against crashes during write)
+CREATE OR REPLACE FUNCTION cleanup_stale_file_locks() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  DELETE FROM file_locks WHERE locked_at < NOW() - INTERVAL '30 seconds';
+END;
+$$;
+```
+
+---
+
+## HOW FILE WRITES WORK (THE CORE MECHANISM)
+
+Every write_file and edit_file call in toolService.ts goes through this flow:
+
+### Step 1: Acquire micro-lock
+```
+INSERT INTO file_locks (team_id, project_name, file_path, locked_by)
+VALUES (team_id, project, path, user_id)
+ON CONFLICT DO NOTHING
+RETURNING id;
+```
+If the insert returns nothing (lock held by someone else), wait 500ms
+and retry up to 5 times. This is a <3 second worst case — the other
+writer is in the middle of a file write and will release in milliseconds.
+
+### Step 2: Re-read the current file
+Always read the file from disk right before writing. Never use a cached
+version. This ensures the AI sees any changes made by other sessions
+since it last read the file.
+
+### Step 3: Check edit log for recent changes
+Query the last 5 edits to this specific file:
+```
+SELECT user_id, summary, lines_affected, created_at
+FROM project_edit_log
+WHERE team_id = ? AND project_name = ? AND file_path = ?
+ORDER BY created_at DESC LIMIT 5
+```
+If there are edits by other users since the AI last read this file,
+inject them into the AI's context:
+"Note: This file was recently modified by Sarah (2 min ago):
+Added useAuth provider wrapper and protected route logic (lines 15-42).
+Preserve these changes while making your edit."
+
+### Step 4: Apply the edit
+The AI writes/edits the file. If this is an edit_file (not full rewrite),
+the edit is applied against the CURRENT file content (step 2), not the
+version the AI saw earlier in conversation.
+
+### Step 5: Log the edit
+Insert into project_edit_log with an AI-generated summary of what changed
+and why. The summary is generated by the AI as part of the write — it
+already knows the intent.
+
+### Step 6: Release the micro-lock
+```
+DELETE FROM file_locks WHERE id = lock_id;
+```
+
+### Timing
+Steps 1-6 take <100ms for a typical file write. The lock is held for
+about 50ms. Other users' AI sessions are never blocked in a noticeable way.
+
+---
+
+## HOW THE AI STAYS AWARE
+
+### Edit log in system prompt
+Before each AI response, the system prompt includes a "Team Activity" block
+with the last 10-15 edits to the current project by other members:
+
+```
+## Recent Team Edits (other members)
+- Sarah (3 min ago): edited src/App.tsx — Added auth routes and useAuth provider wrapper
+- Sarah (2 min ago): created src/hooks/useAuth.ts — Session validation hook with JWT refresh
+- Sarah (1 min ago): edited src/styles/globals.css — Added login page styles
+```
+
+This gives the AI continuous situational awareness. It naturally avoids
+conflicting with Sarah's work because it can see what she's doing.
+
+### Active intents
+The system prompt also shows what other members' AIs are currently doing:
+
+```
+## Active Now
+- Sarah is working on: User authentication flow (touching: App.tsx, useAuth.ts, LoginPage.tsx)
+```
+
+This lets the AI plan around in-progress work. If Mike asks to "refactor
+the routing in App.tsx", the AI might say: "Sarah is currently adding
+auth routes to App.tsx. I'll set up the dashboard routes in a way that
+works alongside her changes, and we can refactor the routing structure
+once she's done."
+
+### File change notifications via Realtime
+Subscribe to project_edit_log via Supabase Realtime. When another member's
+AI writes a file, the current user's app gets notified instantly. The
+notification is used to:
+1. Update the sidebar (show which files were recently modified by teammates)
+2. If the file is currently open in preview, refresh it
+3. Add a subtle indicator in chat: "📝 Sarah updated App.tsx"
+
+---
+
+## CONFLICT SCENARIOS AND HOW THEY'RE HANDLED
+
+### Scenario 1: Different files (90% of cases)
+Sarah edits `auth.ts`, Mike edits `dashboard.ts`.
+**Result:** No conflict. Both proceed independently. Edit log keeps
+everyone aware.
+
+### Scenario 2: Same file, different areas (8% of cases)
+Sarah adds auth routes (lines 15-30) to `App.tsx`. Mike adds dashboard
+import (line 5) and dashboard route (lines 45-50) to `App.tsx`.
+**Result:** No conflict. Mike's AI re-reads the file, sees Sarah's
+additions, applies its edit around them. The edit log summary tells
+Mike's AI exactly what Sarah added and where.
+
+### Scenario 3: Same file, overlapping area (1.5% of cases)
+Sarah adds a `useAuth` check inside the `<Routes>` component. Mike
+wants to restructure the `<Routes>` component to add nested layouts.
+**Result:** Mike's AI re-reads the file, sees Sarah's useAuth check
+via the edit log ("Added useAuth provider wrapper, lines 15-42"),
+and incorporates it into the restructured routing. The AI has full
+context of both intents and produces the combined result. User sees
+nothing unusual.
+
+### Scenario 4: True intent conflict (0.5% of cases)
+Sarah's AI deletes a component that Mike's AI is trying to modify.
+**Result:** Mike's AI sees from the edit log that Sarah deleted the
+file/component. It mentions this naturally in chat: "I see Sarah
+removed the old UserCard component. I'll build the updated version
+with the new design instead." The AI adapts — it doesn't ask the
+user to resolve anything.
+
+### Scenario 5: Simultaneous write to same file (<0.1% of cases)
+Both AIs try to write the same file at the exact same millisecond.
+**Result:** The micro-lock serializes them. One goes first, the
+other waits <500ms, re-reads, re-applies. No data loss, no corruption.
+
+---
+
+## MIGRATION FROM PROJECT-LEVEL TO FILE-LEVEL LOCKING
+
+The transition is backward-compatible:
+
+1. Keep the existing project_locks table and all its logic for now
+2. Add file_locks table alongside it
+3. Remove the lock gate from aiService.ts sendMessage (no more
+   project-level blocking)
+4. Add the micro-lock logic to toolService.ts write_file/edit_file
+5. Once stable, deprecate project_locks
+
+The project_locks system becomes a "soft indicator" instead of a hard
+block — the sidebar still shows who's working on a project, but doesn't
+prevent others from also working on it.
+
+---
+
+## SHARED CONTEXT SYNC
+
+### How it works
+When a team member's AI calls write_context (the tool that updates
+.omnirun/context.md), the content is written to BOTH:
+1. Local file (.omnirun/context.md) — for offline access
+2. Supabase project_shared_context table — for team sync
+
+When another member opens the project, their app:
+1. Checks project_shared_context for the latest version
+2. If newer than local, pulls it down and updates the local file
+3. Subscribes to Realtime for future changes
+
+### Conflict handling for context
+Context writes are less frequent (a few times per session, not hundreds).
+Use last-write-wins with a brief merge: if two members' AIs update
+context simultaneously, the second write includes both members' changes
+because the AI re-reads the shared context before writing.
+
+### contextService.ts changes
+- For team projects: write_context writes to Supabase instead of (or in
+  addition to) local file
+- loadContext checks Supabase first, falls back to local
+- Subscribe to Realtime for project_shared_context changes
+
+---
+
+## SIDEBAR UI CHANGES
+
+### Current (project-level lock)
+- Lock icon + "Sarah is working on this" → project grayed out
+
+### New (parallel collaboration)
+- Project is NEVER grayed out (anyone can open any project)
+- Small avatars/dots next to project name showing who's currently in it
+  - Green dot: you're in this project
+  - Blue dot(s): teammates are in this project
+  - Hover to see names
+- Inside the project (files tab), show per-file indicators:
+  - Small avatar next to files recently edited by teammates
+  - Pulsing dot on files currently being written by a teammate's AI
+  - Tooltip: "Sarah edited 2 min ago"
+
+---
+
+## SMART ROUTING: OPUS FOR CONCURRENT EDITS
+
+When a team member's AI is about to write a file that was recently edited
+by a teammate, the smart routing in aiService.ts routeModel() should
+escalate to Opus. Opus is significantly better at understanding the intent
+of both edits and producing clean combined code.
+
+### Routing rule (added to routeModel in aiService.ts)
+```
+// Team collaboration: file recently changed by teammate → Opus
+// Check the edit log for entries by OTHER users on files the AI is about to touch
+if (teamProject && editLogHasRecentChangesByOthers) {
+  return { model: ANTHROPIC_MODELS.opus, maxTokens: MAX_TOKENS_PER_TIER.opus, tier: "opus" };
+}
+```
+
+### When Opus kicks in
+- The current project is a team project (user has a team)
+- The edit log contains entries by OTHER team members in the last 30 minutes
+- The AI's current task involves writing/editing files
+
+### When normal routing still applies (Haiku/Sonnet)
+- Solo users (no team) — no change
+- Team projects where only YOU have been editing — no concurrent work
+- Read-only operations (browsing files, asking questions)
+- No recent edits by teammates in the edit log
+
+### Cost impact
+Minimal. Opus only triggers when there's actual concurrent work happening
+on the same project. For teams where members work on separate projects,
+routing is identical to solo users. The cost increase is proportional to
+the actual collaboration complexity — exactly when you need the strongest
+model.
+
+---
+
+## SYSTEM PROMPT ADDITIONS
+
+Add to aiService.ts buildSystemPrompt when team is active:
+
+```
+## TEAM COLLABORATION — READ THIS
+
+You are working on a shared team project. Other team members may be
+working on this project simultaneously with their own AI sessions.
+
+RULES:
+1. Before editing any file, I will show you recent edits by teammates.
+   ALWAYS preserve their changes unless the user explicitly asks to
+   undo or replace them.
+2. When you see an active intent from another member, plan your work
+   to be compatible. Don't restructure code they're actively modifying.
+3. After every file write, generate a one-line summary of what you
+   changed and why. This helps other AI sessions understand your work.
+4. If you notice a teammate's recent edit conflicts with what the user
+   asked for, explain the situation and adapt. Don't ask the user to
+   resolve it — just incorporate both needs.
+5. NEVER overwrite, undo, or remove another teammate's recent changes
+   unless the user explicitly requests it.
+
+## Recent Team Edits
+{edit_log_entries}
+
+## Active Now
+{active_intents}
+```
+
+---
+
+## IMPLEMENTATION ORDER
+
+### Phase 1: Shared context + edit log (foundation)
+1. Supabase migration: project_edit_log, project_active_intents, project_shared_context tables
+2. contextService.ts: sync context to/from Supabase for team projects
+3. toolService.ts: log every write_file/edit_file to project_edit_log
+4. aiService.ts: inject edit log + active intents into system prompt
+5. teamStore.ts: subscribe to edit_log and active_intents via Realtime
+
+### Phase 2: File-level micro-locks (parallel writes)
+6. Supabase migration: file_locks table
+7. toolService.ts: acquire/release micro-lock around file writes
+8. toolService.ts: re-read file before every write (stale content protection)
+9. toolService.ts: inject recent edit log for target file into AI context before write
+10. Remove project-level lock gate from aiService.ts sendMessage
+
+### Phase 3: UI updates
+11. Sidebar: replace project lock icons with multi-user avatar indicators
+12. Files tab: per-file teammate edit indicators
+13. Chat: subtle "Sarah updated X" notifications
+14. Team Settings: remove force-unlock (no longer needed)
+
+### Phase 4: Polish
+15. Edit log cleanup pg_cron job (7 day retention)
+16. Stale file lock cleanup (30 second timeout)
+17. Active intent heartbeat + auto-clear on idle
+18. Performance testing: verify micro-locks add <100ms to write operations
+19. Stress testing: 5 concurrent AI sessions on same project
+
+---
+
+## WHAT THIS ENABLES (MARKETING ANGLE)
+
+"Omnirun is the only AI app builder where your entire team works on
+the same project at the same time. No merge conflicts, no taking turns,
+no technical complexity. Each person talks to their own AI, and Omnirun
+coordinates everything automatically."
+
+Competitors:
+- Cursor: single-user (Composer). No team collaboration on same file.
+- Lovable: single-user. No teams at all.
+- Bolt: single-user. No teams at all.
+- Replit: has multiplayer, but no AI coordination between sessions.
+- GitHub Copilot: per-user, no shared awareness between team members.
+
+Omnirun is the first tool where multiple AI sessions are AWARE of each
+other and coordinate automatically. This is a genuine differentiator.
+
+---
+
+## WHAT'S NOT INCLUDED (FUTURE)
+
+- [ ] Git branch per user (full isolation with merge) — overkill for MVP
+- [ ] Visual merge conflict UI — against our principles (AI handles it)
+- [ ] File-level permissions (only Sarah can edit auth files) — unnecessary complexity
+- [ ] Real-time cursor presence (see where teammates are typing) — not relevant, AI writes code
+- [ ] Co-editing same file simultaneously in a visual editor — not our model
+- [ ] Undo other member's changes button — too dangerous, use git for rollback
+
+---
+
+## DEVELOPMENT CHECKLIST
+
+### Phase 1: Shared Context + Edit Log
+- [ ] Supabase migration: project_edit_log table + RLS + indexes
+- [ ] Supabase migration: project_active_intents table + RLS
+- [ ] Supabase migration: project_shared_context table + RLS + Realtime
+- [ ] contextService.ts: shared context write (write to Supabase for team projects)
+- [ ] contextService.ts: shared context read (check Supabase, fallback to local)
+- [ ] contextService.ts: Realtime subscription for context changes
+- [ ] toolService.ts: log write_file/edit_file/delete_file to project_edit_log
+- [ ] toolService.ts: AI generates one-line summary for each file operation
+- [ ] aiService.ts: inject edit log into system prompt (last 10-15 entries by other members)
+- [ ] aiService.ts: inject active intents into system prompt
+- [ ] teamStore.ts: manage active intents (set on first message, clear on idle/switch)
+- [ ] teamStore.ts: subscribe to project_edit_log via Realtime
+- [ ] teamStore.ts: subscribe to project_active_intents via Realtime
+- [ ] System prompt: team collaboration rules (preserve teammate changes, adapt, never ask user to resolve)
+- [ ] aiService.ts routeModel: escalate to Opus when edit log has recent changes by other team members
+- [ ] pg_cron: cleanup_old_edit_logs (7 day retention)
+
+### Phase 2: File-Level Micro-Locks
+- [ ] Supabase migration: file_locks table + RLS
+- [ ] toolService.ts: acquire micro-lock before write (upsert with retry)
+- [ ] toolService.ts: re-read file from disk immediately before writing
+- [ ] toolService.ts: check edit log for recent changes to target file, inject into AI context
+- [ ] toolService.ts: release micro-lock after write
+- [ ] aiService.ts: remove project-level lock gate from sendMessage
+- [ ] teamStore.ts: remove project-level lock logic (lockProject, unlockProject, heartbeat, idle timer)
+- [ ] pg_cron: cleanup_stale_file_locks (30 second timeout)
+
+### Phase 3: UI Updates
+- [ ] Sidebar: multi-user avatar dots on projects (who's currently in this project)
+- [ ] Sidebar: projects never grayed out — anyone can open any project
+- [ ] Files tab: per-file indicators (teammate avatar, "edited 2 min ago" tooltip)
+- [ ] Files tab: pulsing dot on files currently being written by teammate's AI
+- [ ] Chat: subtle "Sarah updated App.tsx" inline notification
+- [ ] Team Settings: remove force-unlock button (no longer relevant)
+
+### Phase 4: Polish
+- [ ] Edit log cleanup pg_cron job (7 day retention)
+- [ ] Stale file lock cleanup (30 second timeout)
+- [ ] Active intent heartbeat (60s) + auto-clear on idle (15 min)
+- [ ] Performance testing: micro-lock overhead < 100ms
+- [ ] Stress testing: 5 concurrent sessions on same project
+- [ ] User disclosure: "Project context is shared with your team" notice in Team Settings
+- [ ] User disclosure: "Shared with team" badge on project context panel

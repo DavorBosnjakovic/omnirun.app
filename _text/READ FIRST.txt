@@ -1,0 +1,68 @@
+# RULES -- READ THIS FIRST
+
+- Read the checklist files before doing anything
+- Always ask for files you need to see before starting to work
+- When asking for or giving me files, always give me the path and filename first
+- Don't give code snippets -- give complete files or exact replacements (exact lines)
+- Keep explanations simple, no dev jargon
+- One file at a time, wait for confirmation between files
+
+---
+
+# Omnirun -- Project Knowledge Overview
+# Updated: March 26, 2026
+
+## Product Name: Omnirun
+## Domain: omnirun.app
+## Tagline: "Run everything. Describe it. Done."
+
+## What is Omnirun?
+A desktop application (Tauri) that lets anyone build software, automate tasks,
+and control their computer by describing what they want -- typing or voice.
+Not just a dev tool -- it runs anything. Now expanding into a proactive personal
+agent platform with email, calendar, and watching agent capabilities.
+
+## File Guide
+
+| File | Purpose |
+|------|---------|
+| strategy.txt | Target market, competitor positioning, revenue projections, pitch lines |
+| project.txt | Complete product spec -- features, pricing, roadmap, GTM, key decisions |
+| structure.txt | App folder structure, website structure, deployment, user data paths |
+| UI-styles.txt | Theme system, colors, design tokens |
+| branding.txt | Logo, colors, typography, usage rules |
+| team-features.txt | Team/collaboration feature specs |
+| scheduled-tasks-summary.txt | Scheduled tasks feature spec (Tasks is now a top-level sidebar section) |
+| mobile-companion.txt | Mobile companion app spec, architecture, and dev checklist |
+| supabase-backend.txt | Backend architecture and Supabase setup |
+| security-protections-checklist.txt | Security implementation checklist |
+| token-optimization-checklist.txt | Token/cost optimization checklist |
+| prompt-caching.txt | Prompt caching strategy |
+| APIconnections-checklist.txt | API integrations checklist |
+| DEVtasks-checklist.txt | Development tasks and progress -- READ THIS before starting any dev work |
+| desktop-app-control.txt | Desktop app control spec (screenshot + input simulation, v2 feature) |
+| template-marketplace.txt | Template system spec and marketplace strategy |
+| agent-features-and-nav-redesign.txt | Agent features (email, watching agents), navigation redesign, Home dashboard spec -- March 2026 |
+
+## Key Technical Decisions
+- Desktop app: Tauri (Rust + React + TypeScript)
+- BYOK model (users bring own Anthropic API key)
+- Direct distribution (no app stores)
+- SQLite for local data
+- Supabase for cloud backend (auth, billing, team, analytics)
+
+## App Navigation Structure (as of March 26, 2026)
+Four top-level sidebar sections:
+1. Home -- dashboard (Morning Brief, widgets for projects/email/tasks/usage/connections)
+2. Projects -- existing build/chat experience, unchanged
+3. Assistant -- global chat for personal AI (email agents, calendar, watching agents)
+4. Tasks -- Scheduled Tasks view (was Tools dropdown only, now top-level)
+
+## Two Types of Connections (CRITICAL DISTINCTION)
+- Connections (Settings page) = project services: Vercel, GitHub, Stripe, Supabase etc.
+- Assistant connections = personal integrations: Gmail, Outlook, Calendar etc.
+These are NEVER mixed. Email connections live in the Assistant section, not Settings.
+
+## Name History
+Previously "omnirun" -- renamed to Omnirun to reflect broader scope beyond
+just development. Now further expanding to a full personal AI platform.

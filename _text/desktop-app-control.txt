@@ -1,0 +1,399 @@
+OMNIRUN - DESKTOP APP CONTROL
+================================
+(Screenshot + Input Simulation Approach)
+Added: February 22, 2026
+Status: Planning (v2 feature)
+Priority: After browser control (Playwright) is stable
+
+---
+
+## What Is It?
+
+Omnirun can see and control ANY desktop application -- not just browsers. It takes screenshots, sends them to Claude Vision, and Claude tells it where to click, what to type, what to do next.
+
+"Open Figma, create a new frame 1440x900, name it Homepage V3."
+"Go to Excel, select column B, sort ascending."
+"Open Photoshop, resize this image to 800x600, save as PNG."
+
+This is the "any app, not just ones with APIs" feature.
+
+---
+
+## How It Works (Option B: Screenshot + Input Simulation)
+
+1. User gives a command (voice or text)
+2. Omnirun takes a screenshot of the current screen
+3. Screenshot is sent to Claude Vision with the user's instruction
+4. Claude analyzes the screen and responds with an action: "click at (450, 230)" or "type 1440" or "press Ctrl+S"
+5. Tauri's Rust backend simulates the mouse movement / click / keystroke
+6. Omnirun takes another screenshot to verify the result
+7. Repeat until the task is complete
+
+This is a loop: screenshot -> think -> act -> screenshot -> think -> act.
+
+The AI sees exactly what the user sees. No need to understand each app's internal structure.
+
+---
+
+## Why Option B Over Accessibility APIs?
+
+Two approaches were considered:
+
+**Option A: Accessibility APIs (UI Automation on Windows, Accessibility framework on Mac, AT-SPI on Linux)**
+- Reads the app's UI tree programmatically (find buttons by name, read text fields)
+- More reliable when it works
+- Problem: every app exposes different quality UI trees. Electron apps are terrible. Some apps expose almost nothing.
+- Would need per-app debugging and edge cases
+
+**Option B: Screenshot + Input Simulation (chosen)**
+- Works with literally any app -- if a human can see it and click it, Omnirun can too
+- Simpler to build (no per-app quirks)
+- Matches where the industry is heading (Anthropic's own computer use works this way)
+- Downside: slower (screenshot round-trips), costs more (vision tokens)
+
+**Decision: Start with Option B. Add Option A as optimization for popular apps later if needed.**
+
+---
+
+## Token Cost Breakdown
+
+### Per Step (one click or type action)
+- System prompt: ~800-1,500 tokens
+- Screenshot image: ~1,200-1,600 tokens (at 1920x1080)
+- User instruction: ~20 tokens
+- AI response (coordinates + action): ~50 tokens
+- **Total per step: ~2,000-3,200 tokens**
+
+### Example Task: "Open Figma, create frame 1440x900, name it Homepage V3"
+
+| Step | Action | ~Tokens |
+|------|--------|---------|
+| 1 | Screenshot, find Figma in taskbar, click | 2,500 |
+| 2 | Screenshot, confirm Figma opened, click new/frame tool | 2,500 |
+| 3 | Screenshot, find frame tool or menu option, click | 2,500 |
+| 4 | Screenshot, find width field, click, type 1440 | 2,500 |
+| 5 | Screenshot, find height field, click, type 900 | 2,500 |
+| 6 | Screenshot, find layer name, double-click, type name | 2,500 |
+| 7 | Screenshot, confirm done | 2,500 |
+| **Total** | **7 steps** | **~17,500** |
+
+### Cost Per Task by Model
+
+| Model | Input $/1M tokens | Cost for 17,500 tokens |
+|-------|-------------------|----------------------|
+| Haiku 4.5 | $0.80 | ~$0.014 (1.4 cents) |
+| Sonnet 4.5 | $3.00 | ~$0.053 (5.3 cents) |
+| Opus | $15.00 | ~$0.263 (26.3 cents) |
+
+### Daily Cost Estimate (20 tasks/day)
+
+| Model | Daily | Monthly |
+|-------|-------|---------|
+| Haiku 4.5 | ~$0.28 | ~$8.40 |
+| Sonnet 4.5 | ~$1.06 | ~$31.80 |
+| Opus | ~$5.26 | ~$157.80 |
+
+**Recommendation: Default to Haiku for screen control. It's surprisingly good at reading screenshots and outputting coordinates. Only escalate to Sonnet when Haiku fails or the screen is complex.**
+
+---
+
+## Cost Optimization Strategies
+
+### 1. Crop, Don't Send Full Screen
+If we know the active window (via OS APIs), screenshot only that window instead of the full screen. Half the pixels = roughly half the tokens.
+
+### 2. Cache the System Prompt
+The instruction set for screen control (~1,000 tokens) is the same every call. With prompt caching already planned, this gets 90% discount after the first call in a session.
+
+### 3. Batch Actions
+Instead of one screenshot per action, let the AI plan 2-3 actions from one screenshot when it's confident. "Click the width field, type 1440, tab to height field, type 900" = 1 screenshot instead of 4.
+
+### 4. Skip Confirmation Screenshots
+Don't screenshot after every single action. Only screenshot when:
+- AI needs to navigate somewhere new
+- AI needs to verify a result
+- Previous action might have triggered a dialog or popup
+- User explicitly asks to verify
+
+### 5. Resolution Downscaling
+Scale screenshots to a lower resolution before sending. 1920x1080 -> 1280x720 or even 960x540 is usually enough for Claude to read UI elements. Significant token savings.
+
+### 6. Haiku-First with Escalation
+Try Haiku first. If Haiku returns low confidence or fails to identify elements, automatically retry with Sonnet. Most screens are simple enough for Haiku.
+
+### With All Optimizations Applied
+~10,000-12,000 tokens per task instead of 17,500
+~$0.01 per task on Haiku (one penny)
+
+---
+
+## Technical Implementation (Tauri / Rust)
+
+### Screenshot Capture
+- **Windows:** `win-screenshot` crate or Windows Graphics Capture API
+- **Mac:** `screencapturekit` or CGWindowListCreateImage
+- **Linux:** X11 `XGetImage` or PipeWire for Wayland
+- Can capture full screen or specific window
+- Return as PNG bytes, convert to base64 for Claude Vision API
+
+### Input Simulation
+- **Rust crate: `enigo`** -- cross-platform mouse + keyboard simulation
+- Supports: mouse move, click (left/right/middle), drag, scroll, key press, key release, key combos, text typing
+- Works on Windows, Mac, Linux
+- Alternative: `autopilot-rs` (similar but less maintained)
+
+### Active Window Detection
+- **Windows:** `GetForegroundWindow` + `GetWindowText` via `winapi` crate
+- **Mac:** `NSWorkspace.shared.frontmostApplication` via `objc` crate
+- **Linux:** `xdotool getactivewindow` or X11 bindings
+- Returns: app name, window title, window dimensions
+- Used to: crop screenshots to active window, provide context to AI ("user is in Figma")
+
+### App Launching
+- **All platforms:** Rust `std::process::Command` to launch apps
+- **Windows:** Can also use `ShellExecute` for registered file associations
+- **Mac:** `open -a "App Name"` command
+- **Linux:** Standard binary paths or `xdg-open`
+- Need an app registry: common apps mapped to their launch commands per OS
+
+---
+
+## AI System Prompt for Screen Control
+
+The screen control system prompt tells Claude how to interpret screenshots and output actions.
+
+Key instructions:
+- "You are controlling a computer. You can see the screen via screenshots."
+- "Respond with ONE action at a time in this exact format:"
+  - `CLICK x y` -- click at pixel coordinates
+  - `DOUBLE_CLICK x y` -- double-click at coordinates
+  - `RIGHT_CLICK x y` -- right-click at coordinates
+  - `TYPE text` -- type the given text
+  - `KEY combo` -- press key combination (e.g., KEY ctrl+s, KEY enter, KEY tab)
+  - `SCROLL direction amount` -- scroll up/down/left/right
+  - `DRAG x1 y1 x2 y2` -- click and drag
+  - `WAIT seconds` -- wait for something to load
+  - `DONE` -- task is complete
+  - `FAIL reason` -- task cannot be completed, explain why
+- "Always describe what you see before acting."
+- "If something unexpected appears (dialog, error, popup), handle it."
+- "If you're unsure about coordinates, describe the element you're looking for."
+
+---
+
+## Action Flow
+
+### Simple Command
+```
+User: "Open Notepad and type hello world"
+
+Step 1: [Screenshot] -> AI sees desktop
+AI: "I see the Windows desktop. I'll open Notepad via the Start menu."
+Action: CLICK 28 1060  (Start button)
+
+Step 2: [Screenshot] -> AI sees Start menu
+AI: "Start menu is open. I'll type to search for Notepad."
+Action: TYPE notepad
+
+Step 3: [Screenshot] -> AI sees search results
+AI: "Notepad appears in search results. I'll click it."
+Action: CLICK 200 300  (Notepad result)
+
+Step 4: [Screenshot] -> AI sees Notepad open
+AI: "Notepad is open with a blank document. I'll type the text."
+Action: TYPE hello world
+
+Step 5: [Screenshot] -> AI sees "hello world" in Notepad
+AI: "Text has been typed successfully."
+Action: DONE
+```
+
+### With Error Recovery
+```
+User: "Open Photoshop and resize image to 800x600"
+
+Step 3: [Screenshot] -> AI sees "Photoshop is not installed" or app not found
+AI: "Photoshop doesn't appear to be installed on this system. I can see GIMP is available. Would you like me to use GIMP instead, or try a different approach?"
+Action: FAIL Photoshop not found. GIMP is available as alternative.
+
+Omnirun shows this to user, asks what to do.
+```
+
+---
+
+## Safety & User Control
+
+### Approval Flow
+- **Sensitive actions require approval:**
+  - Anything involving passwords or login fields
+  - Purchasing or payment screens
+  - Deleting files or data
+  - Sending emails or messages
+  - Posting to social media
+  - System settings changes
+- AI detects these by reading the screen context
+- Omnirun pauses and asks: "I'm about to click 'Send' on this email. Proceed?"
+
+### Real-Time Visibility
+- User sees every screenshot the AI sees (displayed in chat as thumbnails)
+- User sees every action before/as it happens
+- Actions have a small delay (configurable, default 500ms) so user can see what's happening
+
+### Kill Switch
+- **Global hotkey to stop immediately** (e.g., Escape or F10)
+- Stops all input simulation instantly
+- Returns control to user
+- AI session pauses, can be resumed or cancelled
+
+### Privacy
+- Screenshots are sent to Claude API and are NOT stored locally or remotely after processing
+- Screenshots never leave the Claude API call (same as any other API request)
+- Sensitive screen detection: if AI sees banking, medical, or password fields, it flags this and asks before proceeding
+- User can define "never screenshot these apps" blocklist in settings
+
+---
+
+## Settings UI
+
+```
++-------------------------------------------------------------+
+| Desktop App Control                                         |
++-------------------------------------------------------------+
+|                                                             |
+| [x] Enable desktop app control                             |
+|                                                             |
+| Model for screen reading:                                   |
+| ( ) Haiku (cheapest, ~1 cent/task)                         |
+| (o) Auto (Haiku first, Sonnet if needed)                   |
+| ( ) Sonnet (more accurate, ~5 cents/task)                  |
+|                                                             |
+| Action delay: [500ms  v]                                    |
+| (Time between actions -- slower = easier to follow)         |
+|                                                             |
+| Screenshot quality: [Medium (720p) v]                       |
+| (Lower = cheaper, Higher = more accurate)                   |
+|                                                             |
+| Always ask before:                                          |
+| [x] Clicking send/submit/post buttons                      |
+| [x] Entering password fields                               |
+| [x] Making purchases                                        |
+| [x] Deleting anything                                       |
+| [ ] Every single action (slow but safe)                     |
+|                                                             |
+| Never control these apps:                                   |
+| [Banking App, Password Manager  ] [+ Add]                   |
+|                                                             |
+| Emergency stop hotkey: [F10]                                |
+|                                                             |
++-------------------------------------------------------------+
+```
+
+---
+
+## Relationship to Existing Features
+
+### Browser Control (Playwright) vs Desktop App Control
+
+| | Browser Control | Desktop App Control |
+|---|---|---|
+| **How** | Playwright automation | Screenshot + input simulation |
+| **Speed** | Fast (direct DOM access) | Slower (screenshot round-trips) |
+| **Cost** | Low (no vision tokens) | Higher (vision tokens per step) |
+| **Reliability** | High (CSS selectors) | Medium (visual recognition) |
+| **Scope** | Websites only | Any app on the computer |
+
+**Rule: If it's in a browser, use Playwright. If it's a desktop app, use screen control.**
+
+Omnirun auto-detects: if the active window is a browser, route to Playwright. If it's anything else, route to screen control.
+
+### Voice Integration
+Desktop app control works with existing voice system:
+- "Hey Omnirun, open Figma and create a new frame" -> voice triggers screen control
+- Same voice pipeline, just a different execution backend
+
+### Custom Routines
+Desktop app control actions can be part of routines:
+- "Good morning" routine could include: open Outlook (desktop app control) + check calendar (browser control) + play music (system command)
+- Mix and match all three control methods in one routine
+
+---
+
+## Implementation Phases
+
+### Phase 1: Core Engine (v2.0)
+- [ ] Screenshot capture (cross-platform, Rust)
+- [ ] Input simulation via enigo crate (mouse + keyboard)
+- [ ] Active window detection (app name, title, dimensions)
+- [ ] Window-only screenshot cropping
+- [ ] AI screen control system prompt
+- [ ] Action parser (CLICK, TYPE, KEY, SCROLL, DRAG, WAIT, DONE, FAIL)
+- [ ] Screenshot -> AI -> Action loop
+- [ ] Action execution with configurable delay
+- [ ] Kill switch (global hotkey stops everything)
+- [ ] Basic safety: pause on password/payment/send detection
+- [ ] Chat integration: show screenshots as thumbnails in chat
+- [ ] Settings UI for desktop control preferences
+
+### Phase 2: Smart Optimizations (v2.1)
+- [ ] Haiku-first with auto-escalation to Sonnet
+- [ ] Action batching (multiple actions from one screenshot)
+- [ ] Skip redundant confirmation screenshots
+- [ ] Resolution downscaling before sending
+- [ ] Prompt caching for screen control system prompt
+- [ ] App launch registry (common apps per OS)
+- [ ] Remember app locations between sessions (don't re-search every time)
+
+### Phase 3: Advanced (v2.2+)
+- [ ] Accessibility API hybrid: use UI Automation for popular apps (faster, cheaper), fall back to screenshots for unknown apps
+- [ ] App-specific profiles: known UI layouts for common apps (Figma, Photoshop, Excel) to reduce screenshot needs
+- [ ] Multi-monitor support
+- [ ] Screen region focus: user can say "look at the top-right panel" to limit screenshot area
+- [ ] OCR caching: if same screen area hasn't changed, reuse previous reading
+
+---
+
+## Edge Cases to Handle
+
+**App not installed:** AI sees it's not there, reports back, suggests alternatives.
+**App needs update:** Dialog pops up. AI reads it, asks user if they want to update or skip.
+**App is loading:** AI sees loading screen, uses WAIT action, retries.
+**Unexpected popup/dialog:** AI reads the popup, decides whether to dismiss or alert user.
+**Wrong app in focus:** AI notices the wrong app is active, switches to the correct one.
+**Screen resolution mismatch:** Coordinates calibrated to actual resolution. AI prompt includes current resolution.
+**Multiple monitors:** Need to specify which monitor to capture. Start with primary monitor only (Phase 1).
+**App is minimized:** AI can't see it. Restore/maximize first using taskbar click or OS command.
+**Permission denied:** Some OS actions need admin rights. AI detects this, alerts user.
+**Dark mode vs light mode:** Claude Vision handles both fine. No special handling needed.
+
+---
+
+## Dependencies
+
+**Must be done first (already planned):**
+- Browser control via Playwright (builds the UX patterns for approval flow, real-time visibility, kill switch)
+- Voice system (shared input pipeline)
+- Error recovery system (screenshot control needs this heavily)
+
+**New Rust crates needed:**
+- `enigo` -- input simulation
+- `screenshots` or platform-specific capture crates
+- Platform window management APIs (already partially available through Tauri)
+
+**No new infrastructure needed.** Same AI API, same BYOK model, same Supabase backend. This is purely a desktop-side feature.
+
+---
+
+## What This Enables
+
+Once desktop app control works, these become possible:
+
+- **Multi-app workflows:** "Take data from Excel, create invoices in QuickBooks, email them via Outlook" -- mixing browser control + desktop control seamlessly
+- **Form filling anywhere:** Not just web forms. Desktop application forms too.
+- **Screen reading on trigger:** User says "what am I looking at?" -- Omnirun screenshots, describes the screen, understands context
+- **Learning from demonstration (future):** Record user actions as screenshots + inputs, replay them. This feature is the foundation for that.
+
+---
+
+## One-Line Summary
+
+Omnirun takes a screenshot, asks Claude what it sees, Claude says where to click, Omnirun clicks. Repeat until done. Any app, any screen, one penny per task.

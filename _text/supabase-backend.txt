@@ -1,0 +1,2748 @@
+
+
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+
+CREATE SCHEMA IF NOT EXISTS "public";
+
+
+ALTER SCHEMA "public" OWNER TO "pg_database_owner";
+
+
+COMMENT ON SCHEMA "public" IS 'standard public schema';
+
+
+
+CREATE TYPE "public"."activity_action" AS ENUM (
+    'project_created',
+    'project_deleted',
+    'project_opened',
+    'deployed',
+    'deploy_failed',
+    'member_joined',
+    'member_removed',
+    'member_invited',
+    'team_created',
+    'team_settings_changed',
+    'task_created',
+    'task_run',
+    'task_failed'
+);
+
+
+ALTER TYPE "public"."activity_action" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."api_key_policy" AS ENUM (
+    'shared',
+    'individual'
+);
+
+
+ALTER TYPE "public"."api_key_policy" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."billing_interval" AS ENUM (
+    'monthly',
+    'yearly'
+);
+
+
+ALTER TYPE "public"."billing_interval" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."command_status" AS ENUM (
+    'pending',
+    'sent',
+    'executed',
+    'failed',
+    'expired'
+);
+
+
+ALTER TYPE "public"."command_status" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."command_type" AS ENUM (
+    'wake',
+    'shutdown',
+    'restart',
+    'sleep'
+);
+
+
+ALTER TYPE "public"."command_type" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."invitation_status" AS ENUM (
+    'pending',
+    'accepted',
+    'expired',
+    'canceled'
+);
+
+
+ALTER TYPE "public"."invitation_status" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."plan_tier" AS ENUM (
+    'starter',
+    'pro',
+    'business',
+    'enterprise'
+);
+
+
+ALTER TYPE "public"."plan_tier" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."subscription_status" AS ENUM (
+    'trialing',
+    'active',
+    'past_due',
+    'canceled',
+    'unpaid',
+    'paused',
+    'incomplete',
+    'incomplete_expired'
+);
+
+
+ALTER TYPE "public"."subscription_status" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."team_role" AS ENUM (
+    'owner',
+    'member'
+);
+
+
+ALTER TYPE "public"."team_role" OWNER TO "postgres";
+
+
+CREATE TYPE "public"."template_tier" AS ENUM (
+    'basic',
+    'pro',
+    'custom'
+);
+
+
+ALTER TYPE "public"."template_tier" OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_get_feature_adoption"() RETURNS json
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  IF NOT is_admin() THEN
+    RAISE EXCEPTION 'Admin access required';
+  END IF;
+  RETURN (SELECT json_agg(r) FROM admin_feature_adoption r);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."admin_get_feature_adoption"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_get_revenue_summary"() RETURNS json
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  IF NOT is_admin() THEN
+    RAISE EXCEPTION 'Admin access required';
+  END IF;
+  RETURN (SELECT row_to_json(r) FROM admin_revenue_summary r);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."admin_get_revenue_summary"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."admin_get_users_at_risk"() RETURNS json
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  IF NOT is_admin() THEN
+    RAISE EXCEPTION 'Admin access required';
+  END IF;
+  RETURN (SELECT json_agg(r) FROM admin_revenue_at_risk r);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."admin_get_users_at_risk"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."check_project_limit"() RETURNS json
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  user_plan TEXT;
+  project_count INTEGER;
+  project_limit INTEGER;
+BEGIN
+  -- Get user's current plan
+  SELECT plan INTO user_plan
+  FROM profiles
+  WHERE id = auth.uid();
+
+  -- Count ALL registered projects (active + inactive)
+  SELECT COUNT(*) INTO project_count
+  FROM user_projects
+  WHERE user_id = auth.uid();
+
+  -- Get limit for their plan
+  project_limit := get_project_limit(COALESCE(user_plan, 'starter'));
+
+  RETURN json_build_object(
+    'allowed', project_count < project_limit,
+    'current', project_count,
+    'limit', project_limit,
+    'plan', COALESCE(user_plan, 'starter')
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."check_project_limit"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."check_seat_limit"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+DECLARE
+  current_count INTEGER;
+  max_allowed INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO current_count
+  FROM team_members WHERE team_id = NEW.team_id;
+
+  SELECT max_seats INTO max_allowed
+  FROM teams WHERE id = NEW.team_id;
+
+  IF current_count >= max_allowed THEN
+    RAISE EXCEPTION 'Team has reached maximum seat limit (%)', max_allowed;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."check_seat_limit"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."cleanup_expired_pairing_tokens"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  DELETE FROM pairing_tokens
+  WHERE is_paired = FALSE AND expires_at < NOW();
+END;
+$$;
+
+
+ALTER FUNCTION "public"."cleanup_expired_pairing_tokens"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."cleanup_old_activity"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  DELETE FROM team_activity_log
+  WHERE created_at < NOW() - INTERVAL '30 days';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."cleanup_old_activity"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."cleanup_old_commands"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  DELETE FROM remote_commands
+  WHERE created_at < NOW() - INTERVAL '7 days';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."cleanup_old_commands"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."cleanup_old_webhook_events"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  DELETE FROM stripe_webhook_events
+  WHERE processed_at < NOW() - INTERVAL '90 days';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."cleanup_old_webhook_events"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."cleanup_stale_locks"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  DELETE FROM project_locks
+  WHERE last_heartbeat < NOW() - INTERVAL '5 minutes';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."cleanup_stale_locks"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."deactivate_project"("p_path_hash" "text") RETURNS json
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  UPDATE user_projects
+  SET status = 'inactive',
+      removed_at = now()
+  WHERE user_id = auth.uid() AND path_hash = p_path_hash;
+
+  IF NOT FOUND THEN
+    RETURN json_build_object('success', false, 'error', 'project_not_found');
+  END IF;
+
+  RETURN json_build_object('success', true);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."deactivate_project"("p_path_hash" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."expire_old_commands"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  UPDATE remote_commands
+  SET status = 'expired'
+  WHERE status = 'pending' AND expires_at < NOW();
+END;
+$$;
+
+
+ALTER FUNCTION "public"."expire_old_commands"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."expire_old_invitations"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  UPDATE team_invitations
+  SET status = 'expired'
+  WHERE status = 'pending' AND expires_at < NOW();
+END;
+$$;
+
+
+ALTER FUNCTION "public"."expire_old_invitations"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_geo_distribution"() RETURNS TABLE("country" "text", "user_count" bigint)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    AS $$
+  SELECT
+    COALESCE(country, 'Unknown') AS country,
+    COUNT(*) AS user_count
+  FROM profiles
+  WHERE country IS NOT NULL
+  GROUP BY country
+  ORDER BY user_count DESC
+  LIMIT 20;
+$$;
+
+
+ALTER FUNCTION "public"."get_geo_distribution"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_project_limit"("plan_tier" "text") RETURNS integer
+    LANGUAGE "plpgsql" IMMUTABLE
+    AS $$
+BEGIN
+  RETURN CASE plan_tier
+    WHEN 'starter' THEN 1
+    WHEN 'pro' THEN 5
+    WHEN 'business' THEN 15
+    WHEN 'enterprise' THEN 999999  -- effectively unlimited
+    ELSE 0  -- no plan = no projects
+  END;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_project_limit"("plan_tier" "text") OWNER TO "postgres";
+
+SET default_tablespace = '';
+
+SET default_table_access_method = "heap";
+
+
+CREATE TABLE IF NOT EXISTS "public"."templates" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "slug" "text" NOT NULL,
+    "name" "text" NOT NULL,
+    "category" "text" NOT NULL,
+    "description" "text" DEFAULT ''::"text" NOT NULL,
+    "icon" "text" DEFAULT '­ƒôü'::"text" NOT NULL,
+    "default_name" "text" DEFAULT 'My Project'::"text" NOT NULL,
+    "framework" "text" DEFAULT 'static'::"text" NOT NULL,
+    "tier" "public"."template_tier" DEFAULT 'basic'::"public"."template_tier" NOT NULL,
+    "sort_order" integer DEFAULT 0 NOT NULL,
+    "is_active" boolean DEFAULT true NOT NULL,
+    "featured" boolean DEFAULT false NOT NULL,
+    "version" integer DEFAULT 1 NOT NULL,
+    "file_count" integer DEFAULT 0 NOT NULL,
+    "tags" "text"[] DEFAULT '{}'::"text"[],
+    "preview_url" "text",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."templates" OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_templates_for_plan"("user_plan" "text") RETURNS SETOF "public"."templates"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  RETURN QUERY
+  SELECT *
+  FROM templates
+  WHERE is_active = TRUE
+    AND (
+      tier = 'basic'
+      OR (tier = 'pro' AND user_plan IN ('pro', 'business', 'enterprise'))
+      OR (tier = 'custom' AND user_plan = 'enterprise')
+    )
+  ORDER BY category, sort_order, name;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_templates_for_plan"("user_plan" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_top_models"() RETURNS TABLE("model" "text", "provider" "text", "usage_count" bigint, "total_tokens" bigint, "total_cost" numeric)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    AS $$
+  SELECT
+    model,
+    provider,
+    COUNT(*) AS usage_count,
+    COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
+    COALESCE(SUM(estimated_cost), 0) AS total_cost
+  FROM usage_events
+  WHERE occurred_at >= NOW() - INTERVAL '30 days'
+  GROUP BY model, provider
+  ORDER BY usage_count DESC
+  LIMIT 10;
+$$;
+
+
+ALTER FUNCTION "public"."get_top_models"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_top_providers"() RETURNS TABLE("provider" "text", "usage_count" bigint, "total_tokens" bigint, "total_cost" numeric)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    AS $$
+  SELECT
+    provider,
+    COUNT(*) AS usage_count,
+    COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
+    COALESCE(SUM(estimated_cost), 0) AS total_cost
+  FROM usage_events
+  WHERE occurred_at >= NOW() - INTERVAL '30 days'
+  GROUP BY provider
+  ORDER BY usage_count DESC
+  LIMIT 10;
+$$;
+
+
+ALTER FUNCTION "public"."get_top_providers"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_total_cost"() RETURNS numeric
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    AS $$
+  SELECT COALESCE(SUM(estimated_cost), 0)
+  FROM usage_events
+  WHERE occurred_at >= NOW() - INTERVAL '30 days';
+$$;
+
+
+ALTER FUNCTION "public"."get_total_cost"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."handle_new_user"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  detected_provider TEXT;
+BEGIN
+  -- Detect auth provider from Supabase auth metadata
+  detected_provider := COALESCE(
+    NEW.raw_app_meta_data->>'provider',
+    'email'
+  );
+
+  INSERT INTO profiles (id, email, display_name, avatar_url, auth_provider, subscription_status)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(
+      NEW.raw_user_meta_data->>'full_name',
+      NEW.raw_user_meta_data->>'name',
+      split_part(NEW.email, '@', 1)
+    ),
+    NEW.raw_user_meta_data->>'avatar_url',
+    detected_provider,
+    'incomplete'
+  );
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."handle_new_user"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."is_admin"() RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM profiles WHERE id = auth.uid() AND is_admin = TRUE
+  );
+$$;
+
+
+ALTER FUNCTION "public"."is_admin"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."is_team_member"("team_uuid" "uuid") RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM team_members WHERE team_id = team_uuid AND user_id = auth.uid()
+  );
+$$;
+
+
+ALTER FUNCTION "public"."is_team_member"("team_uuid" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."is_team_owner"("team_uuid" "uuid") RETURNS boolean
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM teams WHERE id = team_uuid AND owner_id = auth.uid()
+  );
+$$;
+
+
+ALTER FUNCTION "public"."is_team_owner"("team_uuid" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mark_stale_devices_offline"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  UPDATE devices
+  SET is_online = FALSE
+  WHERE is_online = TRUE AND last_heartbeat < NOW() - INTERVAL '2 minutes';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."mark_stale_devices_offline"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."register_project"("p_path_hash" "text", "p_project_name" "text", "p_machine_id" "text") RETURNS json
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  user_plan TEXT;
+  project_count INTEGER;
+  project_limit INTEGER;
+  existing_project user_projects%ROWTYPE;
+  new_project user_projects%ROWTYPE;
+BEGIN
+  -- Check if this exact project already exists (re-adding a removed folder)
+  SELECT * INTO existing_project
+  FROM user_projects
+  WHERE user_id = auth.uid() AND path_hash = p_path_hash;
+
+  IF FOUND THEN
+    -- Re-activate existing project ÔÇö doesn't count as new
+    UPDATE user_projects
+    SET status = 'active',
+        project_name = p_project_name,
+        last_opened_at = now(),
+        removed_at = NULL
+    WHERE id = existing_project.id
+    RETURNING * INTO new_project;
+
+    RETURN json_build_object(
+      'success', true,
+      'reactivated', true,
+      'project_id', new_project.id
+    );
+  END IF;
+
+  -- New project ÔÇö check limit
+  SELECT plan INTO user_plan FROM profiles WHERE id = auth.uid();
+  SELECT COUNT(*) INTO project_count FROM user_projects WHERE user_id = auth.uid();
+  project_limit := get_project_limit(COALESCE(user_plan, 'starter'));
+
+  IF project_count >= project_limit THEN
+    RETURN json_build_object(
+      'success', false,
+      'error', 'project_limit_reached',
+      'current', project_count,
+      'limit', project_limit,
+      'plan', COALESCE(user_plan, 'starter')
+    );
+  END IF;
+
+  -- Insert new project
+  INSERT INTO user_projects (user_id, path_hash, project_name, machine_id)
+  VALUES (auth.uid(), p_path_hash, p_project_name, p_machine_id)
+  RETURNING * INTO new_project;
+
+  RETURN json_build_object(
+    'success', true,
+    'reactivated', false,
+    'project_id', new_project.id
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."register_project"("p_path_hash" "text", "p_project_name" "text", "p_machine_id" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."sync_subscription_to_profile"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  UPDATE profiles
+  SET
+    plan = NEW.plan,
+    subscription_status = NEW.status,
+    updated_at = NOW()
+  WHERE id = NEW.user_id;
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."sync_subscription_to_profile"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_templates_updated_at"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."update_templates_updated_at"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_updated_at"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."update_updated_at"() OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."admin_audit_log" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "admin_id" "uuid" NOT NULL,
+    "action" "text" NOT NULL,
+    "target_user_id" "uuid",
+    "details" "jsonb" DEFAULT '{}'::"jsonb",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."admin_audit_log" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."app_sessions" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "started_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "ended_at" timestamp with time zone,
+    "duration_seconds" integer,
+    "app_version" "text" NOT NULL,
+    "os" "text" NOT NULL,
+    "os_version" "text",
+    "messages_sent" integer DEFAULT 0 NOT NULL,
+    "files_modified" integer DEFAULT 0 NOT NULL,
+    "deploys" integer DEFAULT 0 NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "commands_run" integer DEFAULT 0 NOT NULL,
+    "tools_used" integer DEFAULT 0 NOT NULL
+);
+
+
+ALTER TABLE "public"."app_sessions" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."profiles" (
+    "id" "uuid" NOT NULL,
+    "email" "text" NOT NULL,
+    "display_name" "text",
+    "avatar_url" "text",
+    "plan" "public"."plan_tier" DEFAULT 'starter'::"public"."plan_tier" NOT NULL,
+    "subscription_status" "public"."subscription_status" DEFAULT 'incomplete'::"public"."subscription_status" NOT NULL,
+    "stripe_customer_id" "text",
+    "app_version" "text",
+    "os" "text",
+    "country" "text",
+    "timezone" "text",
+    "locale" "text" DEFAULT 'en'::"text",
+    "trial_started_at" timestamp with time zone,
+    "trial_ends_at" timestamp with time zone,
+    "last_active_at" timestamp with time zone,
+    "total_sessions" integer DEFAULT 0 NOT NULL,
+    "signup_source" "text",
+    "is_admin" boolean DEFAULT false NOT NULL,
+    "admin_notes" "text",
+    "is_banned" boolean DEFAULT false NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "auth_provider" "text" DEFAULT 'email'::"text"
+);
+
+
+ALTER TABLE "public"."profiles" OWNER TO "postgres";
+
+
+COMMENT ON COLUMN "public"."profiles"."signup_source" IS 'Self-reported: how they heard about omnirun (twitter, reddit, producthunt, youtube, friend, google_search, other). From onboarding dropdown.';
+
+
+
+COMMENT ON COLUMN "public"."profiles"."auth_provider" IS 'Auth method used at signup: email, google, github, magic_link. Auto-set by handle_new_user trigger.';
+
+
+
+CREATE OR REPLACE VIEW "public"."admin_cohort_retention" AS
+ SELECT "to_char"("p"."created_at", 'YYYY-MM'::"text") AS "cohort_month",
+    "count"(DISTINCT "p"."id") AS "cohort_size",
+    "count"(DISTINCT
+        CASE
+            WHEN (("s"."started_at" >= "p"."created_at") AND ("s"."started_at" < ("p"."created_at" + '30 days'::interval))) THEN "p"."id"
+            ELSE NULL::"uuid"
+        END) AS "active_month_0",
+    "count"(DISTINCT
+        CASE
+            WHEN (("s"."started_at" >= ("p"."created_at" + '30 days'::interval)) AND ("s"."started_at" < ("p"."created_at" + '60 days'::interval))) THEN "p"."id"
+            ELSE NULL::"uuid"
+        END) AS "active_month_1",
+    "count"(DISTINCT
+        CASE
+            WHEN (("s"."started_at" >= ("p"."created_at" + '60 days'::interval)) AND ("s"."started_at" < ("p"."created_at" + '90 days'::interval))) THEN "p"."id"
+            ELSE NULL::"uuid"
+        END) AS "active_month_2",
+    "count"(DISTINCT
+        CASE
+            WHEN (("s"."started_at" >= ("p"."created_at" + '90 days'::interval)) AND ("s"."started_at" < ("p"."created_at" + '120 days'::interval))) THEN "p"."id"
+            ELSE NULL::"uuid"
+        END) AS "active_month_3",
+    "count"(DISTINCT
+        CASE
+            WHEN (("s"."started_at" >= ("p"."created_at" + '120 days'::interval)) AND ("s"."started_at" < ("p"."created_at" + '150 days'::interval))) THEN "p"."id"
+            ELSE NULL::"uuid"
+        END) AS "active_month_4",
+    "count"(DISTINCT
+        CASE
+            WHEN (("s"."started_at" >= ("p"."created_at" + '150 days'::interval)) AND ("s"."started_at" < ("p"."created_at" + '180 days'::interval))) THEN "p"."id"
+            ELSE NULL::"uuid"
+        END) AS "active_month_5"
+   FROM ("public"."profiles" "p"
+     LEFT JOIN "public"."app_sessions" "s" ON (("s"."user_id" = "p"."id")))
+  GROUP BY ("to_char"("p"."created_at", 'YYYY-MM'::"text"))
+  ORDER BY ("to_char"("p"."created_at", 'YYYY-MM'::"text")) DESC;
+
+
+ALTER VIEW "public"."admin_cohort_retention" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."feature_events" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "feature" "text" NOT NULL,
+    "metadata" "jsonb" DEFAULT '{}'::"jsonb",
+    "occurred_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."feature_events" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."admin_feature_adoption" AS
+ SELECT "feature",
+    "count"(*) AS "total_uses",
+    "count"(DISTINCT "user_id") AS "unique_users",
+    "count"(*) FILTER (WHERE ("occurred_at" >= ("now"() - '7 days'::interval))) AS "uses_7d",
+    "count"(*) FILTER (WHERE ("occurred_at" >= ("now"() - '30 days'::interval))) AS "uses_30d",
+    "count"(DISTINCT "user_id") FILTER (WHERE ("occurred_at" >= ("now"() - '30 days'::interval))) AS "unique_users_30d",
+    "min"("occurred_at") AS "first_used",
+    "max"("occurred_at") AS "last_used"
+   FROM "public"."feature_events"
+  GROUP BY "feature"
+  ORDER BY ("count"(*) FILTER (WHERE ("occurred_at" >= ("now"() - '30 days'::interval)))) DESC;
+
+
+ALTER VIEW "public"."admin_feature_adoption" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."usage_events" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "provider" "text" NOT NULL,
+    "model" "text" NOT NULL,
+    "input_tokens" integer DEFAULT 0 NOT NULL,
+    "output_tokens" integer DEFAULT 0 NOT NULL,
+    "cache_read_tokens" integer DEFAULT 0 NOT NULL,
+    "cache_write_tokens" integer DEFAULT 0 NOT NULL,
+    "estimated_cost" numeric(10,6) DEFAULT 0 NOT NULL,
+    "project_name" "text",
+    "session_id" "uuid",
+    "occurred_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."usage_events" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."admin_power_users" AS
+ SELECT "p"."id" AS "user_id",
+    "p"."email",
+    "p"."display_name",
+    "p"."plan",
+    "p"."subscription_status",
+    "p"."country",
+    "p"."last_active_at",
+    "count"(DISTINCT "s"."id") AS "sessions_30d",
+    COALESCE("sum"("s"."messages_sent"), (0)::bigint) AS "messages_30d",
+    COALESCE("sum"("s"."files_modified"), (0)::bigint) AS "files_modified_30d",
+    COALESCE("sum"("s"."deploys"), (0)::bigint) AS "deploys_30d",
+    ((COALESCE("sum"("s"."duration_seconds"), (0)::bigint))::numeric / 3600.0) AS "hours_30d",
+    COALESCE("sum"(("u"."input_tokens" + "u"."output_tokens")), (0)::bigint) AS "total_tokens_30d",
+    COALESCE("sum"("u"."estimated_cost"), (0)::numeric) AS "total_cost_30d",
+    "count"(DISTINCT "f"."feature") AS "unique_features_30d"
+   FROM ((("public"."profiles" "p"
+     LEFT JOIN "public"."app_sessions" "s" ON ((("s"."user_id" = "p"."id") AND ("s"."started_at" >= ("now"() - '30 days'::interval)))))
+     LEFT JOIN "public"."usage_events" "u" ON ((("u"."user_id" = "p"."id") AND ("u"."occurred_at" >= ("now"() - '30 days'::interval)))))
+     LEFT JOIN "public"."feature_events" "f" ON ((("f"."user_id" = "p"."id") AND ("f"."occurred_at" >= ("now"() - '30 days'::interval)))))
+  GROUP BY "p"."id", "p"."email", "p"."display_name", "p"."plan", "p"."subscription_status", "p"."country", "p"."last_active_at"
+  ORDER BY ("count"(DISTINCT "s"."id")) DESC, COALESCE("sum"(("u"."input_tokens" + "u"."output_tokens")), (0)::bigint) DESC;
+
+
+ALTER VIEW "public"."admin_power_users" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."subscriptions" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "stripe_subscription_id" "text" NOT NULL,
+    "stripe_price_id" "text" NOT NULL,
+    "plan" "public"."plan_tier" NOT NULL,
+    "billing_interval" "public"."billing_interval" NOT NULL,
+    "status" "public"."subscription_status" DEFAULT 'incomplete'::"public"."subscription_status" NOT NULL,
+    "current_period_start" timestamp with time zone NOT NULL,
+    "current_period_end" timestamp with time zone NOT NULL,
+    "cancel_at" timestamp with time zone,
+    "canceled_at" timestamp with time zone,
+    "ended_at" timestamp with time zone,
+    "trial_start" timestamp with time zone,
+    "trial_end" timestamp with time zone,
+    "cancel_reason" "text",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."subscriptions" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."admin_revenue_at_risk" AS
+ SELECT "p"."id" AS "user_id",
+    "p"."email",
+    "p"."display_name",
+    "p"."plan",
+    "p"."subscription_status",
+    "sub"."billing_interval",
+    "sub"."current_period_end",
+    "p"."last_active_at",
+    (EXTRACT(day FROM ("now"() - "p"."last_active_at")))::integer AS "days_inactive",
+    "p"."total_sessions",
+    "p"."country",
+    "p"."os",
+        CASE
+            WHEN (("p"."plan" = 'starter'::"public"."plan_tier") AND ("sub"."billing_interval" = 'monthly'::"public"."billing_interval")) THEN (39)::numeric
+            WHEN (("p"."plan" = 'starter'::"public"."plan_tier") AND ("sub"."billing_interval" = 'yearly'::"public"."billing_interval")) THEN 32.50
+            WHEN (("p"."plan" = 'pro'::"public"."plan_tier") AND ("sub"."billing_interval" = 'monthly'::"public"."billing_interval")) THEN (69)::numeric
+            WHEN (("p"."plan" = 'pro'::"public"."plan_tier") AND ("sub"."billing_interval" = 'yearly'::"public"."billing_interval")) THEN 57.50
+            WHEN (("p"."plan" = 'business'::"public"."plan_tier") AND ("sub"."billing_interval" = 'monthly'::"public"."billing_interval")) THEN (199)::numeric
+            WHEN (("p"."plan" = 'business'::"public"."plan_tier") AND ("sub"."billing_interval" = 'yearly'::"public"."billing_interval")) THEN 165.83
+            ELSE (0)::numeric
+        END AS "monthly_revenue_at_risk"
+   FROM ("public"."profiles" "p"
+     JOIN "public"."subscriptions" "sub" ON ((("sub"."user_id" = "p"."id") AND ("sub"."status" = ANY (ARRAY['active'::"public"."subscription_status", 'trialing'::"public"."subscription_status"])))))
+  WHERE (("p"."last_active_at" < ("now"() - '14 days'::interval)) AND ("p"."subscription_status" = ANY (ARRAY['active'::"public"."subscription_status", 'trialing'::"public"."subscription_status"])))
+  ORDER BY
+        CASE
+            WHEN (("p"."plan" = 'starter'::"public"."plan_tier") AND ("sub"."billing_interval" = 'monthly'::"public"."billing_interval")) THEN (39)::numeric
+            WHEN (("p"."plan" = 'starter'::"public"."plan_tier") AND ("sub"."billing_interval" = 'yearly'::"public"."billing_interval")) THEN 32.50
+            WHEN (("p"."plan" = 'pro'::"public"."plan_tier") AND ("sub"."billing_interval" = 'monthly'::"public"."billing_interval")) THEN (69)::numeric
+            WHEN (("p"."plan" = 'pro'::"public"."plan_tier") AND ("sub"."billing_interval" = 'yearly'::"public"."billing_interval")) THEN 57.50
+            WHEN (("p"."plan" = 'business'::"public"."plan_tier") AND ("sub"."billing_interval" = 'monthly'::"public"."billing_interval")) THEN (199)::numeric
+            WHEN (("p"."plan" = 'business'::"public"."plan_tier") AND ("sub"."billing_interval" = 'yearly'::"public"."billing_interval")) THEN 165.83
+            ELSE (0)::numeric
+        END DESC, ((EXTRACT(day FROM ("now"() - "p"."last_active_at")))::integer) DESC;
+
+
+ALTER VIEW "public"."admin_revenue_at_risk" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."admin_revenue_summary" AS
+ SELECT ( SELECT "count"(*) AS "count"
+           FROM "public"."profiles") AS "total_users",
+    ( SELECT "count"(*) AS "count"
+           FROM "public"."profiles"
+          WHERE ("profiles"."created_at" >= ("now"() - '30 days'::interval))) AS "signups_30d",
+    ( SELECT "count"(*) AS "count"
+           FROM "public"."profiles"
+          WHERE ("profiles"."created_at" >= ("now"() - '7 days'::interval))) AS "signups_7d",
+    ( SELECT "count"(*) AS "count"
+           FROM "public"."subscriptions"
+          WHERE ("subscriptions"."status" = ANY (ARRAY['active'::"public"."subscription_status", 'trialing'::"public"."subscription_status"]))) AS "active_subscriptions",
+    ( SELECT "count"(*) AS "count"
+           FROM "public"."subscriptions"
+          WHERE (("subscriptions"."status" = ANY (ARRAY['active'::"public"."subscription_status", 'trialing'::"public"."subscription_status"])) AND ("subscriptions"."plan" = 'starter'::"public"."plan_tier"))) AS "starter_count",
+    ( SELECT "count"(*) AS "count"
+           FROM "public"."subscriptions"
+          WHERE (("subscriptions"."status" = ANY (ARRAY['active'::"public"."subscription_status", 'trialing'::"public"."subscription_status"])) AND ("subscriptions"."plan" = 'pro'::"public"."plan_tier"))) AS "pro_count",
+    ( SELECT "count"(*) AS "count"
+           FROM "public"."subscriptions"
+          WHERE (("subscriptions"."status" = ANY (ARRAY['active'::"public"."subscription_status", 'trialing'::"public"."subscription_status"])) AND ("subscriptions"."plan" = 'business'::"public"."plan_tier"))) AS "business_count",
+    ( SELECT "count"(*) AS "count"
+           FROM "public"."subscriptions"
+          WHERE (("subscriptions"."status" = ANY (ARRAY['active'::"public"."subscription_status", 'trialing'::"public"."subscription_status"])) AND ("subscriptions"."plan" = 'enterprise'::"public"."plan_tier"))) AS "enterprise_count",
+    ( SELECT COALESCE("sum"(
+                CASE
+                    WHEN (("subscriptions"."plan" = 'starter'::"public"."plan_tier") AND ("subscriptions"."billing_interval" = 'monthly'::"public"."billing_interval")) THEN (39)::numeric
+                    WHEN (("subscriptions"."plan" = 'starter'::"public"."plan_tier") AND ("subscriptions"."billing_interval" = 'yearly'::"public"."billing_interval")) THEN 32.50
+                    WHEN (("subscriptions"."plan" = 'pro'::"public"."plan_tier") AND ("subscriptions"."billing_interval" = 'monthly'::"public"."billing_interval")) THEN (69)::numeric
+                    WHEN (("subscriptions"."plan" = 'pro'::"public"."plan_tier") AND ("subscriptions"."billing_interval" = 'yearly'::"public"."billing_interval")) THEN 57.50
+                    WHEN (("subscriptions"."plan" = 'business'::"public"."plan_tier") AND ("subscriptions"."billing_interval" = 'monthly'::"public"."billing_interval")) THEN (199)::numeric
+                    WHEN (("subscriptions"."plan" = 'business'::"public"."plan_tier") AND ("subscriptions"."billing_interval" = 'yearly'::"public"."billing_interval")) THEN 165.83
+                    ELSE (0)::numeric
+                END), (0)::numeric) AS "coalesce"
+           FROM "public"."subscriptions"
+          WHERE ("subscriptions"."status" = ANY (ARRAY['active'::"public"."subscription_status", 'trialing'::"public"."subscription_status"]))) AS "mrr",
+    ( SELECT "count"(*) AS "count"
+           FROM "public"."profiles"
+          WHERE ("profiles"."subscription_status" = 'trialing'::"public"."subscription_status")) AS "active_trials",
+    ( SELECT "count"(*) AS "count"
+           FROM "public"."profiles"
+          WHERE (("profiles"."subscription_status" = 'incomplete'::"public"."subscription_status") AND ("profiles"."trial_ends_at" < "now"()))) AS "expired_trials",
+    ( SELECT "count"(*) AS "count"
+           FROM "public"."subscriptions"
+          WHERE (("subscriptions"."status" = 'canceled'::"public"."subscription_status") AND ("subscriptions"."canceled_at" >= ("now"() - '30 days'::interval)))) AS "churned_30d",
+    ( SELECT "count"(DISTINCT "app_sessions"."user_id") AS "count"
+           FROM "public"."app_sessions"
+          WHERE ("app_sessions"."started_at" >= ("now"() - '1 day'::interval))) AS "dau",
+    ( SELECT "count"(DISTINCT "app_sessions"."user_id") AS "count"
+           FROM "public"."app_sessions"
+          WHERE ("app_sessions"."started_at" >= ("now"() - '7 days'::interval))) AS "wau",
+    ( SELECT "count"(DISTINCT "app_sessions"."user_id") AS "count"
+           FROM "public"."app_sessions"
+          WHERE ("app_sessions"."started_at" >= ("now"() - '30 days'::interval))) AS "mau";
+
+
+ALTER VIEW "public"."admin_revenue_summary" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."admin_trial_conversions" AS
+ SELECT "p"."id" AS "user_id",
+    "p"."email",
+    "p"."display_name",
+    "p"."auth_provider",
+    "p"."signup_source",
+    "p"."created_at" AS "signed_up_at",
+    "p"."trial_started_at",
+    "p"."trial_ends_at",
+    "p"."plan" AS "current_plan",
+    "p"."subscription_status",
+    "sub"."plan" AS "subscribed_plan",
+    "sub"."billing_interval",
+    "sub"."created_at" AS "subscription_created_at",
+    (EXTRACT(day FROM ("sub"."created_at" - "p"."created_at")))::integer AS "days_to_convert",
+        CASE
+            WHEN (("p"."subscription_status" = ANY (ARRAY['active'::"public"."subscription_status", 'trialing'::"public"."subscription_status"])) AND ("p"."plan" <> 'starter'::"public"."plan_tier")) THEN 'converted'::"text"
+            WHEN ("p"."subscription_status" = 'trialing'::"public"."subscription_status") THEN 'in_trial'::"text"
+            WHEN ("p"."subscription_status" = ANY (ARRAY['canceled'::"public"."subscription_status", 'incomplete_expired'::"public"."subscription_status"])) THEN 'churned'::"text"
+            WHEN (("p"."trial_ends_at" < "now"()) AND ("p"."subscription_status" = 'incomplete'::"public"."subscription_status")) THEN 'trial_expired'::"text"
+            ELSE 'other'::"text"
+        END AS "funnel_stage"
+   FROM ("public"."profiles" "p"
+     LEFT JOIN "public"."subscriptions" "sub" ON ((("sub"."user_id" = "p"."id") AND ("sub"."status" = 'active'::"public"."subscription_status"))))
+  ORDER BY "p"."created_at" DESC;
+
+
+ALTER VIEW "public"."admin_trial_conversions" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."team_members" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "team_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "role" "public"."team_role" DEFAULT 'member'::"public"."team_role" NOT NULL,
+    "joined_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."team_members" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."teams" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "name" "text" DEFAULT 'My Team'::"text" NOT NULL,
+    "owner_id" "uuid" NOT NULL,
+    "plan" "public"."plan_tier" NOT NULL,
+    "api_key_policy" "public"."api_key_policy" DEFAULT 'individual'::"public"."api_key_policy" NOT NULL,
+    "max_seats" integer DEFAULT 1 NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."teams" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."user_projects" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "path_hash" "text" NOT NULL,
+    "project_name" "text" DEFAULT 'Unnamed Project'::"text" NOT NULL,
+    "machine_id" "text" NOT NULL,
+    "status" "text" DEFAULT 'active'::"text" NOT NULL,
+    "first_added_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "last_opened_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "removed_at" timestamp with time zone,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "user_projects_status_check" CHECK (("status" = ANY (ARRAY['active'::"text", 'inactive'::"text"])))
+);
+
+
+ALTER TABLE "public"."user_projects" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."admin_user_overview" AS
+ SELECT "p"."id" AS "user_id",
+    "p"."email",
+    "p"."display_name",
+    "p"."plan",
+    "p"."subscription_status",
+    "p"."auth_provider",
+    "p"."signup_source",
+    "p"."app_version",
+    "p"."os",
+    "p"."country",
+    "p"."timezone",
+    "p"."is_banned",
+    "p"."is_admin",
+    "p"."admin_notes",
+    "p"."trial_started_at",
+    "p"."trial_ends_at",
+    "p"."last_active_at",
+    "p"."total_sessions",
+    "p"."created_at" AS "signed_up_at",
+    "sub"."billing_interval",
+    "sub"."current_period_end",
+    "sub"."cancel_at",
+    "usage"."providers_used",
+    "usage"."models_used",
+    "usage"."top_provider",
+    "usage"."top_model",
+    COALESCE("usage"."total_tokens", (0)::bigint) AS "lifetime_tokens",
+    COALESCE("usage"."total_cost", (0)::numeric) AS "lifetime_cost",
+    COALESCE("usage"."total_calls", (0)::bigint) AS "lifetime_api_calls",
+    COALESCE("usage_30d"."total_tokens", (0)::bigint) AS "tokens_30d",
+    COALESCE("usage_30d"."total_cost", (0)::numeric) AS "cost_30d",
+    COALESCE("projects"."project_count", (0)::bigint) AS "project_count",
+    "tm"."team_name",
+    "tm"."team_role"
+   FROM ((((("public"."profiles" "p"
+     LEFT JOIN "public"."subscriptions" "sub" ON ((("sub"."user_id" = "p"."id") AND ("sub"."status" = ANY (ARRAY['active'::"public"."subscription_status", 'trialing'::"public"."subscription_status", 'past_due'::"public"."subscription_status"])))))
+     LEFT JOIN LATERAL ( SELECT "array_agg"(DISTINCT "usage_events"."provider") AS "providers_used",
+            "array_agg"(DISTINCT "usage_events"."model") AS "models_used",
+            "sum"(("usage_events"."input_tokens" + "usage_events"."output_tokens")) AS "total_tokens",
+            "sum"("usage_events"."estimated_cost") AS "total_cost",
+            "count"(*) AS "total_calls",
+            ( SELECT "usage_events_1"."provider"
+                   FROM "public"."usage_events" "usage_events_1"
+                  WHERE ("usage_events_1"."user_id" = "p"."id")
+                  GROUP BY "usage_events_1"."provider"
+                  ORDER BY ("count"(*)) DESC
+                 LIMIT 1) AS "top_provider",
+            ( SELECT "usage_events_1"."model"
+                   FROM "public"."usage_events" "usage_events_1"
+                  WHERE ("usage_events_1"."user_id" = "p"."id")
+                  GROUP BY "usage_events_1"."model"
+                  ORDER BY ("count"(*)) DESC
+                 LIMIT 1) AS "top_model"
+           FROM "public"."usage_events"
+          WHERE ("usage_events"."user_id" = "p"."id")) "usage" ON (true))
+     LEFT JOIN LATERAL ( SELECT "sum"(("usage_events"."input_tokens" + "usage_events"."output_tokens")) AS "total_tokens",
+            "sum"("usage_events"."estimated_cost") AS "total_cost"
+           FROM "public"."usage_events"
+          WHERE (("usage_events"."user_id" = "p"."id") AND ("usage_events"."occurred_at" >= ("now"() - '30 days'::interval)))) "usage_30d" ON (true))
+     LEFT JOIN LATERAL ( SELECT "count"(*) AS "project_count"
+           FROM "public"."user_projects"
+          WHERE (("user_projects"."user_id" = "p"."id") AND ("user_projects"."status" = 'active'::"text"))) "projects" ON (true))
+     LEFT JOIN LATERAL ( SELECT "t"."name" AS "team_name",
+            ("tmem"."role")::"text" AS "team_role"
+           FROM ("public"."team_members" "tmem"
+             JOIN "public"."teams" "t" ON (("t"."id" = "tmem"."team_id")))
+          WHERE ("tmem"."user_id" = "p"."id")
+         LIMIT 1) "tm" ON (true))
+  ORDER BY "p"."created_at" DESC;
+
+
+ALTER VIEW "public"."admin_user_overview" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."admin_user_provider_breakdown" AS
+ SELECT "p"."id" AS "user_id",
+    "p"."email",
+    "p"."display_name",
+    "p"."plan",
+    "u"."provider",
+    "u"."model",
+    "count"(*) AS "api_calls",
+    "sum"("u"."input_tokens") AS "input_tokens",
+    "sum"("u"."output_tokens") AS "output_tokens",
+    "sum"("u"."cache_read_tokens") AS "cache_read_tokens",
+    "sum"("u"."cache_write_tokens") AS "cache_write_tokens",
+    "sum"(("u"."input_tokens" + "u"."output_tokens")) AS "total_tokens",
+    "sum"("u"."estimated_cost") AS "total_cost",
+    "min"("u"."occurred_at") AS "first_used",
+    "max"("u"."occurred_at") AS "last_used"
+   FROM ("public"."profiles" "p"
+     JOIN "public"."usage_events" "u" ON (("u"."user_id" = "p"."id")))
+  GROUP BY "p"."id", "p"."email", "p"."display_name", "p"."plan", "u"."provider", "u"."model"
+  ORDER BY "p"."email", ("sum"("u"."estimated_cost")) DESC;
+
+
+ALTER VIEW "public"."admin_user_provider_breakdown" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."admin_user_usage_detail" AS
+ SELECT "p"."id" AS "user_id",
+    "p"."email",
+    "p"."display_name",
+    "p"."plan",
+    "u_summary"."providers_used",
+    "u_summary"."models_used",
+    COALESCE("u_summary"."lifetime_input_tokens", (0)::bigint) AS "lifetime_input_tokens",
+    COALESCE("u_summary"."lifetime_output_tokens", (0)::bigint) AS "lifetime_output_tokens",
+    COALESCE("u_summary"."lifetime_cache_read_tokens", (0)::bigint) AS "lifetime_cache_read_tokens",
+    COALESCE("u_summary"."lifetime_cache_write_tokens", (0)::bigint) AS "lifetime_cache_write_tokens",
+    COALESCE("u_summary"."lifetime_total_tokens", (0)::bigint) AS "lifetime_total_tokens",
+    COALESCE("u_summary"."lifetime_cost", (0)::numeric) AS "lifetime_cost",
+    COALESCE("u_summary"."lifetime_api_calls", (0)::bigint) AS "lifetime_api_calls",
+    COALESCE("u_30d"."tokens_30d", (0)::bigint) AS "tokens_30d",
+    COALESCE("u_30d"."cost_30d", (0)::numeric) AS "cost_30d",
+    COALESCE("u_30d"."calls_30d", (0)::bigint) AS "calls_30d",
+    COALESCE("u_7d"."tokens_7d", (0)::bigint) AS "tokens_7d",
+    COALESCE("u_7d"."cost_7d", (0)::numeric) AS "cost_7d"
+   FROM ((("public"."profiles" "p"
+     LEFT JOIN LATERAL ( SELECT "array_agg"(DISTINCT "usage_events"."provider") AS "providers_used",
+            "array_agg"(DISTINCT "usage_events"."model") AS "models_used",
+            "sum"("usage_events"."input_tokens") AS "lifetime_input_tokens",
+            "sum"("usage_events"."output_tokens") AS "lifetime_output_tokens",
+            "sum"("usage_events"."cache_read_tokens") AS "lifetime_cache_read_tokens",
+            "sum"("usage_events"."cache_write_tokens") AS "lifetime_cache_write_tokens",
+            "sum"(("usage_events"."input_tokens" + "usage_events"."output_tokens")) AS "lifetime_total_tokens",
+            "sum"("usage_events"."estimated_cost") AS "lifetime_cost",
+            "count"(*) AS "lifetime_api_calls"
+           FROM "public"."usage_events"
+          WHERE ("usage_events"."user_id" = "p"."id")) "u_summary" ON (true))
+     LEFT JOIN LATERAL ( SELECT "sum"(("usage_events"."input_tokens" + "usage_events"."output_tokens")) AS "tokens_30d",
+            "sum"("usage_events"."estimated_cost") AS "cost_30d",
+            "count"(*) AS "calls_30d"
+           FROM "public"."usage_events"
+          WHERE (("usage_events"."user_id" = "p"."id") AND ("usage_events"."occurred_at" >= ("now"() - '30 days'::interval)))) "u_30d" ON (true))
+     LEFT JOIN LATERAL ( SELECT "sum"(("usage_events"."input_tokens" + "usage_events"."output_tokens")) AS "tokens_7d",
+            "sum"("usage_events"."estimated_cost") AS "cost_7d"
+           FROM "public"."usage_events"
+          WHERE (("usage_events"."user_id" = "p"."id") AND ("usage_events"."occurred_at" >= ("now"() - '7 days'::interval)))) "u_7d" ON (true))
+  ORDER BY COALESCE("u_summary"."lifetime_cost", (0)::numeric) DESC;
+
+
+ALTER VIEW "public"."admin_user_usage_detail" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."assistant_email_accounts" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "provider" "text" NOT NULL,
+    "email" "text" NOT NULL,
+    "display_name" "text",
+    "access_token" "text" NOT NULL,
+    "refresh_token" "text",
+    "token_expires_at" timestamp with time zone,
+    "scopes" "text"[],
+    "is_active" boolean DEFAULT true,
+    "connected_at" timestamp with time zone DEFAULT "now"(),
+    "last_synced_at" timestamp with time zone,
+    "provider_type" "text" DEFAULT 'email'::"text" NOT NULL,
+    "account_label" "text",
+    CONSTRAINT "assistant_email_accounts_provider_check" CHECK (("provider" = ANY (ARRAY['gmail'::"text", 'outlook'::"text"]))),
+    CONSTRAINT "assistant_email_accounts_provider_type_check" CHECK (("provider_type" = ANY (ARRAY['email'::"text", 'calendar'::"text", 'messaging'::"text", 'other'::"text"])))
+);
+
+
+ALTER TABLE "public"."assistant_email_accounts" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."devices" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "device_name" "text" DEFAULT 'My Computer'::"text" NOT NULL,
+    "mac_address" "text",
+    "local_ip" "text",
+    "is_online" boolean DEFAULT false NOT NULL,
+    "last_heartbeat" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "cpu_usage" real,
+    "ram_usage" real,
+    "disk_usage" real,
+    "os" "text",
+    "os_version" "text",
+    "app_version" "text",
+    "wake_method" "text",
+    "wol_enabled" boolean DEFAULT false NOT NULL,
+    "wol_broadcast_ip" "text",
+    "wol_public_ip" "text",
+    "wol_public_port" integer DEFAULT 9,
+    "bios_power_on_ac" boolean DEFAULT false NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."devices" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."pairing_tokens" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "device_id" "uuid" NOT NULL,
+    "token" "text" DEFAULT "encode"("extensions"."gen_random_bytes"(32), 'hex'::"text") NOT NULL,
+    "pairing_code" "text",
+    "is_paired" boolean DEFAULT false NOT NULL,
+    "paired_device_name" "text",
+    "expires_at" timestamp with time zone DEFAULT ("now"() + '00:10:00'::interval) NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."pairing_tokens" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."project_locks" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "team_id" "uuid" NOT NULL,
+    "project_name" "text" NOT NULL,
+    "locked_by" "uuid" NOT NULL,
+    "locked_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "last_heartbeat" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."project_locks" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."remote_commands" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "device_id" "uuid" NOT NULL,
+    "command" "public"."command_type" NOT NULL,
+    "payload" "jsonb" DEFAULT '{}'::"jsonb",
+    "status" "public"."command_status" DEFAULT 'pending'::"public"."command_status" NOT NULL,
+    "sent_at" timestamp with time zone,
+    "executed_at" timestamp with time zone,
+    "error_message" "text",
+    "expires_at" timestamp with time zone DEFAULT ("now"() + '00:05:00'::interval) NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."remote_commands" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."stripe_webhook_events" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "stripe_event_id" "text" NOT NULL,
+    "event_type" "text" NOT NULL,
+    "processed_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "payload" "jsonb"
+);
+
+
+ALTER TABLE "public"."stripe_webhook_events" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."synced_projects" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "device_id" "uuid" NOT NULL,
+    "project_name" "text" NOT NULL,
+    "project_path" "text" NOT NULL,
+    "tech_stack" "text"[],
+    "file_count" integer,
+    "last_ai_session" timestamp with time zone,
+    "deploy_provider" "text",
+    "deploy_url" "text",
+    "last_deployed" timestamp with time zone,
+    "deploy_status" "text",
+    "synced_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."synced_projects" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."synced_tasks" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "device_id" "uuid" NOT NULL,
+    "task_name" "text" NOT NULL,
+    "task_id_local" "text" NOT NULL,
+    "project_name" "text",
+    "schedule" "text",
+    "is_active" boolean DEFAULT true NOT NULL,
+    "last_run_at" timestamp with time zone,
+    "last_run_status" "text",
+    "last_error" "text",
+    "next_run_at" timestamp with time zone,
+    "steps_json" "jsonb",
+    "synced_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."synced_tasks" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."team_activity_log" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "team_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "action" "public"."activity_action" NOT NULL,
+    "project_name" "text",
+    "metadata" "jsonb" DEFAULT '{}'::"jsonb",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."team_activity_log" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."team_invitations" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "team_id" "uuid" NOT NULL,
+    "invited_by" "uuid" NOT NULL,
+    "email" "text" NOT NULL,
+    "status" "public"."invitation_status" DEFAULT 'pending'::"public"."invitation_status" NOT NULL,
+    "token" "text" DEFAULT "encode"("extensions"."gen_random_bytes"(32), 'hex'::"text") NOT NULL,
+    "expires_at" timestamp with time zone DEFAULT ("now"() + '7 days'::interval) NOT NULL,
+    "accepted_at" timestamp with time zone,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."team_invitations" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."template_downloads" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "template_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "downloaded_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."template_downloads" OWNER TO "postgres";
+
+
+ALTER TABLE ONLY "public"."admin_audit_log"
+    ADD CONSTRAINT "admin_audit_log_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."app_sessions"
+    ADD CONSTRAINT "app_sessions_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."assistant_email_accounts"
+    ADD CONSTRAINT "assistant_email_accounts_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."assistant_email_accounts"
+    ADD CONSTRAINT "assistant_email_accounts_user_id_email_key" UNIQUE ("user_id", "email");
+
+
+
+ALTER TABLE ONLY "public"."devices"
+    ADD CONSTRAINT "devices_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."feature_events"
+    ADD CONSTRAINT "feature_events_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."pairing_tokens"
+    ADD CONSTRAINT "pairing_tokens_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."pairing_tokens"
+    ADD CONSTRAINT "pairing_tokens_token_key" UNIQUE ("token");
+
+
+
+ALTER TABLE ONLY "public"."profiles"
+    ADD CONSTRAINT "profiles_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."profiles"
+    ADD CONSTRAINT "profiles_stripe_customer_id_key" UNIQUE ("stripe_customer_id");
+
+
+
+ALTER TABLE ONLY "public"."project_locks"
+    ADD CONSTRAINT "project_locks_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."project_locks"
+    ADD CONSTRAINT "project_locks_team_id_project_name_key" UNIQUE ("team_id", "project_name");
+
+
+
+ALTER TABLE ONLY "public"."remote_commands"
+    ADD CONSTRAINT "remote_commands_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."stripe_webhook_events"
+    ADD CONSTRAINT "stripe_webhook_events_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."stripe_webhook_events"
+    ADD CONSTRAINT "stripe_webhook_events_stripe_event_id_key" UNIQUE ("stripe_event_id");
+
+
+
+ALTER TABLE ONLY "public"."subscriptions"
+    ADD CONSTRAINT "subscriptions_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."subscriptions"
+    ADD CONSTRAINT "subscriptions_stripe_subscription_id_key" UNIQUE ("stripe_subscription_id");
+
+
+
+ALTER TABLE ONLY "public"."synced_projects"
+    ADD CONSTRAINT "synced_projects_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."synced_projects"
+    ADD CONSTRAINT "synced_projects_user_id_device_id_project_name_key" UNIQUE ("user_id", "device_id", "project_name");
+
+
+
+ALTER TABLE ONLY "public"."synced_tasks"
+    ADD CONSTRAINT "synced_tasks_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."synced_tasks"
+    ADD CONSTRAINT "synced_tasks_user_id_device_id_task_id_local_key" UNIQUE ("user_id", "device_id", "task_id_local");
+
+
+
+ALTER TABLE ONLY "public"."team_activity_log"
+    ADD CONSTRAINT "team_activity_log_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."team_invitations"
+    ADD CONSTRAINT "team_invitations_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."team_invitations"
+    ADD CONSTRAINT "team_invitations_token_key" UNIQUE ("token");
+
+
+
+ALTER TABLE ONLY "public"."team_members"
+    ADD CONSTRAINT "team_members_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."team_members"
+    ADD CONSTRAINT "team_members_team_id_user_id_key" UNIQUE ("team_id", "user_id");
+
+
+
+ALTER TABLE ONLY "public"."teams"
+    ADD CONSTRAINT "teams_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."template_downloads"
+    ADD CONSTRAINT "template_downloads_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."templates"
+    ADD CONSTRAINT "templates_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."templates"
+    ADD CONSTRAINT "templates_slug_key" UNIQUE ("slug");
+
+
+
+ALTER TABLE ONLY "public"."usage_events"
+    ADD CONSTRAINT "usage_events_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."user_projects"
+    ADD CONSTRAINT "user_projects_pkey" PRIMARY KEY ("id");
+
+
+
+CREATE INDEX "idx_activity_team" ON "public"."team_activity_log" USING "btree" ("team_id");
+
+
+
+CREATE INDEX "idx_activity_team_created" ON "public"."team_activity_log" USING "btree" ("team_id", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_activity_user" ON "public"."team_activity_log" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_audit_admin" ON "public"."admin_audit_log" USING "btree" ("admin_id");
+
+
+
+CREATE INDEX "idx_audit_created" ON "public"."admin_audit_log" USING "btree" ("created_at" DESC);
+
+
+
+CREATE INDEX "idx_audit_target" ON "public"."admin_audit_log" USING "btree" ("target_user_id");
+
+
+
+CREATE INDEX "idx_commands_device" ON "public"."remote_commands" USING "btree" ("device_id");
+
+
+
+CREATE INDEX "idx_commands_status" ON "public"."remote_commands" USING "btree" ("status");
+
+
+
+CREATE INDEX "idx_devices_heartbeat" ON "public"."devices" USING "btree" ("last_heartbeat");
+
+
+
+CREATE INDEX "idx_devices_user" ON "public"."devices" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_features_feature" ON "public"."feature_events" USING "btree" ("feature");
+
+
+
+CREATE INDEX "idx_features_occurred" ON "public"."feature_events" USING "btree" ("occurred_at" DESC);
+
+
+
+CREATE INDEX "idx_features_user" ON "public"."feature_events" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_invitations_email" ON "public"."team_invitations" USING "btree" ("email");
+
+
+
+CREATE INDEX "idx_invitations_status" ON "public"."team_invitations" USING "btree" ("status");
+
+
+
+CREATE INDEX "idx_invitations_team" ON "public"."team_invitations" USING "btree" ("team_id");
+
+
+
+CREATE INDEX "idx_invitations_token" ON "public"."team_invitations" USING "btree" ("token");
+
+
+
+CREATE INDEX "idx_locks_heartbeat" ON "public"."project_locks" USING "btree" ("last_heartbeat");
+
+
+
+CREATE INDEX "idx_locks_team" ON "public"."project_locks" USING "btree" ("team_id");
+
+
+
+CREATE INDEX "idx_profiles_country" ON "public"."profiles" USING "btree" ("country");
+
+
+
+CREATE INDEX "idx_profiles_created_at" ON "public"."profiles" USING "btree" ("created_at" DESC);
+
+
+
+CREATE INDEX "idx_profiles_email" ON "public"."profiles" USING "btree" ("email");
+
+
+
+CREATE INDEX "idx_profiles_is_admin" ON "public"."profiles" USING "btree" ("is_admin") WHERE ("is_admin" = true);
+
+
+
+CREATE INDEX "idx_profiles_last_active" ON "public"."profiles" USING "btree" ("last_active_at" DESC);
+
+
+
+CREATE INDEX "idx_profiles_plan" ON "public"."profiles" USING "btree" ("plan");
+
+
+
+CREATE INDEX "idx_profiles_stripe_customer" ON "public"."profiles" USING "btree" ("stripe_customer_id");
+
+
+
+CREATE INDEX "idx_profiles_subscription_status" ON "public"."profiles" USING "btree" ("subscription_status");
+
+
+
+CREATE INDEX "idx_sessions_started" ON "public"."app_sessions" USING "btree" ("started_at" DESC);
+
+
+
+CREATE INDEX "idx_sessions_user" ON "public"."app_sessions" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_subscriptions_period_end" ON "public"."subscriptions" USING "btree" ("current_period_end");
+
+
+
+CREATE INDEX "idx_subscriptions_status" ON "public"."subscriptions" USING "btree" ("status");
+
+
+
+CREATE INDEX "idx_subscriptions_stripe_sub" ON "public"."subscriptions" USING "btree" ("stripe_subscription_id");
+
+
+
+CREATE INDEX "idx_subscriptions_user" ON "public"."subscriptions" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_synced_projects_user" ON "public"."synced_projects" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_synced_tasks_user" ON "public"."synced_tasks" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_team_members_team" ON "public"."team_members" USING "btree" ("team_id");
+
+
+
+CREATE INDEX "idx_team_members_user" ON "public"."team_members" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_teams_owner" ON "public"."teams" USING "btree" ("owner_id");
+
+
+
+CREATE INDEX "idx_template_downloads_template" ON "public"."template_downloads" USING "btree" ("template_id");
+
+
+
+CREATE INDEX "idx_template_downloads_user" ON "public"."template_downloads" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_templates_active" ON "public"."templates" USING "btree" ("is_active") WHERE ("is_active" = true);
+
+
+
+CREATE INDEX "idx_templates_category" ON "public"."templates" USING "btree" ("category", "sort_order");
+
+
+
+CREATE INDEX "idx_templates_tier" ON "public"."templates" USING "btree" ("tier");
+
+
+
+CREATE INDEX "idx_usage_model" ON "public"."usage_events" USING "btree" ("model");
+
+
+
+CREATE INDEX "idx_usage_occurred" ON "public"."usage_events" USING "btree" ("occurred_at" DESC);
+
+
+
+CREATE INDEX "idx_usage_provider" ON "public"."usage_events" USING "btree" ("provider");
+
+
+
+CREATE INDEX "idx_usage_user" ON "public"."usage_events" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_usage_user_occurred" ON "public"."usage_events" USING "btree" ("user_id", "occurred_at" DESC);
+
+
+
+CREATE INDEX "idx_user_projects_status" ON "public"."user_projects" USING "btree" ("user_id", "status");
+
+
+
+CREATE UNIQUE INDEX "idx_user_projects_unique" ON "public"."user_projects" USING "btree" ("user_id", "path_hash");
+
+
+
+CREATE INDEX "idx_user_projects_user" ON "public"."user_projects" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_webhook_event_id" ON "public"."stripe_webhook_events" USING "btree" ("stripe_event_id");
+
+
+
+CREATE INDEX "idx_webhook_type" ON "public"."stripe_webhook_events" USING "btree" ("event_type");
+
+
+
+CREATE OR REPLACE TRIGGER "devices_updated_at" BEFORE UPDATE ON "public"."devices" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
+
+
+
+CREATE OR REPLACE TRIGGER "enforce_seat_limit" BEFORE INSERT ON "public"."team_members" FOR EACH ROW EXECUTE FUNCTION "public"."check_seat_limit"();
+
+
+
+CREATE OR REPLACE TRIGGER "on_subscription_change" AFTER INSERT OR UPDATE ON "public"."subscriptions" FOR EACH ROW EXECUTE FUNCTION "public"."sync_subscription_to_profile"();
+
+
+
+CREATE OR REPLACE TRIGGER "profiles_updated_at" BEFORE UPDATE ON "public"."profiles" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
+
+
+
+CREATE OR REPLACE TRIGGER "subscriptions_updated_at" BEFORE UPDATE ON "public"."subscriptions" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
+
+
+
+CREATE OR REPLACE TRIGGER "teams_updated_at" BEFORE UPDATE ON "public"."teams" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at"();
+
+
+
+CREATE OR REPLACE TRIGGER "templates_updated_at" BEFORE UPDATE ON "public"."templates" FOR EACH ROW EXECUTE FUNCTION "public"."update_templates_updated_at"();
+
+
+
+ALTER TABLE ONLY "public"."admin_audit_log"
+    ADD CONSTRAINT "admin_audit_log_admin_id_fkey" FOREIGN KEY ("admin_id") REFERENCES "public"."profiles"("id");
+
+
+
+ALTER TABLE ONLY "public"."admin_audit_log"
+    ADD CONSTRAINT "admin_audit_log_target_user_id_fkey" FOREIGN KEY ("target_user_id") REFERENCES "public"."profiles"("id");
+
+
+
+ALTER TABLE ONLY "public"."app_sessions"
+    ADD CONSTRAINT "app_sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."assistant_email_accounts"
+    ADD CONSTRAINT "assistant_email_accounts_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."devices"
+    ADD CONSTRAINT "devices_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."feature_events"
+    ADD CONSTRAINT "feature_events_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."pairing_tokens"
+    ADD CONSTRAINT "pairing_tokens_device_id_fkey" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."pairing_tokens"
+    ADD CONSTRAINT "pairing_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."profiles"
+    ADD CONSTRAINT "profiles_id_fkey" FOREIGN KEY ("id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."project_locks"
+    ADD CONSTRAINT "project_locks_locked_by_fkey" FOREIGN KEY ("locked_by") REFERENCES "public"."profiles"("id");
+
+
+
+ALTER TABLE ONLY "public"."project_locks"
+    ADD CONSTRAINT "project_locks_team_id_fkey" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."remote_commands"
+    ADD CONSTRAINT "remote_commands_device_id_fkey" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."remote_commands"
+    ADD CONSTRAINT "remote_commands_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."subscriptions"
+    ADD CONSTRAINT "subscriptions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."synced_projects"
+    ADD CONSTRAINT "synced_projects_device_id_fkey" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."synced_projects"
+    ADD CONSTRAINT "synced_projects_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."synced_tasks"
+    ADD CONSTRAINT "synced_tasks_device_id_fkey" FOREIGN KEY ("device_id") REFERENCES "public"."devices"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."synced_tasks"
+    ADD CONSTRAINT "synced_tasks_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."team_activity_log"
+    ADD CONSTRAINT "team_activity_log_team_id_fkey" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."team_activity_log"
+    ADD CONSTRAINT "team_activity_log_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id");
+
+
+
+ALTER TABLE ONLY "public"."team_invitations"
+    ADD CONSTRAINT "team_invitations_invited_by_fkey" FOREIGN KEY ("invited_by") REFERENCES "public"."profiles"("id");
+
+
+
+ALTER TABLE ONLY "public"."team_invitations"
+    ADD CONSTRAINT "team_invitations_team_id_fkey" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."team_members"
+    ADD CONSTRAINT "team_members_team_id_fkey" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."team_members"
+    ADD CONSTRAINT "team_members_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."teams"
+    ADD CONSTRAINT "teams_owner_id_fkey" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."template_downloads"
+    ADD CONSTRAINT "template_downloads_template_id_fkey" FOREIGN KEY ("template_id") REFERENCES "public"."templates"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."template_downloads"
+    ADD CONSTRAINT "template_downloads_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."usage_events"
+    ADD CONSTRAINT "usage_events_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."user_projects"
+    ADD CONSTRAINT "user_projects_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+CREATE POLICY "Admins can manage templates" ON "public"."templates" USING ("public"."is_admin"()) WITH CHECK ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins can read all downloads" ON "public"."template_downloads" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins can read all projects" ON "public"."user_projects" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins only" ON "public"."admin_audit_log" USING ("public"."is_admin"()) WITH CHECK ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins read all activity" ON "public"."team_activity_log" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins read all devices" ON "public"."devices" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins read all features" ON "public"."feature_events" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins read all invitations" ON "public"."team_invitations" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins read all locks" ON "public"."project_locks" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins read all members" ON "public"."team_members" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins read all profiles" ON "public"."profiles" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins read all sessions" ON "public"."app_sessions" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins read all subscriptions" ON "public"."subscriptions" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins read all teams" ON "public"."teams" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins read all usage" ON "public"."usage_events" FOR SELECT USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Admins update any profile" ON "public"."profiles" FOR UPDATE USING ("public"."is_admin"());
+
+
+
+CREATE POLICY "Anyone can read active templates" ON "public"."templates" FOR SELECT USING (("is_active" = true));
+
+
+
+CREATE POLICY "Invitees see own invitations" ON "public"."team_invitations" FOR SELECT USING (("email" = (( SELECT "users"."email"
+   FROM "auth"."users"
+  WHERE ("users"."id" = "auth"."uid"())))::"text"));
+
+
+
+CREATE POLICY "Lock holder or owner releases lock" ON "public"."project_locks" FOR DELETE USING ((("locked_by" = "auth"."uid"()) OR "public"."is_team_owner"("team_id")));
+
+
+
+CREATE POLICY "Lock holder updates lock" ON "public"."project_locks" FOR UPDATE USING (("locked_by" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Members can leave" ON "public"."team_members" FOR DELETE USING (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Members create locks" ON "public"."project_locks" FOR INSERT WITH CHECK (("public"."is_team_member"("team_id") AND ("locked_by" = "auth"."uid"())));
+
+
+
+CREATE POLICY "Members insert activity" ON "public"."team_activity_log" FOR INSERT WITH CHECK (("public"."is_team_member"("team_id") AND ("user_id" = "auth"."uid"())));
+
+
+
+CREATE POLICY "Members read own team" ON "public"."teams" FOR SELECT USING ("public"."is_team_member"("id"));
+
+
+
+CREATE POLICY "Members read team activity" ON "public"."team_activity_log" FOR SELECT USING ("public"."is_team_member"("team_id"));
+
+
+
+CREATE POLICY "Members see project locks" ON "public"."project_locks" FOR SELECT USING ("public"."is_team_member"("team_id"));
+
+
+
+CREATE POLICY "Members see team roster" ON "public"."team_members" FOR SELECT USING ("public"."is_team_member"("team_id"));
+
+
+
+CREATE POLICY "Owners cancel invitations" ON "public"."team_invitations" FOR UPDATE USING ("public"."is_team_owner"("team_id"));
+
+
+
+CREATE POLICY "Owners create invitations" ON "public"."team_invitations" FOR INSERT WITH CHECK ("public"."is_team_owner"("team_id"));
+
+
+
+CREATE POLICY "Owners manage invitations" ON "public"."team_invitations" FOR SELECT USING ("public"."is_team_owner"("team_id"));
+
+
+
+CREATE POLICY "Owners manage members" ON "public"."team_members" FOR INSERT WITH CHECK ("public"."is_team_owner"("team_id"));
+
+
+
+CREATE POLICY "Owners remove members" ON "public"."team_members" FOR DELETE USING ("public"."is_team_owner"("team_id"));
+
+
+
+CREATE POLICY "Owners update own team" ON "public"."teams" FOR UPDATE USING (("owner_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Team members see teammates" ON "public"."profiles" FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM ("public"."team_members" "tm1"
+     JOIN "public"."team_members" "tm2" ON (("tm1"."team_id" = "tm2"."team_id")))
+  WHERE (("tm1"."user_id" = "auth"."uid"()) AND ("tm2"."user_id" = "profiles"."id")))));
+
+
+
+CREATE POLICY "Users can log their own downloads" ON "public"."template_downloads" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users can read own projects" ON "public"."user_projects" FOR SELECT USING (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users can read their own downloads" ON "public"."template_downloads" FOR SELECT USING (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users can register projects" ON "public"."user_projects" FOR INSERT WITH CHECK (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users can update own projects" ON "public"."user_projects" FOR UPDATE USING (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users create team" ON "public"."teams" FOR INSERT WITH CHECK (("owner_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users insert own features" ON "public"."feature_events" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users insert own sessions" ON "public"."app_sessions" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users insert own usage" ON "public"."usage_events" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users manage own accounts" ON "public"."assistant_email_accounts" USING (("auth"."uid"() = "user_id"));
+
+
+
+CREATE POLICY "Users manage own commands" ON "public"."remote_commands" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users manage own devices" ON "public"."devices" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users manage own pairing" ON "public"."pairing_tokens" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users manage own synced projects" ON "public"."synced_projects" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users manage own synced tasks" ON "public"."synced_tasks" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users read own features" ON "public"."feature_events" FOR SELECT USING (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users read own profile" ON "public"."profiles" FOR SELECT USING (("id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users read own sessions" ON "public"."app_sessions" FOR SELECT USING (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users read own subscriptions" ON "public"."subscriptions" FOR SELECT USING (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users read own usage" ON "public"."usage_events" FOR SELECT USING (("user_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users update own profile" ON "public"."profiles" FOR UPDATE USING (("id" = "auth"."uid"())) WITH CHECK (("id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Users update own sessions" ON "public"."app_sessions" FOR UPDATE USING (("user_id" = "auth"."uid"()));
+
+
+
+ALTER TABLE "public"."admin_audit_log" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."app_sessions" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."assistant_email_accounts" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."devices" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."feature_events" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."pairing_tokens" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."profiles" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."project_locks" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."remote_commands" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."stripe_webhook_events" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."subscriptions" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."synced_projects" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."synced_tasks" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."team_activity_log" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."team_invitations" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."team_members" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."teams" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."template_downloads" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."templates" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."usage_events" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."user_projects" ENABLE ROW LEVEL SECURITY;
+
+
+GRANT USAGE ON SCHEMA "public" TO "postgres";
+GRANT USAGE ON SCHEMA "public" TO "anon";
+GRANT USAGE ON SCHEMA "public" TO "authenticated";
+GRANT USAGE ON SCHEMA "public" TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."admin_get_feature_adoption"() TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_get_feature_adoption"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_get_feature_adoption"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."admin_get_revenue_summary"() TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_get_revenue_summary"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_get_revenue_summary"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."admin_get_users_at_risk"() TO "anon";
+GRANT ALL ON FUNCTION "public"."admin_get_users_at_risk"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."admin_get_users_at_risk"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."check_project_limit"() TO "anon";
+GRANT ALL ON FUNCTION "public"."check_project_limit"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."check_project_limit"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."check_seat_limit"() TO "anon";
+GRANT ALL ON FUNCTION "public"."check_seat_limit"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."check_seat_limit"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."cleanup_expired_pairing_tokens"() TO "anon";
+GRANT ALL ON FUNCTION "public"."cleanup_expired_pairing_tokens"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cleanup_expired_pairing_tokens"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."cleanup_old_activity"() TO "anon";
+GRANT ALL ON FUNCTION "public"."cleanup_old_activity"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cleanup_old_activity"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."cleanup_old_commands"() TO "anon";
+GRANT ALL ON FUNCTION "public"."cleanup_old_commands"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cleanup_old_commands"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."cleanup_old_webhook_events"() TO "anon";
+GRANT ALL ON FUNCTION "public"."cleanup_old_webhook_events"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cleanup_old_webhook_events"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."cleanup_stale_locks"() TO "anon";
+GRANT ALL ON FUNCTION "public"."cleanup_stale_locks"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cleanup_stale_locks"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."deactivate_project"("p_path_hash" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."deactivate_project"("p_path_hash" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."deactivate_project"("p_path_hash" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."expire_old_commands"() TO "anon";
+GRANT ALL ON FUNCTION "public"."expire_old_commands"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."expire_old_commands"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."expire_old_invitations"() TO "anon";
+GRANT ALL ON FUNCTION "public"."expire_old_invitations"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."expire_old_invitations"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_geo_distribution"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_geo_distribution"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_geo_distribution"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_project_limit"("plan_tier" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_project_limit"("plan_tier" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_project_limit"("plan_tier" "text") TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."templates" TO "anon";
+GRANT ALL ON TABLE "public"."templates" TO "authenticated";
+GRANT ALL ON TABLE "public"."templates" TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_templates_for_plan"("user_plan" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_templates_for_plan"("user_plan" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_templates_for_plan"("user_plan" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_top_models"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_top_models"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_top_models"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_top_providers"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_top_providers"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_top_providers"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_total_cost"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_total_cost"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_total_cost"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "anon";
+GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."handle_new_user"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."is_admin"() TO "anon";
+GRANT ALL ON FUNCTION "public"."is_admin"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_admin"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."is_team_member"("team_uuid" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."is_team_member"("team_uuid" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_team_member"("team_uuid" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."is_team_owner"("team_uuid" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."is_team_owner"("team_uuid" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_team_owner"("team_uuid" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."mark_stale_devices_offline"() TO "anon";
+GRANT ALL ON FUNCTION "public"."mark_stale_devices_offline"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mark_stale_devices_offline"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."register_project"("p_path_hash" "text", "p_project_name" "text", "p_machine_id" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."register_project"("p_path_hash" "text", "p_project_name" "text", "p_machine_id" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."register_project"("p_path_hash" "text", "p_project_name" "text", "p_machine_id" "text") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."sync_subscription_to_profile"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_subscription_to_profile"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_subscription_to_profile"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_templates_updated_at"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_templates_updated_at"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_templates_updated_at"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_updated_at"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_updated_at"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_updated_at"() TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_audit_log" TO "anon";
+GRANT ALL ON TABLE "public"."admin_audit_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_audit_log" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."app_sessions" TO "anon";
+GRANT ALL ON TABLE "public"."app_sessions" TO "authenticated";
+GRANT ALL ON TABLE "public"."app_sessions" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."profiles" TO "anon";
+GRANT ALL ON TABLE "public"."profiles" TO "authenticated";
+GRANT ALL ON TABLE "public"."profiles" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_cohort_retention" TO "anon";
+GRANT ALL ON TABLE "public"."admin_cohort_retention" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_cohort_retention" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."feature_events" TO "anon";
+GRANT ALL ON TABLE "public"."feature_events" TO "authenticated";
+GRANT ALL ON TABLE "public"."feature_events" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_feature_adoption" TO "anon";
+GRANT ALL ON TABLE "public"."admin_feature_adoption" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_feature_adoption" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."usage_events" TO "anon";
+GRANT ALL ON TABLE "public"."usage_events" TO "authenticated";
+GRANT ALL ON TABLE "public"."usage_events" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_power_users" TO "anon";
+GRANT ALL ON TABLE "public"."admin_power_users" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_power_users" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."subscriptions" TO "anon";
+GRANT ALL ON TABLE "public"."subscriptions" TO "authenticated";
+GRANT ALL ON TABLE "public"."subscriptions" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_revenue_at_risk" TO "anon";
+GRANT ALL ON TABLE "public"."admin_revenue_at_risk" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_revenue_at_risk" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_revenue_summary" TO "anon";
+GRANT ALL ON TABLE "public"."admin_revenue_summary" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_revenue_summary" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_trial_conversions" TO "anon";
+GRANT ALL ON TABLE "public"."admin_trial_conversions" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_trial_conversions" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."team_members" TO "anon";
+GRANT ALL ON TABLE "public"."team_members" TO "authenticated";
+GRANT ALL ON TABLE "public"."team_members" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."teams" TO "anon";
+GRANT ALL ON TABLE "public"."teams" TO "authenticated";
+GRANT ALL ON TABLE "public"."teams" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."user_projects" TO "anon";
+GRANT ALL ON TABLE "public"."user_projects" TO "authenticated";
+GRANT ALL ON TABLE "public"."user_projects" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_user_overview" TO "anon";
+GRANT ALL ON TABLE "public"."admin_user_overview" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_user_overview" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_user_provider_breakdown" TO "anon";
+GRANT ALL ON TABLE "public"."admin_user_provider_breakdown" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_user_provider_breakdown" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."admin_user_usage_detail" TO "anon";
+GRANT ALL ON TABLE "public"."admin_user_usage_detail" TO "authenticated";
+GRANT ALL ON TABLE "public"."admin_user_usage_detail" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."assistant_email_accounts" TO "anon";
+GRANT ALL ON TABLE "public"."assistant_email_accounts" TO "authenticated";
+GRANT ALL ON TABLE "public"."assistant_email_accounts" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."devices" TO "anon";
+GRANT ALL ON TABLE "public"."devices" TO "authenticated";
+GRANT ALL ON TABLE "public"."devices" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."pairing_tokens" TO "anon";
+GRANT ALL ON TABLE "public"."pairing_tokens" TO "authenticated";
+GRANT ALL ON TABLE "public"."pairing_tokens" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."project_locks" TO "anon";
+GRANT ALL ON TABLE "public"."project_locks" TO "authenticated";
+GRANT ALL ON TABLE "public"."project_locks" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."remote_commands" TO "anon";
+GRANT ALL ON TABLE "public"."remote_commands" TO "authenticated";
+GRANT ALL ON TABLE "public"."remote_commands" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."stripe_webhook_events" TO "anon";
+GRANT ALL ON TABLE "public"."stripe_webhook_events" TO "authenticated";
+GRANT ALL ON TABLE "public"."stripe_webhook_events" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."synced_projects" TO "anon";
+GRANT ALL ON TABLE "public"."synced_projects" TO "authenticated";
+GRANT ALL ON TABLE "public"."synced_projects" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."synced_tasks" TO "anon";
+GRANT ALL ON TABLE "public"."synced_tasks" TO "authenticated";
+GRANT ALL ON TABLE "public"."synced_tasks" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."team_activity_log" TO "anon";
+GRANT ALL ON TABLE "public"."team_activity_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."team_activity_log" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."team_invitations" TO "anon";
+GRANT ALL ON TABLE "public"."team_invitations" TO "authenticated";
+GRANT ALL ON TABLE "public"."team_invitations" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."template_downloads" TO "anon";
+GRANT ALL ON TABLE "public"."template_downloads" TO "authenticated";
+GRANT ALL ON TABLE "public"."template_downloads" TO "service_role";
+
+
+
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "postgres";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "anon";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "authenticated";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "service_role";
+
+
+
+
+
+
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "postgres";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "anon";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "authenticated";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "service_role";
+
+
+
+
+
+
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "postgres";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "anon";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "authenticated";
+ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "service_role";
+
+
+
+
+
+-- ============================================================
+-- Migration: 20260329133518_create_waitlist.sql
+-- Replaces: waitlist_table.sql + waitlist_simplify.sql
+-- Description: Create waitlist table — email only
+-- ============================================================
+
+-- Drop existing table and all its constraints/indexes cleanly
+drop table if exists public.waitlist cascade;
+
+-- Create clean waitlist table
+create table public.waitlist (
+  id         uuid        primary key default gen_random_uuid(),
+  email      text        not null unique,
+  created_at timestamptz not null default now()
+);
+
+-- Index for email lookups
+create index waitlist_email_idx on public.waitlist (email);
+
+-- ============================================================
+-- ROW LEVEL SECURITY
+-- ============================================================
+
+alter table public.waitlist enable row level security;
+
+-- Anyone can insert (no auth required to join waitlist)
+create policy "Anyone can join waitlist"
+  on public.waitlist
+  for insert
+  to anon, authenticated
+  with check (true);
+
+-- No public reads — admin/service role only
+create policy "No public reads"
+  on public.waitlist
+  for select
+  to anon, authenticated
+  using (false);
+
+-- ============================================================
+-- USEFUL QUERIES
+-- ============================================================
+
+-- Total signups
+-- select count(*) from public.waitlist;
+
+-- Signups by day
+-- select date_trunc('day', created_at) as day, count(*)
+-- from public.waitlist
+-- group by day
+-- order by day;
+
+
+
+CREATE TABLE public.assistant_notifications (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  source TEXT NOT NULL,          -- 'discord', 'slack', 'gmail', 'github', etc.
+  title TEXT NOT NULL,           -- short summary shown in dropdown
+  body TEXT,                     -- longer detail shown in Assistant chat
+  source_meta JSONB DEFAULT '{}', -- flexible: channel name, sender, thread id, etc.
+  is_read BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Fast lookup: unread notifications per user, newest first
+CREATE INDEX idx_notifications_user_unread 
+  ON public.assistant_notifications (user_id, is_read, created_at DESC);
+
+-- RLS
+ALTER TABLE public.assistant_notifications ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users see own notifications"
+  ON public.assistant_notifications FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users update own notifications"
+  ON public.assistant_notifications FOR UPDATE
+  USING (auth.uid() = user_id);
+
+-- Enable realtime
+ALTER PUBLICATION supabase_realtime ADD TABLE public.assistant_notifications;
+
+
+
+
+
+-- Create the avatars bucket (public so avatar URLs work directly)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true);
+
+-- Allow users to upload their own avatar
+CREATE POLICY "Users upload own avatar"
+  ON storage.objects FOR INSERT
+  WITH CHECK (
+    bucket_id = 'avatars'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+-- Allow users to update/replace their own avatar
+CREATE POLICY "Users update own avatar"
+  ON storage.objects FOR UPDATE
+  USING (
+    bucket_id = 'avatars'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+-- Allow anyone to view avatars (they're public)
+CREATE POLICY "Avatars are publicly accessible"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'avatars');

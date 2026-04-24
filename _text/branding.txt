@@ -1,0 +1,271 @@
+# Omnirun — Brand Guidelines
+# Version 1.3 — February 2026
+
+---
+
+## Brand Name
+- Written as: omnirun (always lowercase)
+- Domain: omnirun.app
+- Tagline: "Run everything. Describe it. Done."
+
+---
+
+## Logo
+
+### Logo Mark (The Ring)
+Open silver circle (slightly taller than wide) with a small green dot floating at the opening (upper-right). The dot has a small gap between it and the ring edge — it orbits, not mounted. The ring is built from two circles (outer gradient, inner cutout) with a gap shape subtracted. The ring represents continuous execution. The green dot represents active/running state.
+
+### Wordmark
+- Text: omnirun (lowercase)
+- Font: Sora Light 300 (Google Fonts, free)
+- Letter spacing: +5% to +8%
+- Color on dark: #DCE0E4 (light silver)
+- Color on light: #374151 (dark gray)
+- The dot on the "i" is replaced with brand green (#2DB87A)
+
+### Logo Variants & File Names
+
+Four sets, each with full logo, ellipse only, and text only:
+
+**Main (dark background with texture):**
+- logo_main (svg, png, 2x png)
+- elipse_main (svg, png, 2x png)
+- text_main (svg, png, 2x png)
+
+**Main Textureless (flat dark background, no baked-in texture):**
+- logo_main_tl (svg, png, 2x png)
+- elipse_main_tl (svg, png, 2x png)
+- text_main_tl (svg, png, 2x png)
+- Same colors as Main but with flat background — use when placing on a CSS-textured surface to avoid texture-on-texture
+
+**Transparent dark (no background, for dark surfaces):**
+- logo_transparent_dark (svg, png, 2x png)
+- elipse_transparent_dark (svg, png, 2x png)
+- text_transparent_dark (svg, png, 2x png)
+- Same colors as main, just no background or texture
+
+**Transparent light (no background, for light surfaces):**
+- logo_transparent_light (svg, png, 2x png)
+- elipse_transparent_light (svg, png, 2x png)
+- text_transparent_light (svg, png, 2x png)
+- Darker ring gradient, dark text, same green
+
+### Which Logo Set to Use Where
+
+| Context                      | Logo variant              | Size    |
+|------------------------------|---------------------------|---------|
+| App topbar                   | elipse_transparent_dark/light | h-10 (40px) |
+| Login / Signup               | logo_transparent_dark     | h-130px |
+| Onboarding Welcome           | logo_transparent_dark     | h-160px |
+| Marketing (textured bg)      | logo_main_tl              | varies  |
+| Marketing (solid bg)         | logo_main or logo_transparent_dark | varies |
+| Favicon                      | elipse_main               | 16-48px |
+
+### Clear Space
+Maintain clear space equal to the green dot height on all sides.
+
+### Minimum Size
+- Full logo (mark + wordmark): 120px wide
+- Mark only: 24px (favicon: 16px)
+
+---
+
+## Colors
+
+### Primary Palette (Dark Mode / Main)
+- Background Dark: #2F3238 (primary app background, dark surfaces)
+- Card Surface: rgba(56, 60, 67, 0.55) (glassmorphism cards on textured backgrounds)
+- Card Border: rgba(85, 91, 99, 0.5) (semi-transparent border for glass cards)
+- Silver Light: #D1D5DB (ring gradient start, light UI elements)
+- Silver Mid: #B0B6BF (ring gradient middle)
+- Silver Dark: #6B7280 (ring gradient end, muted text, borders)
+- Silver Text: #DCE0E4 (logo wordmark, headings on dark backgrounds)
+- Green Primary: #2DB87A (logo dot, "i" dot, CTAs, active/success states, ALL primary buttons)
+- Green Light: #5DE8A0 (dot highlight/glow, hover states)
+
+### Light Mode Colors
+- Ring gradient: #8B919A → #374151
+- Text: #374151
+- Green dots: same (#2DB87A) — no change
+
+### Ring Gradient — Dark Mode (linear, top-left to bottom-right)
+- 0%: #D1D5DB
+- 50%: #B0B6BF
+- 100%: #6B7280
+
+### Ring Gradient — Light Mode (linear, top-left to bottom-right)
+- 0%: #8B919A
+- 100%: #374151
+
+### Green Dot Gradient (radial, same in all modes)
+- Center: #5DE8A0
+- Edge: #2DB87A
+
+### Background Texture
+- Source file: texture.jpg (wavy grain pattern)
+- Application: CSS overlay at 5% opacity over #2F3238 base
+- Technique: absolute positioned div, pointer-events-none, backgroundSize: cover
+- Creates a premium matte metal feel
+- Used on: Login, Signup, Onboarding screens (branding moments)
+- NOT used on: Main app workspace (too distracting for extended use)
+
+---
+
+## Typography
+
+### Brand Font: Sora (Google Fonts, free, OFL license)
+- Logo: Light 300, lowercase, wide tracking
+- Display / Hero: Light 300, 48-72px
+- Heading 1: SemiBold 600, 28-32px
+- Heading 2: Medium 500, 20-24px
+- Body: Regular 400, 14-16px
+- Caption: Light 300, 12-13px
+- Button / CTA: SemiBold 600, 14-16px
+
+### Code Font: JetBrains Mono Regular 400 (Google Fonts, free)
+- Used for: code blocks, terminal output, technical content
+- Size: 13-14px
+
+### Fallback: Inter or system sans-serif (when Sora unavailable)
+
+### Font Usage in App
+- Onboarding, Login, Signup: forced to Sora (fontFamily: "'Sora', sans-serif")
+- Main app UI: determined by active theme (omnirun theme uses Sora, others use their own fonts)
+
+---
+
+## Omnirun Theme (Default App Theme)
+
+The "omnirun" theme is the default theme for new installs. It uses brand colors and Sora font throughout the main app.
+
+### Theme Colors (Tailwind classes)
+- bg: bg-[#2F3238]
+- bgSecondary: bg-[#383C43]
+- bgTertiary: bg-[#262A2F]
+- text: text-[#DCE0E4]
+- textMuted: text-[#9CA3AF]
+- border: border-[#555B63]
+- accent: bg-[#2DB87A]
+- accentHover: hover:bg-[#5DE8A0]
+- fontFamily: font-sora
+- borderRadius: rounded-lg
+
+### Theme Cycle Order
+omnirun → dark → light → sepia → retro → midnight → highContrast
+
+---
+
+## Login & Signup Screens Styling
+
+### Layout
+- Full-screen #2F3238 background with texture.jpg at 5% opacity
+- Title bar: 40px drag region with min/max/close window controls (top-right)
+- Centered card: max-width 400px
+
+### Card (Glassmorphism)
+- Background: rgba(56, 60, 67, 0.55)
+- Backdrop filter: blur(20px)
+- Border: 1px solid rgba(85, 91, 99, 0.5)
+- Border radius: 12px
+- Padding: 28px
+
+### Elements
+- Logo: logo_transparent_dark.svg at 130px height, 12px bottom margin
+- Inputs: #262A2F background, #4A4F57 border, #DCE0E4 text, Sora font
+- Primary button: #2DB87A green, white text, Sora 600
+- Links: #2DB87A green, underlined
+- All text: Sora font, no Inter
+
+### Window Controls
+- Imported from @tauri-apps/api/window (getCurrentWindow at module scope, NOT inside component)
+- Min/Max/Close buttons matching Topbar style
+- useEffect dependency: [] (empty array, runs once)
+
+---
+
+## Onboarding Screens Styling
+
+### Wrapper (OnboardingWrapper.tsx)
+- Same texture background technique as login/signup
+- Window controls bar at top (same as login/signup)
+- Sora font forced for all onboarding
+- Progress bar and content have relative z-10 (above texture)
+
+### Welcome Step
+- Logo: logo_transparent_dark.svg at 160px height
+- Feature cards: glassmorphism (rgba(56, 60, 67, 0.55), blur(20px))
+- "Get Started" button: #2DB87A green (hardcoded, NOT theme accent)
+
+### All Other Steps (TechLevel, ApiKey, Connections, SampleProject, Completion)
+- Primary action buttons: #2DB87A green (hardcoded, NOT theme accent)
+- Icon circles: #2DB87A green where applicable
+- Cards: glassmorphism style
+- Back buttons: muted text color
+
+---
+
+## Usage Rules
+
+### Do
+- Use logo on dark backgrounds (#2F3238 or darker) for primary use
+- Use transparent dark variants on textured backgrounds (avoids texture-on-texture)
+- Use transparent light versions on light/white surfaces
+- Keep the green dot — it's essential, not optional
+- Keep the dot floating (small gap between dot and ring edge)
+- Maintain the gradient on the ring
+- Use the green "i" dot in the wordmark
+- Apply background grain texture on branding moments (login, signup, onboarding)
+- Use green accent sparingly — active states, CTAs, key highlights only
+- Use textureless (tl) variants when placing logo on a textured background
+- Use #2DB87A for ALL primary action buttons (not theme accent)
+
+### Don't
+- Don't change logo colors beyond the defined dark/light variants
+- Don't remove the green dot or close the ring gap
+- Don't mount the dot on the ring edge (keep it floating/orbiting)
+- Don't rotate, stretch, skew, or add drop shadows
+- Don't use on busy/patterned backgrounds without contrast
+- Don't write "Omnirun", "OmniRun", or "OMNIRUN" — always "omnirun"
+- Don't use a flat ring — always apply the silver gradient
+- Don't change the font — wordmark is always Sora Light 300
+- Don't use textured (main) logo variants on textured backgrounds — use tl or transparent variants instead
+- Don't use texture overlay on main app workspace (reserve for branding moments)
+- Don't use Inter font on login/signup/onboarding — always Sora
+
+---
+
+## File Formats
+
+### Logo Files (36 total)
+Each set contains: full logo, ellipse only, text only
+Each file exported as: SVG, PNG @1x, PNG @2x
+
+Folder structure:
+```
+Logo/
+  Main/
+    logo_main.svg, .png, _2x.png
+    elipse_main.svg, .png, _2x.png
+    text_main.svg, .png, _2x.png
+  Main Textureless/
+    logo_main_tl.svg, .png, _2x.png
+    elipse_main_tl.svg, .png, _2x.png
+    text_main_tl.svg, .png, _2x.png
+  Dark mode/
+    logo_transparent_dark.svg, .png, _2x.png
+    elipse_transparent_dark.svg, .png, _2x.png
+    text_transparent_dark.svg, .png, _2x.png
+  Light mode/
+    logo_transparent_light.svg, .png, _2x.png
+    elipse_transparent_light.svg, .png, _2x.png
+    text_transparent_light.svg, .png, _2x.png
+```
+
+### Additional Exports Needed
+- ICO: 16px, 32px, 48px (mark only, favicon)
+- ICNS: macOS app icon (mark only, with padding)
+- PNG 256x256: Windows app icon (mark only)
+- .fig: Figma source file (editable vector)
+
+### App Icon
+Ring mark + green dot only, no wordmark. Center with 15-20% padding. Background: #2F3238 with grain (or solid for small sizes).

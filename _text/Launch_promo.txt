@@ -1,0 +1,136 @@
+# omnirun — Launch Platforms Checklist
+
+Updated: April 15, 2026
+
+---
+
+## PRE-LAUNCH (Now — before product is live)
+
+### Directories & Launch Platforms
+
+| # | Platform | URL | What It Is | Est. Traffic / Users | Status |
+|---|----------|-----|-----------|---------------------|--------|
+| 1 | **BetaList** | https://betalist.com | Curated startup directory for early adopters. 200K+ monthly visitors, 70K+ newsletter subscribers. DR 75 dofollow backlink. | 100-300 signups | ✅ Submitted (Lite $39, featured within 2 weeks) |
+| 2 | **Uneed** | https://www.uneed.best | Product launch platform, fairer than PH. 300K monthly visitors, DR 72. Free to submit, $30 to skip queue. | 50-200 signups | ✅ Submitted |
+| 3 | **PeerPush** | https://peerpush.net | Community-driven product directory. 330K monthly visitors, DR 73. Build-in-public features. | 50-150 visitors | ⬜ Free tier not found, paid plans start at $35 |
+| 4 | **Smol Launch** | https://smollaunch.com | Indie-friendly launch platform. 7-day launch window (vs PH's 24hrs). Less competition. | 30-100 signups | ⬜ Not submitted |
+| 5 | **OpenHunts** | https://openhunts.com | Community-driven PH alternative. 14.3% conversion rate reported. Free launches. | 30-100 signups | ⬜ Not submitted |
+| 6 | **BetaPage** | https://www.betapage.co | Less selective BetaList alternative. Instant listing. 57-65K monthly visitors. | 30-80 signups | ❌ Site down (403 Forbidden) — retry later |
+| 7 | **Launching Next** | https://www.launchingnext.com | Startup directory, 44K+ startups listed. Free submission. | 20-50 visitors | ⬜ Not submitted |
+| 8 | **Startup Buffer** | https://www.startupbuffer.com | Clean submission, steady traffic from founders and investors. | 10-30 visitors | ⬜ Not submitted |
+
+### Communities & Content
+
+| # | Platform | URL | What It Is | Est. Traffic / Users | Status |
+|---|----------|-----|-----------|---------------------|--------|
+| 9 | **Indie Hackers** | https://www.indiehackers.com | Bootstrapped founder community. Build story posts get high engagement. 100K+ members. Best for "non-dev built this" narrative. | 200-1000 visitors, high engagement | ⬜ Build story not written yet |
+| 10 | **Reddit — r/SideProject** | https://www.reddit.com/r/SideProject/ | Subreddit for sharing personal projects. "Building this, looking for feedback" format. | 50-500 visitors per post | ⬜ Not posted |
+| 11 | **Reddit — r/nocode** | https://www.reddit.com/r/nocode/ | No-code builders community. Perfect for "vibe coded this" angle. | 30-200 visitors per post | ⬜ Not posted |
+| 12 | **Reddit — r/Entrepreneur** | https://www.reddit.com/r/Entrepreneur/ | Large entrepreneur subreddit. "Non-dev built this" angle. | 50-300 visitors per post | ⬜ Not posted |
+| 13 | **Reddit — r/selfhosted** | https://www.reddit.com/r/selfhosted/ | Self-hosting enthusiasts. Lean into local-first SQLite angle. | 50-300 visitors per post | ⬜ Not posted |
+| 14 | **Reddit — r/artificial** | https://www.reddit.com/r/artificial/ | AI tools discussion. Multi-provider + AI assistant angle. | 30-200 visitors per post | ⬜ Not posted |
+| 15 | **Reddit — r/automation** | https://www.reddit.com/r/automation/ | Automation enthusiasts. Watching agents, scheduled tasks angle. | 20-100 visitors per post | ⬜ Not posted |
+| 16 | **Reddit — r/SaaS** | https://www.reddit.com/r/SaaS/ | SaaS builders, 250K+ members. Pre-launch feedback welcome. | 30-200 visitors per post | ⬜ Not posted |
+
+### Discord Communities
+
+| # | Platform | Where to Find | What It Is | Est. Users | Status |
+|---|----------|--------------|-----------|-----------|--------|
+| 17 | **Vibecoding Discord** | Already joined | Vibe coding community. #showcase channel. | 10-50 visitors | ✅ Posted |
+| 18 | **Indie Hackers Discord** | https://www.indiehackers.com/group/discord | Bootstrapped founders, SaaS, no-code projects. | 10-30 visitors | ⬜ Not joined |
+| 19 | **Buildspace** | discord.gg/buildspace | High-energy builder community. Ship-focused. | 10-30 visitors | ⬜ Not joined |
+| 20 | **Hustle Cafe** | https://discord.me/hustlecafe | Indie makers, PH launch support, feedback. | 5-15 visitors | ⬜ Not joined |
+| 21 | **Tech Startups** | https://www.techstartups.gg | Builder-first, get your own channel. Vote-based entry. | 5-20 visitors | ⬜ Not joined |
+
+---
+
+## LAUNCH DAY (When product is live and downloadable)
+
+### Major Launch Platforms
+
+| # | Platform | URL | What It Is | Est. Traffic / Users | Status |
+|---|----------|-----|-----------|---------------------|--------|
+| 22 | **Product Hunt** | https://www.producthunt.com | The gold standard for product launches. Millions of monthly visitors. Launch on Tuesday-Thursday. One-day voting window. | 500-5000+ visitors on launch day | ⬜ Save for launch |
+| 23 | **Hacker News (Show HN)** | https://news.ycombinator.com | Tech community by Y Combinator. Can drive 20-30K visitors if front page. Needs account karma — start commenting now. | 100-30,000 visitors (high variance) | ⬜ Build karma first, save for launch |
+| 24 | **BetaList (2nd feature)** | https://betalist.com | Each startup gets two features — pre-launch and launch. Use second slot at launch. | 100-300 signups | ⬜ Save second slot |
+
+### Directories (Require Live Product)
+
+| # | Platform | URL | What It Is | Est. Traffic / Users | Status |
+|---|----------|-----|-----------|---------------------|--------|
+| 25 | **SaaSHub** | https://www.saashub.com | Product comparison directory. 856K monthly visitors. Shows up on competitor pages. Free. Rejects pre-launch. | 50-200 visitors/month ongoing | ⬜ Submit at launch |
+| 26 | **AlternativeTo** | https://alternativeto.net | "Alternative to X" directory. Huge for passive traffic. Tag as alternative to Bolt.new, Cursor, Replit, Webflow. Account must be 7 days old. | 100-500 visitors/month ongoing | ⬜ Account created, submit after 7 days (April 22) |
+| 27 | **There's An AI For That** | https://theresanaiforthat.com | AI tools directory. High traffic from people searching for AI tools. May require live product. | 50-300 visitors/month ongoing | ⬜ Check if accepts pre-launch |
+| 28 | **DevHunt** | https://devhunt.org | Developer tools directory. 75K monthly visitors. GitHub-verified. Dofollow links. Free (6-week wait) or $49 to skip. | 30-100 visitors/month ongoing | ⬜ Submit at launch |
+| 29 | **Resource.fyi** | https://resource.fyi | Curated tools directory for tech people. | 10-30 visitors/month ongoing | ⬜ Submit at launch |
+| 30 | **SaaSWorthy** | https://www.saasworthy.com | SaaS comparison and review directory. | 10-30 visitors/month ongoing | ⬜ Submit at launch |
+
+### Content & Articles (Publish at Launch)
+
+| # | Platform | URL | What It Is | Est. Traffic / Users | Status |
+|---|----------|-----|-----------|---------------------|--------|
+| 31 | **Dev.to** | https://dev.to | Developer blogging platform with built-in discovery. Write "Building a local-first desktop app with Tauri + SQLite" article. Indexes on Google. | 100-1000 readers, evergreen SEO | ⬜ Write article |
+| 32 | **Hashnode** | https://hashnode.com | Developer blogging, indexes well on Google. Same technical article. | 50-500 readers, evergreen SEO | ⬜ Write article |
+
+---
+
+## POST-LAUNCH (Ongoing, after traction)
+
+### Growth & SEO Directories
+
+| # | Platform | URL | What It Is | Est. Traffic / Users | Status |
+|---|----------|-----|-----------|---------------------|--------|
+| 33 | **StartuPage** | https://startupa.ge | Ongoing startup profiles with Stripe-verified traction. Investor matching. | 10-50 visitors/month | ⬜ Submit when you have revenue |
+| 34 | **Crunchbase** | https://www.crunchbase.com | Startup database. Good for credibility and investor visibility. | Credibility, not direct users | ⬜ Submit when established |
+| 35 | **G2** | https://www.g2.com | Software review platform. Requires real user reviews. | 50-200 visitors/month ongoing | ⬜ Submit when you have users to review |
+| 36 | **Foundigy** | https://foundigy.com | SEO-focused startup directory. Long-term discoverability. | 10-30 visitors/month ongoing | ⬜ Submit anytime |
+| 37 | **F6S** | https://www.f6s.com | 1.5M+ tech founders. Accelerator connections, networking. Free. | Networking, not direct users | ⬜ Submit when ready |
+
+### Paid Promotion (When revenue supports it)
+
+| # | Platform | URL | What It Is | Est. Traffic / Users | Status |
+|---|----------|-----|-----------|---------------------|--------|
+| 38 | **PeerPush Promoted** | https://peerpush.net | 30-day promoted launch. ~100K impressions. $189. | 200-500 visitors | ⬜ Consider when revenue supports it |
+| 39 | **Reddit Ads** | https://ads.reddit.com | Target r/nocode, r/SaaS, r/Entrepreneur. | Varies by budget | ⬜ Consider at $2K+ MRR |
+| 40 | **YouTube Ads** | https://ads.google.com | Demo video as ad targeting AI/no-code audiences. | Varies by budget | ⬜ Consider at $5K+ MRR |
+
+---
+
+## RECOMMENDED LAUNCH WEEK SEQUENCE
+
+**Now (Pre-launch):**
+1. ✅ BetaList — submitted
+2. ✅ Uneed — submitted
+3. ✅ Vibecoding Discord — posted
+4. Submit to Smol Launch, OpenHunts, Launching Next, Startup Buffer
+5. Write and post Indie Hackers build story
+6. Post to Reddit (r/SideProject, r/nocode) — space out over 2-3 days
+7. Join 2-3 Discord communities, participate for a week, then share omnirun
+8. Create AlternativeTo account (7-day wait to submit)
+
+**Launch week:**
+- Monday: Indie Hackers launch update post
+- Tuesday: Product Hunt launch
+- Tuesday-Wednesday: Hit 3-4 Reddit subs
+- Same week: Show HN on Hacker News
+- Same week: Submit to SaaSHub, AlternativeTo, DevHunt, There's An AI For That
+- Same week: Publish Dev.to or Hashnode technical article
+- Same week: Post in all Discord communities
+
+**Post-launch:**
+- Collect user reviews for G2
+- Submit to StartuPage when you have revenue
+- Write more technical articles for SEO
+- Consider paid promotion at $2K+ MRR
+
+---
+
+## NOTES
+
+- Always adapt the post for each platform's audience and tone
+- Reddit: never pitch directly, share what you built and invite feedback
+- Discord: participate for a week before promoting
+- Directories are set-and-forget SEO plays — submit and move on
+- Communities are where real engagement and users come from
+- Demo video is your strongest asset across all platforms
+- BetaList gives you two features — pre-launch and launch, use both

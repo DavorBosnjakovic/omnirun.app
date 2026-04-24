@@ -1,0 +1,63 @@
+# Team Features Testing — Remaining Issues
+# Found during testing on April 6, 2026
+
+## Bugs to Fix
+
+### 1. BillingSettings hardcoded plan (line 22)
+- File: `src/components/settings/BillingSettings.tsx`
+- `const currentPlan = "starter";` is hardcoded
+- Should read from authStore (profile.plan) instead
+- Low priority — Stripe integration will wire this up properly
+
+### 2. Invitation email black background
+- The HTML email template has a black body background
+- Should be transparent so it blends with email clients
+- File: Supabase Edge Function `send-invitation-email`
+- Cosmetic only
+
+### 3. Accept invitation link goes to omnirun.app (404)
+- Email "Accept Invitation" button links to `omnirun.app/invite/{token}`
+- Website not deployed yet — 404
+- Need to build a simple web page that either:
+  - Redirects to the app via deep link (tauri-plugin-deep-link)
+  - Or shows "Open Omnirun to accept" with download fallback
+- Blocked until website is live
+
+## Still Untested (Team Features)
+
+### 4. Idle timeout unlock (15 min)
+- Should auto-unlock after 15 min of no keyboard/mouse/click activity
+- Global keydown/mousemove/click tracking, 60s idle check interval
+- Test: lock a project, don't touch anything for 15+ min, verify unlock
+
+### 5. Crash recovery (pg_cron)
+- If app crashes (force quit without onCloseRequested), heartbeat stops
+- pg_cron `cleanup_stale_locks` runs every minute
+- Should delete locks where last_heartbeat > 5 min ago
+- Test: lock project, force-kill app process, wait 5 min, check project_locks
+
+### 6. Owner force-unlock
+- Owner can force-unlock any project from Team Settings
+- Test: User B locks a project, User A (owner) force-unlocks
+- Verify RLS allows owner DELETE on project_locks
+
+### 7. Lock gate blocks other members
+- When User A has a project locked, User B should NOT be able to send AI messages
+- aiService.ts should show an error/block
+- Test: User A locks project, switch to User B, try to chat on same project
+
+### 8. Sidebar lock indicators (visual)
+- Grayed out project + amber lock icon + "Sarah is working on this" tooltip
+- Green dot on projects locked by current user
+- First name of locker shown on right side of project row
+- Need two instances to visually verify
+
+### 9. Realtime lock subscription
+- Sidebar should update live when locks change (via Supabase Realtime on project_locks)
+- Test: User A locks, User B sidebar updates without refresh
+
+## RLS Fixes Applied During Testing (saved in 007b)
+- `Invitees see own invitations` — changed from auth.users subquery to auth.email()
+- `Invitees read invited team` — new policy for invitees to read team name
+- `Invitees decline own invitations` — new UPDATE policy
+- `handle_new_user` trigger recreated (was missing)

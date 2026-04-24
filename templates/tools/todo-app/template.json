@@ -1,0 +1,28 @@
+{
+  "name": "Todo App",
+  "slug": "todo-app",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "expo",
+  "description": "Task management with lists, priorities, due dates, and swipe actions.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "basic",
+  "category": "mobile-apps",
+  "tags": ["expo", "react-native", "todo", "tasks", "productivity", "mobile"],
+  "icon": "✅",
+  "defaultProjectName": "My Todo App",
+  "files": [
+    "template.json",
+    "package.json",
+    "app.json",
+    "babel.config.js",
+    "App.js"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is an Expo (React Native) todo app. Single-file App.js contains all logic using React Native components (View, Text, TextInput, TouchableOpacity, ScrollView, etc.) and StyleSheet. Features: add tasks with title/priority/list, multiple lists (All, Personal, Work, Shopping) as filter tabs, priority levels (high/medium/low) with color dots, mark complete with checkbox, delete tasks, progress bar, task count. All data in AsyncStorage. Mobile-first design using React Native — runs on iOS, Android, and web. The user will likely ask to: add due dates with date picker, add subtasks, add drag-and-drop reordering, add notifications/reminders, add categories, add search, add swipe-to-delete gesture, add animations, add sync across devices, add share lists, etc."
+}

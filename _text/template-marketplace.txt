@@ -1,0 +1,244 @@
+OMNIRUN - TEMPLATE & MARKETPLACE SYSTEM
+==========================================
+(Strategy + Technical Implementation)
+
+
+UNIFIED MODEL
+--------------
+Every template — whether a project scaffold, automation, or scheduled task — follows the same format:
+a JSON manifest (template.json) + attached files, stored in Supabase.
+
+Three template types:
+- scaffold: Project starter files (HTML, CSS, React apps, etc.). Files land in user's project folder. Nothing executes during install.
+- automation: Tool sequences using Omnirun's existing capabilities (future, v2)
+- scheduled: Cron-triggered automations that run unattended (future, v2)
+
+Same database table, same gallery, same purchase flow. The `type` field determines install behavior.
+
+
+TEMPLATE.JSON MANIFEST
+------------------------
+Every template includes a template.json in its root folder. This is the key to marketplace compatibility.
+
+{
+  "name": "Budget Tracker",
+  "slug": "budget-tracker",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "react",
+  "description": "Track income and expenses with categories, charts, and localStorage persistence",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "basic",
+  "category": "personal-tools",
+  "tags": ["react", "vite", "finance", "charts", "localStorage"],
+  "icon": "💰",
+  "defaultProjectName": "My Budget Tracker",
+  "files": [
+    "index.html",
+    "package.json",
+    "vite.config.js",
+    "src/main.jsx",
+    "src/App.jsx",
+    "src/App.css"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a React + Vite budget tracker. Main component is src/App.jsx. CSS variables for theming in src/App.css."
+}
+
+Field reference:
+- name, slug, version, type, framework, description: required metadata
+- author: { name, verified } — admin templates say "Omnirun", marketplace creators fill theirs
+- tier: basic (free/Starter+), pro (Pro+), custom (Enterprise)
+- category: websites, personal-tools, business-tools, automations, fun-learning
+- tags: searchable keywords array
+- files: complete list of all files in the template (relative paths)
+- variables: future — user-configurable values (e.g. brand name, API URL)
+- tools_used: future — Omnirun tools this template invokes (automation/scheduled types)
+- connections_required: future — external services needed (e.g. ["github"])
+- ai_context: injected into system prompt so AI knows the template structure and what users will ask to customize
+
+
+COMMISSION MODEL
+-----------------
+Take 10-15% on paid templates only.
+- Free templates: zero friction, zero commission, completely open
+- Paid templates: 10-15% cut, transparent and fair
+- Free templates are marketing — every shared template shows the world what Omnirun can do
+- People discover a template, realize they need Omnirun to run it, sign up
+- Never go above 15% — Apple's 30% is why developers resent them
+
+Free sharing drives acquisition. Paid templates drive revenue. Both matter.
+
+
+WHERE TO HOST IT
+-----------------
+Both website AND in-app. They serve completely different jobs.
+
+Website marketplace:
+- Public, searchable, discoverable
+- Each template becomes its own landing page that indexes on Google
+- Someone googles "Vercel deployment automation template" — lands on your page, discovers Omnirun
+- Builds backlinks, generates organic traffic, works while you sleep
+- Discovery and acquisition surface
+
+In-app marketplace:
+- Where the actual experience happens
+- Browse, install, purchase without ever leaving Omnirun
+- Voice enabled — "find me a client onboarding template" surfaces results instantly
+- Zero friction at point of use
+- Sending users to a browser for core functionality breaks the whole philosophy
+
+Same underlying Supabase database powering both. Different surfaces, different jobs.
+
+
+STORAGE & SECURITY
+-------------------
+Storage:
+- Templates live in Supabase — already your stack, lightweight, cheap
+- Metadata in `templates` table, files in `templates` storage bucket
+- template.json manifest in every template root folder
+- Version controlled with full metadata
+
+Security architecture (see security-protections-checklist.txt Section 9 for full details):
+- Templates are DATA, not code — the key architectural decision
+- NOTHING executes during install — files are written to a folder, that's it
+- Path jail: all files must land inside the project folder. System rejects ../, absolute paths, symlinks.
+- No outbound network during install — files come from Supabase bucket only
+- No shell execution during install — run_command not available in template install context
+- Tool allowlist (not blocklist): templates can ONLY use write_file and create_directory
+- Automated scanning on every upload before template is visible
+- Tiered review pipeline based on template type and price
+- Community reporting with fast takedown (3 flags = auto-delist)
+- Kill switch for instant remote disable
+
+What scanning checks (scaffold templates):
+- External network calls: fetch(), XMLHttpRequest, sendBeacon, WebSocket to external domains
+- External script loading: <script src="..."> to non-trusted CDNs
+- Data collection: code accessing localStorage/cookies and sending externally
+- Obfuscation: base64-encoded strings, eval(), Function(), atob() used suspiciously
+- Hidden iframes, invisible forms, redirect chains
+- Binary files disguised as text
+- Size limits: max 500KB per file, max 50 files per template, max 5MB total
+
+What scanning CAN'T catch: cleverly disguised malicious code that looks normal. Layered defense handles this:
+1. Scanning catches the obvious stuff (90%)
+2. Manual review on paid templates catches the clever stuff
+3. Creator accountability — real payment info, revenue held 7 days
+4. Community reporting — one-click, 3 flags = auto-delist
+5. Kill switch — instant remote disable
+
+Honest note: The bigger risk isn't malware — it's bad templates that frustrate users and damage marketplace trust. Quality control matters as much as security. Ratings and reviews solve this.
+
+
+INSTALL FLOW
+--------------
+What the user sees:
+1. Click "New Project" → "From Template" in gallery
+2. Browse by category, search, see tier badges
+3. Pick template → name project → choose folder
+4. Click "Create" → files written to folder (2 seconds)
+5. Omnirun auto-detects dependencies (sees package.json) → prompts install
+6. Omnirun auto-starts dev server if applicable
+7. User has running app, talks to AI to customize
+
+What the system does:
+1. Files downloaded from Supabase storage bucket (the only allowed source)
+2. Each file path validated — must be inside project folder
+3. Files written using Omnirun's write_file — same safety as when AI writes files
+4. No scripts run. No network calls. No permissions escalated.
+5. AI system prompt gets template context from template.json ai_context field
+
+The worst a scaffold template can do is put bad code in the project folder. Same risk as cloning a GitHub repo — except we've scanned it first.
+
+
+TIERED REVIEW PIPELINE
+------------------------
+| Creator level                               | What they can publish       | Review process                          |
+| New creator                                 | Scaffold templates only     | Automated scan + manual review          |
+| Verified (5+ approved templates, 30+ days)  | Scaffolds + automations     | Automated scan, spot-checked            |
+| Partner (vetted, signed agreement)           | All types + featured        | Automated scan, trusted                 |
+
+Paid templates ALWAYS get manual review regardless of creator level. Money creates motive.
+
+Creator accountability:
+- Revenue held for 7 days before payout (dispute window)
+- 3 valid reports → template delisted, creator warned
+- Repeat offenders permanently banned
+- Creator identity tied to Omnirun account (real payment info via Stripe Connect)
+
+
+SCHEDULED TASK GUARDRAILS (future, v2)
+----------------------------------------
+Automation templates are the riskiest type because they run unattended. Extra constraints:
+- Can only operate on the project they were installed into
+- Minimum interval: 1 hour (no every-second abuse)
+- Tasks inherit the same tool allowlist — no shell commands
+- Maximum 5 scheduled tasks per template
+- User can see and disable all template-created tasks from settings
+
+
+HOW PEOPLE BUILD TEMPLATES (future, v2)
+-----------------------------------------
+Inside Omnirun. Doing exactly what they normally do.
+
+The flow:
+1. User sets up a project, automation, workflow, or scheduled task for themselves
+2. It works well, they want to share it
+3. They hit "save as template" — or just say it
+4. Omnirun packages it automatically (generates template.json, copies files)
+5. They add a title, description, optional price — done
+
+No separate template editor.
+No documentation to read.
+No special knowledge required.
+Voice enabled — "save this as a template called client onboarding starter"
+
+For power users who want variables:
+- Simple variable system for things like client name, project URL, etc.
+- As simple as highlighting something and saying "make this a variable"
+- Nothing code-like, nothing technical
+
+The beautiful side effect:
+Every Omnirun user is a potential template creator without knowing it.
+They built something useful for themselves, they share it, someone benefits.
+Marketplace grows organically as a byproduct of people just using the product.
+That's how you get to a thousand templates without a developer program or incentive campaign.
+
+
+FUTURE SCHEMA ADDITIONS (for marketplace, v2)
+-----------------------------------------------
+These columns will be added to the templates table when marketplace launches:
+- creator_id (UUID, references auth.users) — who made it
+- type (text: scaffold/automation/scheduled) — what kind of template
+- review_status (text: pending/approved/rejected) — moderation state
+- price (integer, cents) — 0 for free, >0 for paid
+- stripe_product_id (text) — for paid template purchases
+- download_count (integer) — public popularity metric
+- rating_avg (numeric) — average user rating
+- rating_count (integer) — number of ratings
+
+These DO NOT need to exist now. Current admin-curated templates work perfectly without them.
+
+
+GROWTH FLYWHEEL
+----------------
+More users → more templates created → better marketplace →
+more discovery via SEO → more new users → repeat.
+
+The marketplace eventually becomes your best acquisition channel.
+It costs you nothing ongoing and improves automatically as your user base grows.
+
+
+ROLLOUT PHASES
+---------------
+Phase 1 (now, pre-launch): Ship 22 admin-curated starter templates with template.json manifests.
+Phase 2 (post-launch, 100+ users): "Save as Template" flow. Users share free templates.
+Phase 3 (traction, 1000+ users): Paid templates, Stripe Connect, commission model, web marketplace.
+
+---
+Build the marketplace right and your users build the product for you. 🚀

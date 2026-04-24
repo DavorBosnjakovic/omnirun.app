@@ -1,0 +1,33 @@
+{
+  "name": "Blog",
+  "slug": "blog",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "react",
+  "description": "Article list, reading view, categories, and search. Ready for your content.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "pro",
+  "category": "websites",
+  "tags": ["react", "vite", "blog", "articles", "content", "categories", "search"],
+  "icon": "📝",
+  "defaultProjectName": "My Blog",
+  "files": [
+    "template.json",
+    "index.html",
+    "package.json",
+    "vite.config.js",
+    "src/main.jsx",
+    "src/App.jsx",
+    "src/App.css",
+    "src/components/ArticleList.jsx",
+    "src/components/ArticleView.jsx",
+    "src/components/Navbar.jsx"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a React + Vite blog. App.jsx manages state and contains 6 sample articles with full markdown-like content. Components: Navbar (logo, category pills, search input), ArticleList (card grid with gradient hero images, date, category badge, reading time, excerpt), ArticleView (full article with back button, hero gradient, formatted body text, author info, related articles). No routing library — view state managed with useState ('list' or article id). Search filters by title and excerpt. Category filters via pills. All articles defined as data in App.jsx. The user will likely ask to: connect to a CMS/backend, add a markdown editor, add comments, add author pages, add tags, add pagination, add RSS feed, add newsletter signup, change theme, add dark/light toggle, etc."
+}

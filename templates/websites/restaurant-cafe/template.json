@@ -1,0 +1,27 @@
+{
+  "name": "Restaurant / Café",
+  "slug": "restaurant-cafe",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "static",
+  "description": "Menu, hours, location, and reservations for your restaurant or café.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "basic",
+  "category": "websites",
+  "tags": ["html", "css", "restaurant", "cafe", "menu", "reservations", "food"],
+  "icon": "☕",
+  "defaultProjectName": "My Restaurant Website",
+  "files": [
+    "template.json",
+    "index.html",
+    "style.css",
+    "script.js"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a single-page static restaurant/café website (HTML/CSS/JS, no build tools). Sections: hero with tagline, menu organized by categories (Starters, Mains, Desserts, Drinks) with prices and dietary labels (V/VG/GF), about section with story, hours & location with a map placeholder, and a reservation form (saves to localStorage). CSS custom properties in :root for easy rebranding — warm earthy color scheme by default. The user will likely ask to: change the restaurant name/cuisine, edit menu items and prices, add food photos, change colors to match their brand, add an online ordering section, add a gallery, embed a real Google Map, connect a real reservation system, add social media links, add a catering page, etc."
+}

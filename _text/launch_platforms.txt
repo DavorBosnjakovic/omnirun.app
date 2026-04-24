@@ -1,0 +1,182 @@
+# omnirun — Launch Platforms Checklist
+
+Last Updated: April 18, 2026
+
+---
+
+## ✅ COMPLETED
+
+| Platform | Date | What Was Done | Next Action |
+|----------|------|--------------|-------------|
+| **BetaList** | Apr 16 | Submitted with Lite plan ($39) — featured within 2 weeks | Wait for feature, save 2nd slot for launch |
+| **Uneed** | Apr 16 | Submitted (free) — draft saved, not launched yet | Schedule launch when ready. Discount code DOK54PML ($10 off skip-the-line, expired?) |
+| **Vibecoding Discord** | Apr 16 | Posted in #showcase | Monitor for responses |
+| **Indie Hackers** | Apr 16 | Account (Davor_creates_stuff), product page + build story posted | Engage daily 20-30 min |
+| **AlternativeTo** | Apr 16 | Account created (7-day wait) | **Submit April 23** — tag as alt to Bolt.new, Cursor, Replit, Webflow, Wix, FlutterFlow |
+| **Smol Launch** | Apr 17 | Submitted, Free Verified Launch. Badge added to footer. Launch week June 15-21. Pending review. | Wait for approval |
+| **OpenHunts** | Apr 18 | Submitted with categories, tags, screenshots | Wait for launch week |
+
+---
+
+## PRE-LAUNCH (Do Now — Free)
+
+### Priority 1 — Directories (Submit Now)
+
+| # | Platform | URL | DR | What It Is | Status |
+|---|----------|-----|----|-----------|--------|
+| 1 | **Fazier** | https://fazier.com | 80 | High-DR launch platform for startups | ⬜ Submit next |
+| 2 | **Peerlist** | https://peerlist.io | 75 | Community platform for builders, not just a directory | ⬜ Submit next |
+| 3 | **LaunchIgniter** | https://launchigniter.com | 74 | Launch platform, good DR | ⬜ Submit next |
+| 4 | **TinyLaunch** | https://tinylaunch.com | 71 | Similar to Smol Launch | ⬜ Submit next |
+| 5 | **Launching Next** | https://www.launchingnext.com | 50 | Startup directory, 44K+ startups listed. Free. | ⬜ Submit this week |
+| 6 | **Startup Buffer** | https://www.startupbuffer.com | 22 | Clean submission, steady traffic | ⬜ Submit this week |
+| 7 | **Firsto** | https://firsto.co | 57 | Sustained discovery, not 24-hour launches | ⬜ Submit this week |
+| 8 | **SideProjectors** | https://www.sideprojectors.com | 69 | Side project community, relevant audience | ⬜ Submit this week |
+| 9 | **PeerPush** | https://peerpush.net | 71 | 330K monthly visitors. Paid only ($35+). | ⬜ Skip for now (paid) |
+| 10 | **BetaPage** | https://www.betapage.co | ~55 | 57-65K monthly visitors | ❌ Site was down (403) — retry later |
+
+### Priority 2 — Reddit Posts (One per 2-3 days)
+
+| # | Subreddit | URL | Best Angle | Status |
+|---|-----------|-----|-----------|--------|
+| 11 | **r/SideProject** | https://www.reddit.com/r/SideProject/ | "Can't code, vibe coded a full desktop app in 2 months" | ⬜ Post today |
+| 12 | **r/nocode** | https://www.reddit.com/r/nocode/ | "Non-dev built this with AI" | ⬜ Day 3 |
+| 13 | **r/Entrepreneur** | https://www.reddit.com/r/Entrepreneur/ | "Built a desktop app solo as a non-dev" | ⬜ Day 5 |
+| 14 | **r/selfhosted** | https://www.reddit.com/r/selfhosted/ | Local-first SQLite angle | ⬜ Day 7 |
+| 15 | **r/artificial** | https://www.reddit.com/r/artificial/ | Multi-provider + AI assistant angle | ⬜ Day 9 |
+| 16 | **r/automation** | https://www.reddit.com/r/automation/ | Watching agents, scheduled tasks | ⬜ Day 11 |
+| 17 | **r/SaaS** | https://www.reddit.com/r/SaaS/ | Pre-launch feedback request | ⬜ Day 13 |
+
+### Priority 3 — Discord Communities (Participate 3-5 days before sharing)
+
+| # | Discord | Where to Find | What It Is | Status |
+|---|---------|--------------|-----------|--------|
+| 18 | **Indie Hackers Discord** | https://www.indiehackers.com/group/discord | Bootstrapped founders, SaaS, no-code | ⬜ Join this week |
+| 19 | **Buildspace** | discord.gg/buildspace | High-energy builder community | ⬜ Join this week |
+| 20 | **Hustle Cafe** | https://discord.me/hustlecafe | Indie makers, PH launch support | ⬜ Join this week |
+| 21 | **Tech Startups** | https://www.techstartups.gg | Builder-first, vote-based entry | ⬜ Join this week |
+
+---
+
+## LAUNCH DAY (When product is live and downloadable)
+
+### Major Launch Platforms
+
+| # | Platform | URL | DR | What It Is | Status |
+|---|----------|-----|----|-----------|--------|
+| 22 | **Product Hunt** | https://www.producthunt.com | 91 | Gold standard. Launch Tue-Thu. 24-hour voting. | ⬜ Save for launch |
+| 23 | **Hacker News (Show HN)** | https://news.ycombinator.com | 91 | YC community. Build karma now. | ⬜ Build karma, save for launch |
+| 24 | **BetaList (2nd feature)** | https://betalist.com | 74 | Second slot for launch day | ⬜ Save for launch |
+| 25 | **Uneed (scheduled)** | https://www.uneed.best | 73 | Schedule when product is live | ⬜ Schedule at launch |
+| 26 | **Smol Launch** | https://smollaunch.com | ~50 | Already scheduled June 15-21 | ✅ Scheduled |
+
+### Directories (Require Live Product)
+
+| # | Platform | URL | DR | What It Is | Status |
+|---|----------|-----|----|-----------|--------|
+| 27 | **SourceForge** | https://sourceforge.net | 92 | Massive software directory | ⬜ Submit at launch |
+| 28 | **G2** | https://www.g2.com | 91 | Software reviews, needs real users | ⬜ Submit when you have users |
+| 29 | **Capterra** | https://www.capterra.com | 90 | Software comparison directory | ⬜ Submit at launch |
+| 30 | **SaaSHub** | https://www.saashub.com | 76 | Product comparison. 856K monthly visitors. Rejects pre-launch. | ⬜ Submit at launch |
+| 31 | **AlternativeTo** | https://alternativeto.net | 79 | "Alternative to X" directory. **Account ready April 23.** | ⬜ Submit April 23 |
+| 32 | **There's An AI For That** | https://theresanaiforthat.com | 77 | AI tools directory. $49 paid. | ⬜ Submit at launch |
+| 33 | **Future Tools** | https://futuretools.io | ~70 | Matt Wolfe's directory. 230K newsletter. Free but strict. | ⬜ Submit at launch |
+| 34 | **Futurepedia** | https://www.futurepedia.io | 68 | Major AI tools directory | ⬜ Submit at launch |
+| 35 | **LibHunt** | https://www.libhunt.com | 65 | Developer tools directory | ⬜ Submit at launch |
+| 36 | **PitchWall** | https://pitchwall.co | 59 | Startup pitch directory | ⬜ Submit at launch |
+| 37 | **DevHunt** | https://devhunt.org | 59 | Developer tools. Free (6-week wait) or $49. | ⬜ Submit at launch |
+| 38 | **OpenAlternative** | https://openalternative.co | 51 | Open-source alternatives directory | ⬜ Submit at launch |
+| 39 | **Resource.fyi** | https://resource.fyi | ~45 | Curated tools for tech people | ⬜ Submit at launch |
+| 40 | **SaaSWorthy** | https://www.saasworthy.com | ~45 | SaaS comparison directory | ⬜ Submit at launch |
+| 41 | **Software Advice** | https://www.softwareadvice.com | 79 | Software comparison, high DR | ⬜ Submit at launch |
+| 42 | **GoodFirms** | https://www.goodfirms.co | 83 | Software reviews directory | ⬜ Submit at launch |
+
+### Content & Articles (Publish at Launch)
+
+| # | Platform | URL | DR | What It Is | Status |
+|---|----------|-----|----|-----------|--------|
+| 43 | **Dev.to** | https://dev.to | ~70 | Write "Building a local-first desktop app with Tauri + SQLite" | ⬜ Write article |
+| 44 | **Hashnode** | https://hashnode.com | ~70 | Developer blogging, indexes on Google | ⬜ Write article |
+
+### Master Lists for Bulk Submission at Launch
+
+| # | Resource | URL | What It Is | Status |
+|---|----------|-----|-----------|--------|
+| 45 | **AI Directories Master List** | https://github.com/best-of-ai/ai-directories | 200+ AI directories | ⬜ Batch-submit at launch |
+| 46 | **Reddit 100 Places List** | Saved from r/SideProject post | 100 directories sorted by DR | ⬜ Work through DR 40+ at launch |
+
+---
+
+## POST-LAUNCH (Ongoing, after traction)
+
+| # | Platform | URL | DR | What It Is | Status |
+|---|----------|-----|----|-----------|--------|
+| 47 | **StartuPage** | https://startupa.ge | ~55 | Stripe-verified traction profiles | ⬜ When you have revenue |
+| 48 | **Crunchbase** | https://www.crunchbase.com | ~90 | Startup database, credibility | ⬜ When established |
+| 49 | **Foundigy** | https://foundigy.com | ~40 | SEO-focused directory | ⬜ Anytime |
+| 50 | **F6S** | https://www.f6s.com | ~70 | 1.5M+ founders, accelerator connections | ⬜ When ready |
+| 51 | **AppSumo** | https://www.appsumo.com | 82 | Marketplace for deals. NOT for lifetime deals — consider only for launch exposure. | ⬜ Consider later |
+
+### Paid Promotion (When revenue supports it)
+
+| # | Platform | What It Is | When |
+|---|----------|-----------|------|
+| 52 | **MicroLaunch Premium** | Paid launch platform ($50+) | When revenue supports it |
+| 53 | **PeerPush Promoted** | 30-day promoted, ~100K impressions ($189) | $2K+ MRR |
+| 54 | **Reddit Ads** | Target r/nocode, r/SaaS, r/Entrepreneur | $2K+ MRR |
+| 55 | **YouTube Ads** | Demo video ads | $5K+ MRR |
+
+---
+
+## IMMEDIATE NEXT ACTIONS
+
+**Today (April 18):**
+1. Submit to Fazier
+2. Submit to Peerlist
+3. Post on r/SideProject
+4. Check if BetaPage is back up
+
+**This week (April 19-22):**
+5. Submit to LaunchIgniter, TinyLaunch, Firsto, SideProjectors, Launching Next
+6. Post on r/nocode (day 3)
+7. Post on r/Entrepreneur (day 5)
+8. Join Discord communities (IH Discord, Buildspace, Hustle Cafe)
+
+**April 23:**
+9. Submit to AlternativeTo
+
+**When product is live:**
+10. Full launch sequence — Product Hunt, Hacker News, BetaList 2nd feature, SaaSHub, G2, Capterra, SourceForge + all remaining directories
+
+---
+
+## REMINDERS & RULES
+
+- Reddit: never pitch directly, share what you built, invite feedback. One sub every 2-3 days. Never crosspost.
+- Discord: participate 3-5 days before promoting
+- Directories are set-and-forget SEO plays — submit and move on
+- Communities = real engagement and users
+- Demo video is your strongest asset
+- BetaList gives two features — pre-launch (used) and launch (save)
+- IH: engage with others' posts daily
+- Your angle: "non-dev, vibe coding for 2 years, built omnirun in 2 months"
+- DR 40+ directories are worth individual effort. Below 40, bulk-submit at launch.
+
+---
+
+## KEY ASSETS (Copy-Paste Ready)
+
+- **Product name:** omnirun (always lowercase)
+- **Website:** https://omnirun.app
+- **Discord:** https://discord.gg/3RCcuS9WWC
+- **Short tagline:** Build, automate, and control your computer with AI
+- **Long tagline:** Build software and automate tasks by describing what you want. Type or talk.
+- **Alternatives to tag:** Bolt.new, Cursor, Replit, Webflow, Wix, FlutterFlow, Lovable, v0, Claude Code
+- **Categories:** Developer Tools, AI Tools, Automation & Workflow, Productivity, No-Code
+- **Target audience:** Non-Technical Users, Freelancers, Small Businesses, Founders & CEOs
+- **Platform:** Desktop (Mac, Windows, Linux)
+- **Pricing:** Paid (Starter $10, Pro $29, Studio $59, plus team tiers)
+- **Pitch angle:** "Non-dev, vibe coding for 2 years, built omnirun in 2 months"
+- **Tech stack:** Tauri, React, TypeScript, Zustand, SQLite, Supabase
+- **Core differentiators:** Local-first SQLite, multi-provider AI (Claude/OpenAI/Gemini/Groq/DeepSeek/Ollama), auto model routing (60-80% token savings), project memory, Time Machine, Assistant section with Gmail/Calendar/GitHub/Slack/Notion, desktop app control, voice input
+- **Smol Launch badge:** Already added to footer

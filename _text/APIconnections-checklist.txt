@@ -1,0 +1,76 @@
+# API Connections Checklist
+
+## MVP (Launch)   Token/API Key Based (Phase 1)
+- [x] Vercel (projects, deploy, domains, env vars   11 actions)
+- [x] Netlify (sites, deploys, env vars   8 actions)
+- [x] Namecheap (domains, DNS records   5 actions, XML API)
+- [x] Cloudflare (zones, DNS, cache   7 actions)
+- [x] Supabase (projects, SQL, tables, RLS   10 actions)
+- [x] Stripe (products, prices, checkout, customers   8 actions)
+- [x] SendGrid (email sending, templates   4 actions)
+- [x] GitHub (repos, branches, commits, PRs, files   11 actions)
+
+Note: All 8 providers implemented with token-based auth.
+OAuth flows planned for Phase 2 (smoother UX but same functionality).
+Tokens stored in localStorage (Phase 1), OS keychain planned (Phase 2).
+
+## Phase 2 (Month 2-3)
+- [ ] Railway
+- [ ] Render
+- [ ] GoDaddy
+- [ ] Google Domains
+- [ ] Firebase
+- [ ] PlanetScale
+- [ ] PayPal
+- [ ] Resend
+
+## Phase 3 (Month 4-6)
+- [ ] MongoDB Atlas
+- [ ] Neon
+- [ ] Upstash
+- [ ] AWS S3
+- [ ] Cloudflare R2
+- [ ] Cloudinary
+- [ ] Postmark
+- [ ] Mailgun
+- [ ] Clerk
+- [ ] Auth0
+
+## Phase 4 (Later)
+- [ ] Fly.io
+- [ ] DigitalOcean
+- [ ] Heroku
+- [ ] Porkbun
+- [ ] Turso
+- [ ] Xata
+- [ ] Square
+- [ ] Lemon Squeezy
+- [ ] Paddle
+- [ ] Mailchimp
+- [ ] ConvertKit
+- [ ] AWS SES
+- [ ] Backblaze B2
+- [ ] GitLab
+- [ ] Bitbucket
+- [ ] Google Analytics
+- [ ] Plausible
+- [ ] PostHog
+- [ ] Mixpanel
+- [ ] Sanity
+- [ ] Contentful
+- [ ] Notion
+- [ ] Twilio
+- [ ] Slack
+- [ ] Discord
+- [ ] Cal.com
+- [ ] Calendly
+- [ ] Algolia
+- [ ] Typeform
+- [ ] Sentry
+- [ ] Zapier
+- [ ] OpenAI
+- [ ] Shopify
+- [ ] Google Maps
+- [ ] Mux
+- [ ] YouTube
+- [ ] Twitter/X

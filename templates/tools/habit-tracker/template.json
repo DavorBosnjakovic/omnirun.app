@@ -1,0 +1,30 @@
+{
+  "name": "Habit Tracker",
+  "slug": "habit-tracker",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "react",
+  "description": "Track daily habits with streaks, weekly view, and progress stats.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "basic",
+  "category": "personal-tools",
+  "tags": ["react", "vite", "habits", "streaks", "productivity", "daily-tracker"],
+  "icon": "✅",
+  "defaultProjectName": "My Habit Tracker",
+  "files": [
+    "template.json",
+    "index.html",
+    "package.json",
+    "vite.config.js",
+    "src/main.jsx",
+    "src/App.jsx",
+    "src/App.css"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a React + Vite habit tracker. Single-file App.jsx contains all logic. Features: add/delete habits with emoji icons, daily check-off with checkboxes, 7-day week view (navigate between weeks), current streak counter per habit, overall completion percentage, stats summary (total habits, today's progress, best streak). All data persisted in localStorage. CSS custom properties in App.css for theming. The user will likely ask to: add habit categories, add monthly/yearly views, add charts/graphs, add reminders/notifications, add habit notes, export data, add goals, change theme colors, add dark/light toggle, etc."
+}

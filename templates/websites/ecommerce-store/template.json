@@ -1,0 +1,34 @@
+{
+  "name": "E-commerce Store",
+  "slug": "ecommerce-store",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "react",
+  "description": "Product grid, shopping cart, and checkout flow with mock data. Ready to connect to a real backend.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "pro",
+  "category": "websites",
+  "tags": ["react", "vite", "ecommerce", "shop", "cart", "checkout", "products"],
+  "icon": "🛍️",
+  "defaultProjectName": "My Online Store",
+  "files": [
+    "template.json",
+    "index.html",
+    "package.json",
+    "vite.config.js",
+    "src/main.jsx",
+    "src/App.jsx",
+    "src/App.css",
+    "src/components/Navbar.jsx",
+    "src/components/ProductCard.jsx",
+    "src/components/Cart.jsx",
+    "src/components/Checkout.jsx"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a React + Vite e-commerce store. App.jsx is the main component managing all state (products, cart, current view). Components: Navbar (cart count badge, nav links), ProductCard (image placeholder via CSS gradient, add to cart), Cart (line items, quantity +/-, remove, subtotal/total), Checkout (shipping form, order summary, place order saves to localStorage). All data is mock — 8 products defined in App.jsx. Cart state uses useState. No routing library — view switching via state ('shop'/'cart'/'checkout'/'confirmation'). Products have categories for filtering. CSS custom properties for theming in App.css. The user will likely ask to: add real product images, connect to Stripe/payment, add product detail pages, add categories/filters, add search, connect to a backend/CMS, add user accounts, add wishlist, add reviews, etc."
+}

@@ -1,0 +1,871 @@
+HOW TO BUILD A MEMORY SYSTEM THAT GENUINELY LEARNS USERS
+A comprehensive implementation guide
+================================================================================
+
+
+THE PHILOSOPHY FIRST
+--------------------
+Most AI tools have a memory problem disguised as a feature. They either remember
+everything (noisy, expensive, context window dies) or nothing (resets every time,
+useless). 
+
+The goal here is different: build something that remembers the way a good human
+collaborator remembers. Not verbatim logs, but meaning. Not everything, but what
+matters. Not static facts, but evolving understanding.
+
+The measure of success: after 3 months, the tool should know the user better than
+a new human assistant would after 3 months of working together.
+
+GUIDING PRINCIPLES (added April 2026):
+
+  Bandwidth-aware: Every token has a cost. Aggressively prioritize high-signal
+  information; prune or compress anything low-value, stale, or derivable.
+
+  Skeptical memory: Recalled information is treated as hints, not absolute truth.
+  The agent verifies against ground truth (actual files, codebase, logs) before
+  acting on recalled architectural or dependency claims.
+
+  Strict write discipline: Memory updates are gated on confirmed success. Don't
+  write "switched to PostgreSQL" into memory until the migration actually worked.
+  This prevents pollution from failed attempts or hallucinated observations.
+
+  Derivability rule: If a fact can be re-derived from the current codebase or
+  state (via file reads, config inspection, grep), it is NOT redundantly stored
+  in memory. Save the token budget for things only memory can provide: user
+  preferences, failed approaches, decision reasoning, behavioral patterns.
+
+  Self-healing: Memory actively improves itself during idle time, not just on a
+  weekly schedule. Merging, deduplicating, resolving contradictions, pruning stale
+  data, and sharpening vague insights into durable facts.
+
+
+================================================================================
+PART 1: WHAT TO CAPTURE
+================================================================================
+
+Most systems capture WHAT happened. You want to capture WHY it matters.
+
+-- EXPLICIT SIGNALS (things the user directly tells you) --
+
+  Approvals and rejections
+    - Not just "approved" but what specifically they approved and the context
+    - Not just "rejected" but what they rejected and any reason given
+    - Pattern: if they reject the same type of thing 3 times, that's a rule
+
+  Direct corrections
+    - When they say "no, do it this way instead"
+    - When they roll back to a previous version
+    - When they rewrite something you produced
+    - These are gold. They show taste, not just preference.
+
+  Explicit preferences stated
+    - "I prefer X over Y"
+    - "Always do Z"
+    - "Never do W"
+    - Store these verbatim with date
+
+  Questions they ask repeatedly
+    - If they ask the same thing more than twice, they don't understand something
+    - Either explain it better or just handle it automatically going forward
+
+-- IMPLICIT SIGNALS (things the user shows you without saying) --
+
+  Timing patterns
+    - What time of day they work
+    - How long their sessions are
+    - How often they come back
+    - Long gaps after certain types of interactions (frustration? confusion?)
+
+  Session behavior
+    - Do they read your explanations or skip straight to results?
+    - Do they ask follow-up questions or just execute?
+    - Do they modify your outputs or use them as-is?
+    - How much back-and-forth before they're satisfied?
+
+  Language patterns
+    - Technical vocabulary they use vs avoid
+    - How they describe problems (vague vs precise)
+    - What they call their own components (use their names, not yours)
+    - Tone: casual, formal, frustrated, excited
+
+  Decision patterns
+    - How long they take to approve something
+    - What makes them hesitate
+    - What they approve instantly vs scrutinize
+    - What they always want to review vs delegate fully
+
+  Feature usage
+    - What they use every day vs never touch
+    - What they tried once and abandoned
+    - What they ask for repeatedly that doesn't exist yet
+
+-- PROJECT SIGNALS (what you learn about their work) --
+
+  Codebase personality
+    - Their naming conventions (learn them, use them)
+    - Their architectural preferences
+    - Their testing habits (or lack thereof)
+    - Their commenting style
+    - Patterns they repeat across projects
+
+  Technical debt awareness
+    - Do they know about the debt or are they blind to it?
+    - Do they want it fixed or tolerate it?
+    - What have they tried to fix before?
+
+  Project history
+    - What they built and why
+    - What they abandoned and why
+    - What broke badly in the past
+    - What they're proud of
+
+  External dependencies
+    - What APIs they rely on
+    - What services they pay for
+    - What tools are in their stack
+    - Single points of failure in their setup
+
+
+================================================================================
+PART 2: HOW TO STORE IT
+================================================================================
+
+THREE LAYER ARCHITECTURE
+
+Layer 1: IDENTITY FILE (context.md)
+  - Always loaded into every session
+  - Maximum 3000 tokens (enforce this hard limit)
+  - Human readable markdown, user can edit it directly
+  - Updated weekly by compression job + on idle consolidation
+  - Contains: who they are, how they work, core preferences, current focus
+
+Layer 2: PROJECT FILES (projects/[name]/project.md)  
+  - One file per project, loaded only when working on that project
+  - Maximum 2000 tokens per project
+  - Contains: NON-DERIVABLE knowledge only — decisions and WHY, known issues,
+    user's naming conventions, recurring problems, failed approaches, preferences
+  - Updated after every session that touches that project
+  - GATED ON SUCCESS: only updated after confirmed successful operations
+
+Layer 3: VECTOR STORE (local sqlite-vec database)
+  - Never fully loaded, only retrieved by semantic search
+  - Contains: compressed session summaries, specific decisions and why,
+    things tried that didn't work, detailed interaction history
+  - Queried at session start: "what do I know relevant to what we're doing now?"
+  - Grows indefinitely but never bloats the context window
+  - Retention: keep everything, nothing deleted, just deprioritized over time
+
+WHAT GOES WHERE
+
+  Into context.md:
+    - Stable facts about the user
+    - Confirmed strong preferences
+    - Current projects and status (brief — one line each)
+    - Patterns observed consistently (3+ times)
+    - Things to always remember
+
+  Into project.md (NON-DERIVABLE FACTS ONLY):
+    - Decisions made and WHY (not just what tech stack — that's in package.json)
+    - Known bugs and their status
+    - Failed approaches and why they failed (critical — prevents repeating)
+    - User's naming conventions for THIS project
+    - Deployment quirks not obvious from config files
+    - Architectural choices that AREN'T visible in the code itself
+
+  NOT into project.md (derivable — re-read from files instead):
+    - Tech stack list (read from package.json, Cargo.toml, config files)
+    - File structure (use list_directory)
+    - Dependency versions (read from lockfiles)
+    - Current branch or git state (use git commands)
+    - Anything that a file read or grep can answer in <100ms
+
+  Into vector store:
+    - Raw session summaries
+    - Specific decisions with context
+    - Attempted solutions that failed (critical - prevents repeating mistakes)
+    - Detailed interaction history
+    - Anything too specific or episodic for the structured files
+
+THE DERIVABILITY RULE (added April 2026):
+
+  Before storing ANY fact in context.md or project.md, ask:
+  "Can this be determined by reading a config file, running a command, or
+  grepping the codebase?"
+
+  If YES → don't store it. Re-derive it when needed. This saves token budget
+  for things that ONLY memory can provide.
+
+  Examples of DERIVABLE (don't store):
+    "Using React 18 with Tailwind"     → read package.json
+    "Main entry point is src/main.tsx"  → read file structure
+    "Using Supabase for auth"           → read imports/config
+    "Currently on branch feature/auth"  → run git branch
+
+  Examples of NON-DERIVABLE (store these):
+    "Chose Supabase over Firebase because of RLS policies"
+    "Tried Stripe webhooks twice, user abandoned both times at setup"
+    "User hates verbose explanations, prefers 2-3 sentence answers"
+    "The deploy script has a race condition — must wait 5s after build"
+    "User calls their auth module 'the gate' — use their terminology"
+
+  This rule typically frees 30-40% of project.md token budget for higher-value
+  observations that actually improve the agent's usefulness.
+
+STRICT WRITE DISCIPLINE (added April 2026):
+
+  Memory writes are GATED on confirmed success:
+
+  For project.md updates about code/architecture:
+    - Only write "migrated to PostgreSQL" AFTER the migration succeeds
+    - Only write "fixed the auth bug" AFTER the fix is tested/confirmed
+    - If an operation fails or is abandoned, store it as a FAILED ATTEMPT
+      (equally valuable — prevents suggesting the same thing again)
+
+  For context.md updates about preferences:
+    - Observation extraction can log anything (observations are raw signals)
+    - But compression into context.md still requires the 3x confirmation rule
+    - One-time corrections are stored in vector store, not promoted to context
+
+  For project.md updates about user preferences:
+    - Can be written after session ends (these are observational, not factual)
+    - Still require the significance filter (Part 4, Step 2)
+
+  WHY THIS MATTERS: Without write gating, a failed migration attempt gets
+  written as "using PostgreSQL" and the agent hallucinates from stale memory
+  for the rest of the project. Write discipline prevents memory pollution.
+
+
+================================================================================
+PART 3: THE CONTEXT FILE STRUCTURE
+================================================================================
+
+This is the most important document in the system. Every session reads it.
+Keep it tight. Every line should earn its place.
+
+---
+
+## Identity
+[Name/handle if known]
+[Skill level: non-technical / learning / intermediate / technical]
+[Primary language]
+[Timezone / working hours pattern]
+[How long they've been a user]
+
+## How They Work
+[Prefers explanations: detailed / brief / skip to results]
+[Decision style: fast approver / careful reviewer / needs context]
+[Communication tone: casual / professional / mixed]
+[Technical depth comfortable with: plain english only / some technical fine]
+[Typical session length]
+[When they're most active]
+
+## Current Focus
+[What they're building right now]
+[What they're trying to achieve this week/month]
+[Any deadlines or time pressure]
+[Current blockers]
+
+## Their Projects
+[Project name] - [one line description] - [status] - [last touched]
+[Project name] - [one line description] - [status] - [last touched]
+... (brief, details live in project files)
+
+## Strong Preferences (confirmed 3+ times)
+[Things they always want]
+[Things they never want]
+[Their naming conventions]
+[Their formatting preferences]
+[Approaches they consistently reject]
+
+## Patterns Observed
+[Behavioral patterns worth knowing]
+[When they tend to struggle]
+[What makes them frustrated]
+[What makes them confident]
+[Their decision-making patterns]
+
+## Things That Have Gone Wrong
+[Approaches tried that failed for this user specifically]
+[Their common mistakes]
+[Things that broke and how]
+[What NOT to suggest again]
+
+## Things To Always Remember
+[Critical facts that must never be forgotten]
+[Anything they've explicitly said to always keep in mind]
+[Important context about their situation]
+
+## Voice & Style (for content generation)
+[How they write]
+[Their vocabulary]
+[Their tone]
+[Things they say often]
+[Things they'd never say]
+
+---
+
+
+================================================================================
+PART 4: THE OBSERVATION EXTRACTION SYSTEM
+================================================================================
+
+After every session, before closing, run this process:
+
+STEP 1: RAW EXTRACTION
+Run a cheap fast model (Haiku) on the session transcript with this goal:
+"Extract every signal about this user. What did they approve? Reject? Correct?
+Ask about? Struggle with? What patterns appeared? What did you learn about their
+projects? About how they think? Be specific, be brief, no fluff."
+
+Output: a bullet list of raw observations with session timestamp.
+
+STEP 2: SIGNIFICANCE FILTER  
+For each observation ask: "Is this a one-time thing or does it tell us something
+durable about this person?" 
+- One-time situational things go only to vector store
+- Durable patterns go to context.md candidates
+- Project-specific things go to project.md candidates
+
+STEP 2B: DERIVABILITY CHECK (added April 2026)
+For each project-specific observation, ask: "Can this fact be re-derived by
+reading a config file, listing a directory, or grepping the codebase?"
+- If YES → discard it (don't store derivable facts)
+- If NO → proceed to storage (decisions, preferences, failures, quirks)
+
+STEP 3: CONFLICT CHECK
+Before updating context.md, check: does this new observation contradict 
+something already there? If yes, flag it. Don't automatically overwrite.
+Let contradictions accumulate — if something is contradicted 3 times, update.
+If only once, it might be situational.
+
+STEP 3B: SUCCESS GATE (added April 2026)
+For observations about code/architecture changes:
+- Was the operation confirmed successful? → store as fact
+- Did the operation fail or get abandoned? → store as FAILED ATTEMPT
+- Was it discussed but never executed? → store as CONSIDERED (not decided)
+This prevents "we switched to X" pollution from incomplete work.
+
+STEP 4: COMPRESSION (weekly + idle-triggered, see Part 4B)
+Take the last 7 days of raw observations plus current context.md.
+Run the MULTI-PHASE COMPRESSION (see below) instead of a single prompt.
+
+This is the most important process in the entire system. Tune it carefully.
+
+
+================================================================================
+PART 4A: MULTI-PHASE COMPRESSION (replaces single-prompt compression)
+================================================================================
+
+The old approach: one prompt that says "update context.md with new observations."
+The problem: it misses duplicates, keeps stale facts, and produces mediocre output.
+
+The new approach: structured multi-phase compression in a SINGLE Haiku call with
+explicit instructions for each phase. Still one API call, but the prompt forces
+the model to think in stages.
+
+COMPRESSION PROMPT STRUCTURE:
+
+  "You are updating a user's memory file. Follow these four phases IN ORDER.
+  Show your work for each phase before producing the final output.
+
+  PHASE 1 — DEDUPLICATE
+  Compare new observations against existing context.md entries.
+  List any observations that are already captured (even if worded differently).
+  These will be SKIPPED — don't add them again.
+
+  PHASE 2 — CHECK FOR CONTRADICTIONS
+  List any new observations that contradict existing context.md entries.
+  For each contradiction:
+  - If this is the 3rd+ time the new version has appeared → UPDATE the entry
+  - If this is the 1st-2nd time → NOTE it but don't change context.md yet
+  - Flag stale entries: anything in context.md that hasn't been reinforced in
+    30+ days AND relates to a fast-changing topic (current focus, blockers,
+    active projects) should be marked for review or removal.
+
+  PHASE 3 — CHECK FOR STALENESS
+  Review every entry in context.md. For each one ask:
+  - Is this still true? (based on recent observations)
+  - Is this derivable from the codebase? (if yes, REMOVE it)
+  - When was this last reinforced by an observation? (if >60 days, demote)
+  - Is this still useful? (vague observations that never led to action → remove)
+
+  PHASE 4 — COMPRESS AND WRITE
+  Now produce the updated context.md:
+  - Add genuinely new, non-derivable, durable observations
+  - Remove stale, derivable, or superseded entries
+  - Merge related items (don't have 3 entries that say the same thing differently)
+  - Sharpen vague observations into specific, actionable facts
+  - Stay UNDER 3000 tokens. Recency + frequency determine what stays.
+  - Output ONLY the final context.md content, no commentary."
+
+WHY THIS IS BETTER:
+  The single-prompt approach often just appends new things and occasionally
+  removes the oldest entry when space is tight. The multi-phase approach forces
+  the model to audit the entire file, catch redundancy, and make real editorial
+  decisions. Same cost (one Haiku call), dramatically better output.
+
+
+================================================================================
+PART 4B: IDLE-TIME MEMORY MAINTENANCE (added April 2026)
+================================================================================
+
+The weekly Sunday compression job is good but not enough. A user who has 10
+intense sessions Monday-Wednesday shouldn't wait until Sunday to consolidate.
+
+IDLE-TIME CONSOLIDATION:
+
+  Trigger: app has been idle (no user input) for 30+ minutes AND there are
+  10+ unprocessed observations since last consolidation.
+
+  What it does:
+  1. Runs the multi-phase compression (Part 4A) using Haiku
+  2. Costs ~$0.001-0.003 per run (negligible with prompt caching)
+  3. Produces a brief internal changelog: "Merged 3 duplicate entries, removed
+     2 stale tech stack facts, sharpened 1 vague preference into a specific rule"
+  4. Updates context.md and/or relevant project.md files
+
+  What it does NOT do:
+  - Run during active user sessions (never competes for resources)
+  - Run more than once per 4 hours (even if idle threshold is re-hit)
+  - Update the "Memory updated" indicator (this is background maintenance,
+    not new learning — don't distract the user)
+  - Touch the vector store (that's append-only, doesn't need consolidation)
+
+  Implementation:
+  - Register as a lightweight Scheduled Task with idle-trigger
+  - Reuse existing compression infrastructure (memoryService.ts)
+  - Add a last_consolidated_at timestamp to memory_settings table
+  - Check: if (idle_minutes > 30 && unprocessed_observations > 10 &&
+    hours_since_last_consolidation > 4) → run
+
+  Safety:
+  - Read-only access to observations, read-write to context/project files only
+  - Max 1 Haiku call per consolidation (no runaway loops)
+  - If consolidation fails, log the error and retry next idle period
+  - Never blocks or interrupts user workflow
+
+WHY THIS MATTERS:
+  Without idle consolidation, a busy week produces 50+ raw observations that
+  all get compressed in one Sunday batch. The Sunday compression prompt has to
+  make dozens of editorial decisions at once and often makes worse choices than
+  if it had processed them in smaller batches of 10-15. Idle consolidation
+  produces better memory with the same total compute cost, just spread out.
+
+
+================================================================================
+PART 5: RETRIEVAL STRATEGY
+================================================================================
+
+At the start of every session, load intelligently not exhaustively.
+
+ALWAYS LOAD:
+  - Full context.md (always, no exceptions)
+  - Relevant project.md if working on a specific project
+
+QUERY THE VECTOR STORE FOR:
+  - "Previous sessions working on [current project]"
+  - "Times user asked about [current topic]"  
+  - "Previous attempts to solve [current problem type]"
+  - "User preferences related to [current task type]"
+  - Return top 3-5 most relevant chunks, not everything
+
+CONSTRUCT THE SESSION OPENER:
+  Don't just dump context. Synthesize it into a brief orientation paragraph
+  that the agent uses to calibrate itself before responding.
+  
+  Example internal orientation (user never sees this):
+  "This is [user], non-technical, prefers plain english, working on their 
+  music app. Last session 3 days ago we were fixing the upload feature, 
+  didn't finish. They've asked about payments twice before and abandoned it
+  both times at Stripe webhook setup — if it comes up, suggest a simpler 
+  payment provider. They work late evenings and like brief responses."
+
+That orientation changes every response without the user doing anything.
+
+VERIFICATION NUDGE (added April 2026):
+
+  The session orientation includes a standing instruction to the agent:
+
+  "MEMORY VERIFICATION RULE: Information from context.md and project.md about
+  user preferences, behavioral patterns, and past failures is TRUSTED — act on
+  it directly. Information about project architecture, tech stack, dependencies,
+  file structure, or current code state is treated as HINTS — verify against
+  actual files before acting. If project.md says 'using Stripe for payments'
+  but the codebase has no Stripe imports, trust the codebase, not memory."
+
+  This costs ~50 tokens in the system prompt but prevents a class of bugs where
+  stale project memory causes the agent to hallucinate about the current state.
+
+  WHY PREFERENCES ARE TRUSTED BUT ARCHITECTURE ISN'T:
+  - Preferences change slowly and are confirmed by the 3x rule before storage
+  - Architecture changes fast (a user can rip out a library in one session)
+  - Preferences can't be "verified" against files (they're about the human)
+  - Architecture CAN be verified (just read the imports/configs)
+  
+  The verification nudge is cheap insurance. In practice, the agent will already
+  read files before modifying them — this just ensures it doesn't skip that step
+  when memory gives it false confidence about what's in those files.
+
+
+================================================================================
+PART 5A: TIERED CONTEXT COMPACTION (added April 2026)
+================================================================================
+
+During long sessions, the context window fills up. The old approach was a single
+strategy: trim to 10 turn pairs. The new approach: five cascading strategies,
+tried in order from cheapest/least-lossy to most aggressive.
+
+THE FIVE TIERS (applied in order as pressure increases):
+
+  TIER 1: STALE TOOL RESULT CLEARING (~70% context usage)
+    What: Drop or collapse tool results (file reads, command outputs, search
+    results) that are older than 5 turns and have been "consumed" (the agent
+    already acted on them).
+    Cost: Zero API calls. Pure local filtering.
+    Signal preserved: The fact that the tool was called and what the agent
+    decided, but not the raw output.
+    Implementation: Replace old tool result content with a one-line summary:
+    "[read_file: src/auth.js — 247 lines, agent used this to fix login bug]"
+    Why first: Tool results are the biggest context hogs (a single file read
+    can be 2000+ tokens) and become obsolete fastest.
+
+  TIER 2: RECENT CONVERSATION SUMMARIZATION (~80% context usage)
+    What: Condense the oldest 5-7 conversation turns (that survived Tier 1)
+    into a compact 200-300 token summary preserving key decisions and state.
+    Cost: One cheap Haiku call (background, non-blocking).
+    Signal preserved: What was decided, what was tried, what failed, current
+    task state. NOT the back-and-forth of how we got there.
+    Implementation: Send the oldest N turns to Haiku with:
+    "Summarize this conversation segment in <300 tokens. Preserve: decisions
+    made, files modified, errors encountered, current task goal. Discard:
+    greetings, explanations, thinking-out-loud, redundant confirmations."
+    Replace the original turns with a synthetic system message containing
+    the summary.
+
+  TIER 3: MEMORY EXTRACTION TO PERSISTENT LAYERS (~85% context usage)
+    What: Scan the session for observations/learnings that should survive
+    beyond this session and extract them into Layer 2/3 NOW instead of
+    waiting for end-of-session extraction.
+    Cost: One Haiku call (can be combined with Tier 2 call).
+    Signal preserved: Durable learnings saved permanently. Ephemeral context
+    can then be more aggressively trimmed knowing nothing is lost.
+    Implementation: Run a lightweight version of the observation extraction
+    (Part 4, Steps 1-3) mid-session. Write extracted observations to
+    memory_observations table. This makes Tiers 4-5 safer to apply.
+
+  TIER 4: FULL HISTORY SUMMARIZATION (~90% context usage)
+    What: Compress the ENTIRE conversation history (including any Tier 2
+    summaries) into a single dense summary of 400-600 tokens.
+    Cost: One Haiku call on the full remaining history.
+    Signal preserved: Overall task goal, current progress, critical decisions,
+    files touched, errors to avoid. This is enough for the agent to continue
+    working coherently.
+    Implementation: Replace all history with a single synthetic message:
+    "[SESSION SUMMARY: Started working on X. Modified files A, B, C. Key
+    decisions: ... Current state: ... Blocked on: ... ]"
+
+  TIER 5: OLDEST-MESSAGE TRUNCATION (~95% context usage)
+    What: Hard-drop the oldest messages, keeping only the most recent 3-5
+    turns plus any Tier 4 summary.
+    Cost: Zero API calls.
+    Signal preserved: Minimal — only the immediate working context.
+    When: Last resort. If we're here, the session is extremely long and the
+    agent may start losing coherence regardless. Consider suggesting the
+    user start a new session.
+    Implementation: Keep system prompt + memory block + Tier 4 summary +
+    last 3-5 turns. Drop everything else.
+
+WHEN TO TRIGGER EACH TIER:
+
+  The system monitors context usage as a percentage of the model's limit.
+  Thresholds are checked after every turn:
+
+  70% → Tier 1 (silent, instant, no API cost)
+  80% → Tier 2 (background Haiku call between turns)
+  85% → Tier 3 (extract to persistent memory, background)
+  90% → Tier 4 (full summarization, may add ~1s latency)
+  95% → Tier 5 (hard truncation, suggest new session)
+
+  Multiple tiers can apply simultaneously. E.g., at 85%, Tiers 1-3 all run.
+
+INTEGRATION WITH EXISTING SYSTEM:
+
+  - Tier 1 replaces the current "collapse consumed tool results" (Phase 3.1
+    in token-optimization-checklist.txt). Same idea, now part of a cascade.
+  - Tier 5 replaces the current "limit to 10 turn pairs" (Phase 3.2).
+    Now it's the last resort instead of the only strategy.
+  - Tiers 2-4 are NEW and fill the gap between "drop tool results" and
+    "hard-truncate history."
+  - All tiers respect prompt caching boundaries (summaries are placed to
+    minimize cache invalidation).
+
+COST: Tiers 2-4 each cost one Haiku call (~$0.001-0.003). In a long session,
+you might hit Tiers 1-3 once and Tier 4 once = ~$0.008 total. This is far
+cheaper than the wasted tokens from a bloated, repetitive context that causes
+the agent to loop or hallucinate.
+
+
+================================================================================
+PART 6: THE LEARNING CURVE OVER TIME
+================================================================================
+
+WEEK 1-2: FOUNDATION PHASE
+  What it's doing: establishing baseline, learning vocabulary, mapping projects
+  What user experiences: useful but not remarkable
+  Key captures: explicit preferences, project structure, communication style
+  Don't over-update context.md yet — wait for patterns to confirm
+
+WEEK 3-4: PATTERN RECOGNITION PHASE  
+  What it's doing: connecting dots, noticing repetition, building project knowledge
+  What user experiences: "it remembered that" moments starting
+  Key captures: behavioral patterns, recurring problems, decision tendencies
+  Start populating the patterns and "things that went wrong" sections
+
+MONTH 2: ANTICIPATION PHASE
+  What it's doing: predicting needs, proactively flagging known issues
+  What user experiences: feels intuitive, like it knows how they think
+  Key captures: refining voice model, deepening project knowledge
+  Context.md now rich enough to generate good content in their voice
+
+MONTH 3+: DEEP KNOWLEDGE PHASE
+  What it's doing: maintaining a richer model than the user has of themselves
+  What user experiences: "it knows my projects better than I do"
+  Key captures: long-term patterns, evolution of preferences over time
+  Vector store now valuable — can surface things from months ago
+
+6 MONTHS+: IRREPLACEABLE PHASE
+  Accumulated context genuinely hard to rebuild elsewhere
+  Not lock-in — just real value that takes time to create
+  User would feel genuine loss switching to a fresh tool
+
+
+================================================================================
+PART 7: SPECIAL CASES TO HANDLE
+================================================================================
+
+CONTRADICTIONS IN MEMORY
+  User said one thing before and opposite now. Don't silently overwrite.
+  Note the contradiction. Recent preference wins but keep the history.
+  Sometimes worth surfacing: "Last time you preferred X, want to change that?"
+
+FORGETTING ON PURPOSE
+  Let users edit their context.md directly
+  Let users explicitly tell the agent to forget something
+  "Forget that I mentioned X" should work and be respected immediately
+  This builds trust more than any feature
+
+MULTIPLE PROJECTS BLEEDING TOGETHER
+  Keep project files strictly separate
+  Never assume patterns from one project apply to another
+  User may have completely different standards for a side project vs main product
+
+LONG GAPS (user returns after weeks/months)
+  Don't pretend no time has passed
+  Acknowledge the gap naturally: "Welcome back, last time we were..."
+  Check if project status is still accurate — things may have changed
+  Don't overwhelm with memory, just orient gently
+  IMPORTANT: After a long gap, project.md claims about architecture should be
+  verified with extra skepticism — a lot can change in weeks/months.
+
+THE COLD START PROBLEM
+  First session knows nothing. This is unavoidable.
+  Solution: ask 3-4 natural questions in first session that extract maximum signal
+  "What are you building?" "How technical are you?" "What do you want me to 
+  handle automatically vs always ask you about?"
+  Don't make it feel like a form. Weave into natural conversation.
+
+PRIVACY SENSITIVE INFORMATION
+  User may share passwords, keys, personal details in conversation
+  NEVER store these in context files
+  Strip sensitive patterns before any storage
+  Make this explicit to users: "I never store credentials or sensitive data"
+
+STALE ARCHITECTURE CLAIMS (added April 2026)
+  project.md says "using Stripe" but user ripped it out yesterday.
+  This is the most common source of memory-induced hallucination.
+  Solution: the verification nudge (Part 5) ensures the agent checks actual
+  files before acting on architectural claims from memory.
+  During idle consolidation, flag project.md entries that haven't been
+  reinforced in 30+ days for review.
+
+
+================================================================================
+PART 8: THE VOICE MODEL (for content generation)
+================================================================================
+
+Since you want the agent to generate social media posts and content:
+
+WHAT TO CAPTURE FOR VOICE:
+  - Actual sentences they've written, not descriptions of their writing
+  - Words they use vs words they'd never use
+  - How long their sentences tend to be
+  - Whether they use humor and what kind
+  - How they handle criticism or pushback
+  - How they celebrate things
+  - Their punctuation habits (serial comma? ellipsis? em dash?)
+  - Emoji usage patterns
+  - How they start messages vs end them
+
+HOW TO BUILD IT:
+  Feed their existing posts, messages, responses into extraction
+  Ask Claude: "Describe this person's writing voice in 20 specific rules,
+  not vague adjectives. Rules a ghostwriter could actually follow."
+  
+  Bad voice model: "casual, friendly, enthusiastic"
+  Good voice model: "Opens with the point, never buries the lede. Uses 
+  questions rhetorically. Swears occasionally for emphasis but not casually.
+  Never uses corporate words like 'leverage' or 'synergy'. Short paragraphs,
+  rarely more than 2 sentences. Dry humor, understatement. Signs off abruptly,
+  no 'let me know if you need anything'."
+
+VOICE VALIDATION LOOP:
+  Generate content → user rates it / edits it → extract what changed → 
+  update voice model → repeat
+  After 20-30 samples the voice model becomes genuinely accurate
+
+
+================================================================================
+PART 9: WHAT NOT TO DO
+================================================================================
+
+DON'T store raw conversation transcripts long term
+  They're too big, too noisy, and the signal is buried in the noise
+  Compress to meaning within 24 hours, archive or delete raw logs
+
+DON'T update context.md after every single session
+  You'll create noise and contradict yourself constantly
+  Weekly compression + idle consolidation is the right cadence
+
+DON'T make memory invisible and magical
+  Users should be able to see and edit their context file
+  Transparency builds trust, black boxes create anxiety
+  "Here's what I know about you" should always be accessible
+
+DON'T confuse familiarity with accuracy
+  Confident wrong memory is worse than admitting uncertainty
+  If something in context.md is old and unverified, mark it as such
+  Better to ask again than to act on stale information
+
+DON'T let the context file grow without bounds
+  Hard cap at 3000 tokens, enforce it ruthlessly
+  If something new comes in, something old must go out
+  Recency and frequency determine what stays
+
+DON'T make it creepy
+  There's a line between "knows me well" and "surveilling me"
+  Don't surface memories unprompted in a way that feels like showing off
+  Use memory to be more helpful, not to demonstrate that you remember
+
+DON'T store derivable facts (added April 2026)
+  If it's in package.json, don't also put it in project.md
+  If it's visible via ls or grep, don't memorize it
+  Every derivable fact stored is a non-derivable insight you DON'T have room for
+  The 2000 token project.md cap is precious — fill it with things only memory
+  can provide
+
+DON'T trust old architecture claims blindly (added April 2026)
+  Memory says "using Express server" but user might have switched to Fastify
+  The verification nudge (Part 5) handles this at the system prompt level
+  But also: idle consolidation should actively prune architecture claims that
+  haven't been reinforced recently
+
+DON'T write memory before confirming success (added April 2026)
+  "We migrated to PostgreSQL" is not true until the migration actually works
+  Failed attempts are valuable too — store them as failures, not as facts
+  This is the single most common source of memory pollution in agent systems
+
+
+================================================================================
+PART 10: THE PROMPTS THAT MATTER MOST
+================================================================================
+
+These are the four prompts to spend the most time perfecting:
+
+1. OBSERVATION EXTRACTION PROMPT
+   Runs after every session. Extracts raw signals.
+   Goal: comprehensive, specific, no fluff, structured output
+   NEW: includes derivability check and success gate steps
+
+2. MULTI-PHASE COMPRESSION PROMPT (updated April 2026)
+   Runs weekly + on idle. Updates context.md intelligently.
+   Goal: deduplicate, resolve conflicts, prune stale/derivable facts, compress
+   This is the hardest prompt to get right. Iterate on it constantly.
+   See Part 4A for the full four-phase structure.
+
+3. SESSION ORIENTATION PROMPT
+   Runs at start of every session. Synthesizes context into agent calibration.
+   Goal: make the agent behave as if it knows this person without explicitly
+   telling it every fact — internalize the context, don't just recite it
+   NEW: includes the verification nudge for architecture claims
+
+4. IDLE CONSOLIDATION TRIGGER (added April 2026)
+   Runs during idle time. Maintains memory freshness between weekly jobs.
+   Goal: keep memory clean without waiting for the weekly batch
+   Uses the same multi-phase compression prompt, just triggered differently
+
+
+================================================================================
+IMPLEMENTATION PRIORITY ORDER (updated April 2026)
+================================================================================
+
+Build in this order. Each step is useful on its own before the next:
+
+1. The context.md file and structure (day 1)
+   Manual at first — you write it, agent reads it. Even this is better than nothing.
+
+2. Project files per project (day 2-3)
+   One file per project. Agent reads relevant one per session.
+   APPLY DERIVABILITY RULE from day one — don't store what config files already say.
+
+3. Observation extraction after sessions (week 1)
+   Automatic capture starts. Context files start updating themselves.
+   Include success gate: only log confirmed operations as facts.
+
+4. Weekly compression job (week 2)
+   Use the multi-phase compression prompt (Part 4A).
+   Now it's genuinely self-maintaining.
+
+5. Tiered context compaction (week 2-3)
+   Implement the five-tier cascade (Part 5A).
+   Start with Tier 1 (tool result clearing) — biggest win, zero cost.
+   Add Tiers 2-4 incrementally.
+
+6. Verification nudge in system prompt (week 2)
+   Add the ~50 token instruction distinguishing trusted memory (preferences)
+   from hint memory (architecture). Cheap and prevents a class of bugs.
+
+7. Idle-time consolidation (week 3)
+   Register as idle-triggered task. Reuse compression infrastructure.
+   Now memory improves itself between sessions, not just on Sundays.
+
+8. Vector store + semantic retrieval (week 3-4)
+   Now it scales to large history without bloating context.
+
+9. Voice model extraction (month 2)
+   Once you have enough interaction data to build it accurately.
+
+10. Proactive surfacing (month 3+)
+    Agent starts connecting dots and raising things unprompted.
+
+
+================================================================================
+THE ONE THING THAT MAKES ALL OF THIS WORK
+================================================================================
+
+Consistency of capture.
+
+A brilliant compression algorithm on sparse inconsistent data produces mediocre
+memory. A simple compression algorithm on rich consistent data produces
+remarkable memory.
+
+Every session must extract observations. Every week must run compression.
+Every idle period should consolidate. Every write must be gated on success.
+No exceptions, no skipping, no "we'll catch up later."
+
+The compounding only works if the input is consistent.
+That's the whole secret.
+
+
+================================================================================
+Brainstormed with Claude, March-April 2026
+================================================================================

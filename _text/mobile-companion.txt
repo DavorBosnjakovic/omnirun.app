@@ -1,0 +1,461 @@
+# Omnirun Mobile Companion App
+**Added: February 13, 2026**
+**Status: Planning**
+
+## UPDATE -- March 26, 2026: Assistant Section & Agent Notifications
+The desktop app now has an Assistant section (top-level sidebar) for personal
+AI integrations -- email (Gmail/Outlook), calendar, and watching agents. The
+mobile companion will need to be extended to support:
+- Push notifications from watching agents (e.g. "Marco replied -- want me to respond?")
+- Assistant section mirroring (same as chat mirroring but for the Assistant section)
+- Email account status display in mobile dashboard
+These are future items -- mobile companion Phase 3 or later. Core mobile
+functionality (Wake-on-LAN, chat mirroring, task control) is unaffected.
+See agent-features-and-nav-redesign.txt for full Assistant section spec.
+
+---
+
+## What Is It?
+
+A native mobile app (App Store + Play Store) that connects to the user's desktop Omnirun app through Supabase. It's a remote control --  lets users monitor, control, and trigger actions on their computer remotely.
+
+The core idea: **your desktop is the brain, your phone is the remote.** The mobile app doesn't run AI, doesn't process files, doesn't build anything. It mirrors what's on your desktop and lets you control it from anywhere.
+
+NOT a full version of Omnirun on mobile. It's a remote control + dashboard.
+
+---
+
+## Tech Stack
+
+- **React Native** (shares React knowledge from desktop app)
+- **Supabase Realtime** for desktop   mobile communication
+- **Supabase Edge Functions** for Wake-on-LAN (sends magic packet via UDP)
+- **Firebase Cloud Messaging** (Android) + **APNs** (iOS) for push notifications
+
+## Cost
+
+- **Development & testing: $0** (test on own devices, free Supabase tier)
+- **Apple App Store: $99/year** (only when publishing)
+- **Google Play Store: $25 one-time** (only when publishing)
+- **Running costs: $0 additional** --  uses same Supabase backend as desktop app
+- **AI costs: $0 additional** --  all AI runs on desktop using desktop's API key. Mobile just mirrors.
+
+---
+
+## Features --  Grouped by Priority
+
+### Priority 1: Remote Power & Status
+
+**Wake-on-LAN (Turn Computer On)**
+- Desktop app auto-detects MAC address, local IP, and public IP on first setup
+- Desktop app auto-enables WoL on network adapter (OS-level command)
+- Desktop app attempts UPnP auto port forwarding on router
+- Two wake methods (user picks in Settings > Remote Access):
+  - WoL Local: magic packet on same WiFi network (also wakes from sleep)
+  - WoL Port Forward: magic packet to public IP via forwarded UDP port (works from anywhere)
+- One-button setup: user clicks "Enable Remote Wake" and app auto-configures everything
+- Fallback guide only if UPnP fails (manual port forwarding) or WoL needs BIOS change
+- No extra devices or purchases required
+- Zero credentials stored in Supabase -- only MAC address, IPs, port number
+- BIOS "Power On After AC Loss" recommended for auto-boot after power outage
+
+**Remote Shutdown / Restart / Sleep**
+- Mobile sends command   Supabase   desktop app executes OS command
+- Confirmation prompt on mobile ("Are you sure you want to shut down?")
+- Desktop app listens via Supabase Realtime channel for remote commands
+
+**Computer Status**
+- Online/offline indicator (desktop app sends heartbeat every 60 seconds to Supabase)
+- Last seen timestamp if offline
+- Basic system info: OS, uptime
+
+### Priority 2: Chat Mirroring (Remote Chat Control)
+
+**This is the killer feature.** The user controls the full desktop Omnirun chat from their phone. The desktop does all the work --  AI calls, file operations, tool execution --  the mobile app is just a remote screen with an input field.
+
+**How it works:**
+```
+User types on mobile
+message sent via Supabase Realtime
+Desktop app receives message
+Injects into chat (same as if user typed it at the keyboard)
+AI processes with full project context + file access + tools
+AI response streams back
+Desktop syncs response to Supabase Realtime
+Mobile displays response in real-time
+```
+
+**What the user sees on mobile:**
+- Current project name at top
+- Full chat conversation (synced from desktop)
+- Text input at bottom
+- AI responses appear in real-time as they stream on desktop
+- Tool execution status visible ("Writing file...", "Reading project...")
+
+**What this enables:**
+- User on the couch tells AI to build a page --  AI creates files on the computer
+- User in bed asks AI to fix a bug --  AI edits code on the computer
+- User at a caf triggers a full project build --  computer does all the work
+- Same quality as sitting at the desk, because it IS the desktop running everything
+- **(v2) Desktop app control from mobile:** User types "open Figma and create a new frame" on phone -- desktop takes screenshots, AI controls the app, user sees progress in mobile chat. See desktop-app-control.txt for full spec.
+
+**What the mobile does NOT do:**
+- No local AI processing
+- No local file access
+- No tool execution
+- It just sends text and receives text + status updates
+
+**Project switching from mobile:**
+- User can see project list and switch active project
+- Desktop switches to that project (loads context, file tree, etc.)
+- Chat history for that project loads on mobile
+
+**Image support (multi-device):**
+- User takes a photo on phone   sends via Supabase   desktop receives + sends to AI as vision input
+- Great for: "Here's a sketch of the layout I want" or "Here's an error on my phone screen"
+
+**Key technical details:**
+- Messages sync via Supabase Realtime channel: `chat:{user_id}:{project_id}`
+- Desktop sends: assistant messages, tool status updates, streaming chunks
+- Mobile sends: user messages, project switch commands
+- Conflict handling: if someone types on both desktop and mobile simultaneously, desktop input takes priority (simple queue)
+- Chat history stored on desktop (SQLite), mobile just mirrors current session
+- If desktop is offline, mobile shows "Computer is offline" and offers to wake it
+
+### Priority 3: Scheduled Tasks Remote Control
+
+**View Tasks**
+- List all scheduled tasks, grouped by project
+- Show status: active, paused, last run result (success/fail), next run time
+- Task detail view with step breakdown and recent logs
+
+**Trigger Tasks**
+- "Run Now" button for any task
+- Mobile   Supabase   desktop app picks up and executes
+- If computer is off: queue the task, prompt user to wake computer first (or auto-wake if WoL is set up)
+
+**Pause / Resume Tasks**
+- Toggle task on/off from mobile
+- Syncs back to desktop immediately via Supabase Realtime
+
+**Failure Alerts**
+- Push notification when a scheduled task fails
+- Tap notification   opens task detail with error log
+- Option to re-run or pause from the notification
+
+### Priority 4: Project Dashboard
+
+**Project List**
+- All projects synced to Supabase (name, type, last modified, deploy status)
+- Quick stats: file count, last AI session, last deploy
+
+**Deploy Status**
+- See if site is live, last deploy time, deploy provider (Vercel/Netlify)
+- Trigger re-deploy from mobile (hits deploy hook --  works even if computer is off)
+
+**Preview Links**
+- Quick access to live site URLs
+- Open in mobile browser to check how site looks on phone (actual mobile testing!)
+
+### Priority 5: System Monitoring
+
+**Resource Usage**
+- CPU, RAM, disk usage (desktop app reports to Supabase periodically)
+- Warning when disk is almost full
+- Dev server status: running, crashed, stopped
+
+**Network Status**
+- Internet connectivity on desktop
+- Upload/download speed (periodic checks)
+
+### Priority 6: Remote Terminal (Advanced)
+
+**Basic Commands**
+- Send shell commands from mobile
+- View output
+- Pre-built quick commands: "git status", "npm run build", etc.
+- Safety: same command blocklist as desktop app (no rm -rf, etc.)
+- Latency will be noticeable --  not for interactive use, just quick checks
+
+---
+
+## Architecture: How Desktop   Mobile Communicate
+
+```
+Mobile App   Supabase (Realtime + Database)   Desktop App
+
+Communication channels (Supabase Realtime):
+- device:{user_id}:status    heartbeat, online/offline, CPU/RAM/disk
+- device:{user_id}:commands    mobile sends commands, desktop listens
+- device:{user_id}:responses    desktop sends results back
+- chat:{user_id}:{project_id}    chat mirroring (messages both ways, streaming)
+- tasks:{user_id}:updates    task status changes, push to mobile
+```
+
+**Desktop app responsibilities:**
+- Sends heartbeat every 60 seconds (I'm alive, here's CPU/RAM/disk)
+- Listens on commands channel for remote instructions
+- Listens on chat channel for mobile messages   injects into chat
+- Streams AI responses back to chat channel in real-time
+- Reports task execution results
+- Syncs project list and status periodically
+
+**Mobile app responsibilities:**
+- Shows dashboard from Supabase data
+- Sends commands (wake, shutdown, run task, deploy)
+- Sends chat messages   desktop processes them
+- Displays chat responses streamed from desktop
+- Receives push notifications for failures/alerts
+
+**Supabase responsibilities:**
+- Stores device status, task states, project metadata
+- Relays real-time messages between mobile and desktop
+- Edge Functions handle Wake-on-LAN packet sending
+- Row-level security: users only see their own data
+
+---
+
+## Wake-on-LAN --  Technical Detail
+
+**Setup flow (one-time, in desktop app):**
+1. Desktop app detects MAC address and local IP automatically
+2. Saves to Supabase (encrypted)
+3. User enables WoL in BIOS (desktop app shows guide with screenshots per manufacturer)
+4. Test: user walks away, tries to wake from mobile
+5. If test fails: troubleshooting guide (router settings, BIOS settings)
+
+**How the wake works:**
+```
+Mobile   HTTPS request   Supabase Edge Function   UDP magic packet   Computer wakes up
+```
+
+**Local network wake:** Easy, works reliably. Edge Function sends packet to the local network broadcast address.
+
+**Internet wake (computer on different network):** Desktop app attempts UPnP auto port forwarding during setup. If UPnP works, it's automatic. If not, user follows a one-time manual port forwarding guide. No extra devices or purchases needed.
+
+---
+
+## Power Recovery (Computer Was Off Due to Power Outage, etc.)
+
+When a computer loses power completely (outage, unplugged, etc.), no software can turn it on --  there's no electricity. But once power is restored, the user has two options. Both are presented during onboarding, user picks their preference.
+
+**Option A: Manual Wake from Phone (Wake-on-LAN)**
+- Power comes back   computer stays off but has electricity   network card listens
+- User opens mobile app   sees "Computer offline"   taps "Wake Up"
+- WoL magic packet sent   computer boots   Omnirun auto-starts   connects to Supabase
+- Mobile shows "Computer is back online"
+- Best for: users who want full control over when their computer is on
+
+**Option B: Automatic Power-On (BIOS setting, recommended)**
+- User enables "Power On After AC Loss" / "Restore on AC Power Loss" in BIOS (one-time setup)
+- Power comes back   computer boots automatically   Omnirun auto-starts   connects to Supabase
+- User gets push notification: "Your computer is back online"
+- No action needed from the user at all
+- Best for: users who travel, want always-on reliability, or run scheduled tasks
+
+**What we build:**
+- Omnirun desktop app set to auto-start with OS (so it's always running after boot)
+- BIOS setup guide in onboarding for both WoL and auto-power-on (with screenshots per manufacturer)
+- Mobile app shows "Computer offline since [timestamp]" so user knows something happened
+- Push notification when computer comes back online
+- Any scheduled tasks or queued commands that were missed during downtime auto-run on reconnect
+- User picks Option A or B during setup (can change anytime in Settings)
+
+---
+
+## Mobile App Screens
+
+**1. Dashboard (Home)**
+- Computer status: Online /     Offline /     Sleeping
+- Quick actions: Wake Up, Sleep, Restart, Shut Down
+- Active tasks summary (X running, X scheduled today)
+- Recent alerts
+- Quick access: "Open Chat" button (goes to chat mirror)
+
+**2. Chat Mirror (core feature)**
+- Project selector at top (switch projects)
+- Full chat conversation mirrored from desktop
+- Real-time streaming of AI responses
+- Text input at bottom
+- Tool execution status indicators
+- "Computer is offline" state with Wake Up prompt
+- Clean, simple --  looks like a messaging app
+
+**3. Tasks**
+- All tasks list (same as desktop Tasks page, simplified)
+- Tap to see detail + logs
+- Run Now, Pause, Resume buttons
+- Filter: All / Active / Failed / Paused
+
+**4. Projects**
+- Project list with status
+- Deploy button per project
+- Open live preview link
+- Basic file browser (read-only)
+
+**5. Monitor**
+- CPU / RAM / Disk gauges
+- Dev server status
+- Network status
+- Uptime
+
+**6. Settings**
+- Connection setup (pair with desktop app via QR code or code entry)
+- Notification preferences
+- Wake-on-LAN settings
+
+---
+
+## Pairing Flow (Connect Mobile to Desktop)
+
+**V1: Same login = auto-connected (simplest)**
+1. User logs into desktop Omnirun with their account
+2. User downloads mobile app, logs in with same account
+3. Both apps connect to the same Supabase channels automatically
+4. Mobile sees the computer, projects, tasks, chat. Done.
+
+No QR codes, no PINs, no setup. Just login on both devices.
+
+**Multi-device (only needed if user has multiple computers)**
+- Desktop shows list of paired computers in Settings   Devices
+- Mobile lets user pick which computer to control
+- QR code or 6-digit code pairing for adding new computers
+
+---
+
+## Data Synced to Supabase (for mobile access)
+
+| Data | Sync Frequency | Size |
+|------|---------------|------|
+| Computer status (online/offline/CPU/RAM) | Every 60 seconds | Tiny |
+| Chat messages (current session) | Real-time (streaming) | Small |
+| Task list + status | On change | Small |
+| Task run logs (last 10 per task) | On completion | Small |
+| Project list + metadata | On change | Small |
+| Deploy status | On deploy | Tiny |
+| Commands (mobile   desktop) | Real-time | Tiny |
+| Responses (desktop   mobile) | Real-time | Small |
+
+Total Supabase usage: well within free tier for individual users. Chat mirroring uses Realtime which is included. Even with 1000+ users, costs stay minimal because it's text messages, not stored blobs.
+
+---
+
+## The Killer Workflow
+
+```
+9:00 PM --  User is in bed, has an idea for their bakery website
+
+1. Opens Omnirun mobile app
+2. Computer is asleep   taps "Wake Up"
+3. Computer wakes up in 5 seconds
+4. Opens Chat Mirror   selects "Bakery Website" project
+5. Types: "Add a new page for catering services with a booking form"
+6. Watches on phone as AI creates the page on their desktop
+7. AI finishes   user types "deploy it"
+8. Vercel deploy triggers
+9. Opens preview link on phone   checks it looks good on mobile
+10. Types "shut down computer"
+11. Computer shuts down
+12. User goes to sleep
+
+Total cost: ~$0.02 in AI tokens (same as if they sat at the desk)
+Extra infrastructure cost: $0
+```
+
+---
+
+## Development Phases
+
+### Phase 1: React Native Prototype (2-3 weeks)
+- Dashboard + computer status
+- Chat mirroring (core feature --  text input + response display)
+- Wake-on-LAN (local network)
+
+### Phase 2: App Store Launch (1 week)
+- Pay Apple $99 + Google $25
+- Submit to stores
+- Marketing: "Control your dev environment from anywhere"
+
+### Phase 3: Advanced Features (ongoing)
+- Image sending from phone camera to AI chat
+- System monitoring
+- Remote terminal
+- Multi-device support (multiple computers per user)
+
+---
+
+## Key Decisions
+
+- **Chat mirroring over separate mobile AI** --  desktop does all the work, mobile is just a remote. Simpler to build, same quality, zero extra AI cost.
+- **React Native over Flutter** --  reuses React knowledge, shared component logic concepts with desktop app
+- **Supabase as the bridge** --  already needed for desktop auth/teams, no extra service
+- **No full app building on mobile** --  mobile is remote control, not a replacement for desktop
+- **Security first** --  all commands require confirmed pairing, remote terminal has same blocklist as desktop, Wake-on-LAN credentials encrypted
+
+---
+
+## Development Checklist
+
+### Desktop-Side Prep (build during Supabase backend phase)
+- [ ] Heartbeat system (send online/CPU/RAM/disk status to Supabase every 60s)
+- [ ] MAC address + local IP auto-detection for Wake-on-LAN
+- [ ] WoL config storage in Supabase (MAC, IPs, port -- no credentials, no secrets)
+- [ ] Listen on Supabase Realtime for remote commands
+- [ ] Execute remote commands (shutdown, restart, sleep)
+- [ ] Chat mirror: listen on Supabase Realtime for mobile messages
+- [ ] Chat mirror: inject received mobile messages into desktop chat input
+- [ ] Chat mirror: stream AI responses back to Supabase Realtime channel
+- [ ] Chat mirror: sync tool execution status to mobile (writing file, reading, etc.)
+- [ ] Chat mirror: handle project switch commands from mobile
+- [ ] Sync task list + status to Supabase on change
+- [ ] Sync task run logs to Supabase (last 10 per task)
+- [ ] Sync project list + metadata to Supabase on change
+- [ ] QR code pairing screen (multi-device only)
+- [ ] Manual pairing code fallback (6-digit code, multi-device only)
+- [ ] "Mobile app connected" indicator in desktop status bar
+- [ ] Remote command security (verify pairing token on every command)
+- [ ] Auto-start with OS (so desktop app reconnects after reboot/power recovery)
+- [ ] Missed task/command queue (run queued items after coming back online)
+- [ ] BIOS setup guide (WoL + "Power On After AC Loss", screenshots per manufacturer)
+- [ ] Power recovery preference in Settings (Option A: manual wake / Option B: auto-power-on)
+
+### Supabase Backend (extends existing backend)
+- [ ] Device status table (user_id, mac_address, local_ip, last_heartbeat, cpu, ram, disk, online)
+- [ ] Remote commands table (user_id, command_type, payload, status, created_at)
+- [ ] Pairing tokens table (multi-device only: user_id, token, device_name, paired_at)
+- [ ] Supabase Realtime channels (device status, commands, responses, chat mirror, task updates)
+- [ ] Edge Function: wake-on-lan (sends UDP magic packet for WoL local + port forward)
+- [ ] Row-level security: users only access their own data
+
+### Phase 1: React Native Prototype (2-3 weeks)
+- [ ] React Native project setup (iOS + Android)
+- [ ] Dashboard screen (computer status, quick actions)
+- [ ] Chat mirror screen (text input, message display, real-time streaming)
+- [ ] Project selector in chat mirror (switch active project)
+- [ ] Tool execution status display in chat mirror
+- [ ] "Computer is offline" state with Wake Up prompt
+- [ ] Tasks list screen (read-only, status per task)
+- [ ] Wake-on-LAN trigger (local network)
+- [ ] Supabase Realtime connection
+- [ ] Auto-connect via same login (v1 -- same account = connected)
+- [ ] Push notifications (Firebase Cloud Messaging + APNs)
+- [ ] Task failure alerts
+- [ ] Test on own devices
+
+### Phase 2: App Store Submission (1 week)
+- [ ] Apple Developer Account ($99/year)
+- [ ] Google Play Developer Account ($25 one-time)
+- [ ] iOS build + TestFlight testing
+- [ ] Android build + internal testing
+- [ ] App Store screenshots + description
+- [ ] Play Store listing
+- [ ] Submit for review
+
+### Phase 3: Advanced Features (ongoing)
+- [ ] Send photos from phone camera to desktop AI chat (vision input)
+- [ ] System monitoring dashboard (CPU/RAM/disk gauges, dev server status)
+- [ ] Remote terminal (basic commands, output display)
+- [ ] Multi-device support (multiple computers per user)
+- [ ] Internet Wake-on-LAN (UPnP auto port forwarding + manual guide)
+- [ ] File browser (read-only project files from mobile)
+- [ ] QR code scanner for pairing (multi-device)

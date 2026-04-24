@@ -1,0 +1,30 @@
+{
+  "name": "Booking System",
+  "slug": "booking-system",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "react",
+  "description": "Calendar-based appointment booking with time slots, services, and booking management.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "pro",
+  "category": "business-tools",
+  "tags": ["react", "vite", "booking", "calendar", "appointments", "scheduling"],
+  "icon": "📅",
+  "defaultProjectName": "My Booking System",
+  "files": [
+    "template.json",
+    "index.html",
+    "package.json",
+    "vite.config.js",
+    "src/main.jsx",
+    "src/App.jsx",
+    "src/App.css"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a React + Vite booking system. Single-file App.jsx contains all logic. Features: monthly calendar view with navigation, clickable days to see/add bookings, time slot grid (9AM-5PM in 30min increments), service selection (Consultation, Follow-up, Strategy Session, Quick Call), booking form with client name/email/notes, booking list per day with status badges (confirmed/pending/cancelled), today highlighted on calendar, days with bookings get a dot indicator. All data in localStorage with sample bookings pre-loaded. The user will likely ask to: add email confirmations, connect to Google Calendar, add recurring appointments, add staff/provider selection, add payment integration, add client database, add buffer time between appointments, add timezone support, add waitlist, add SMS reminders, etc."
+}

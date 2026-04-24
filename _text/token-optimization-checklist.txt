@@ -1,0 +1,342 @@
+# Token Optimization Checklist
+
+Based on analysis of aiService.ts and toolService.ts (Feb 7, 2026)
+Updated: Feb 11, 2026 -- Phase 1 + Phase 1.6 + Phase 2 + Phase 3.1 + Phase 3.2 + Phase 4.1/4.2 + XML parser fix + XML entity unescaping done
+
+## Current Problem (ORIGINAL BASELINE)
+- 40.2k input tokens vs 5.1k output -- input is 6x the problem
+- System prompt sends full project manifest + open file content every call
+- Connection prompt sends all 8 providers even when none connected
+- Tools prompt has oversized HTML examples
+- Chat history grows unbounded with full tool results (file contents stay forever)
+
+## Real-World Results (Feb 8-10 2026)
+- DeepSeek Reasoner -- simple task (fresh): $0.074 / 5 calls / 16.2k tokens (3.2k avg/call)
+- DeepSeek Reasoner -- follow-up: $0.204 / 14 calls / 49.8k tokens (history bloat)
+- DeepSeek Reasoner -- after XML fix: $0.470 / 35 calls / 112.7k tokens (model loops, not code issue)
+- DeepSeek Chat -- same task: $0.012 / 3 calls / 3.5k tokens <-- THIS IS THE TARGET
+- DeepSeek Chat -- after Phase 3.1+3.2: last call 2.4k tokens / <$0.01 (confirmed Feb 9)
+- edit_file confirmed working: "Edited: styles.css (replaced 30 chars with 41 chars)"
+- Main remaining problem: DeepSeek Reasoner is terrible at tool use (35 calls for a color change)
+- DeepSeek Chat is excellent: 3 calls, $0.012, done correctly
+
+### Key Finding
+DeepSeek Reasoner is a thinking/reasoning model, NOT suited for agentic tool use.
+DeepSeek Chat (V3) is the right model -- fast, cheap, efficient with tools.
+Model choice matters more than any single optimization.
+
+---
+
+## Phase 1: System Prompt Cleanup (Quick Wins) -- DONE
+
+### 1.1 Remove currently open file from system prompt -- DONE
+- [x] Deleted the `context.currentFile` block from `buildSystemPrompt()` in aiService.ts
+- **Saved:** 1,000-10,000 tokens per call
+
+### 1.2 Only include connection prompt for active connections -- DONE
+- [x] getConnectionsSummary() returns empty string when no connections
+- [x] buildToolsPrompt() takes includeConnections param, skips connection docs when false
+- [x] buildSystemPrompt() checks hasConnections flag before including services section
+- **Saved:** 2,000-5,000 tokens per call (when no connections)
+
+### 1.3 Trim tools prompt examples -- DONE
+- [x] Reduced 3 large HTML examples (~20 lines) to 3 minimal one-liners (~3 lines)
+- **Saved:** 500-1,000 tokens per call
+
+### 1.4 Add token-efficient-tools beta header (Anthropic only) -- DONE
+- [x] Added `"anthropic-beta": "token-efficient-tools-2025-02-19"` to Anthropic API headers
+- **Saved:** ~14% on tool definition tokens (Anthropic only, no effect on DeepSeek/others)
+
+### 1.5 Blocklist dangerous directories -- DONE
+- [x] Added blocklist: node_modules, dist, build, .git, .next, coverage, __pycache__, .venv, target, vendor, .omnirun/snapshots, .DS_Store
+- [x] Added extension blocklist: .lock, .log
+- [x] isBlocklisted() helper filters in both read_file and list_directory
+
+### 1.6 Enable prompt caching (Anthropic only) -- DONE (Feb 11, 2026)
+- [x] New `buildSystemPromptBlocks()` function returns array of content blocks instead of string
+- [x] Static content (instructions + tools) marked with `cache_control: { type: "ephemeral" }`
+- [x] Dynamic content (project context ~100-150 tokens, connections) goes after cache breakpoint
+- [x] `formatAnthropicMessages()` adds cache breakpoint to second-to-last user message (caches conversation history prefix)
+- [x] `sendAnthropicMessage()` updated to accept system blocks array instead of string
+- [x] `sendMessage()` routing: Anthropic path uses blocks, other providers use plain string (unchanged)
+- [x] UsageData interface already had cacheCreationTokens/cacheReadTokens fields -- no changes needed
+- **Saves:** 90% off cached tokens (~$0.20-0.30 per website build)
+- **First call:** cache_creation_input_tokens > 0 (pays 1.25x on ~800 static tokens)
+- **Subsequent calls:** cache_read_input_tokens > 0, cache_creation = 0 (pays 0.1x)
+- **Files modified:** aiService.ts only
+
+---
+
+## Phase 2: Context File System -- DONE (Feb 10, 2026)
+
+Replaced manifest in system prompt with lean context file. AI uses list_directory/read_file tools to explore when needed instead of receiving the full file tree on every call.
+
+### 2.1 Create contextService.ts -- DONE
+- [x] New file: `src/services/contextService.ts`
+- [x] On project open: detect tech stack from package.json/config files
+- [x] Load or create `.omnirun/context.md` in project folder
+- [x] Persists across sessions (AI decisions/preferences survive between chats)
+
+### 2.2 Lean system prompt context -- DONE
+- [x] `buildSystemPrompt()` in aiService.ts now uses `contextToPromptString()` (~100-150 tokens)
+- [x] Removed `manifestToString()` from system prompt (was ~1,000-1,500 tokens per call)
+- [x] AI told to use list_directory when it needs to explore, not spoon-fed the tree
+- [x] AI told to use write_context to save decisions/preferences
+
+### 2.3 write_context tool -- DONE
+- [x] New tool in toolService.ts: AI calls this to save preferences/decisions
+- [x] Parameters: {"section": "decisions"|"preferences", "entries": ["Using Stripe"]}
+- [x] Aliases: write_context, save_context, update_context, note, remember
+- [x] Updated executeToolCalls() to pass context through and return updatedContext
+
+### 2.4 Auto-update context on file operations -- DONE
+- [x] ChatArea.tsx tracks recent changes after write/edit/delete operations
+- [x] addRecentChange() keeps last 10 entries in context
+- [x] Context saved to disk after each update
+
+### 2.5 Tech stack detection -- DONE
+- [x] Detects from: package.json dependencies, tsconfig, tailwind.config, vite.config, next.config, etc.
+- [x] Reconciles on project re-open (adds new tech, keeps existing AI notes)
+
+**Phase 2 savings: system prompt drops from ~1,500 tokens (tree) to ~100-150 tokens (lean context)**
+**Over a 15-call Sonnet session: saves ~$0.041 ($0.045 -> $0.004 for tree portion)**
+
+### Files modified (Phase 2)
+| File | Changes |
+|------|---------|
+| contextService.ts | NEW FILE -- context init, load/save, tech detection, write_context support, prompt serialization |
+| aiService.ts | Removed manifestToString import, removed tree from system prompt, uses contextString instead, added list_directory/write_context instructions |
+| toolService.ts | Added write_context tool + aliases, updated executeTool/executeToolCalls to pass context through |
+| ChatArea.tsx | Added context state + init effect, passes contextString to system prompt, handles updatedContext from tools, auto-saves recent changes |
+
+---
+
+## Phase 3: Chat History Optimization -- DONE (3.1 + 3.2)
+
+With or without context file, this is the biggest remaining win.
+The 14-call session showed 45.2k input tokens -- most of that is resent history.
+
+### 3.1 Collapse consumed tool results -- DONE
+- [x] Added trimHistory() function to aiService.ts
+- [x] Scans message history before each API call
+- [x] Tool results that AI already responded to -> collapsed to short summary
+- [x] Most recent tool result (not yet consumed) -> keeps full content
+- [x] Collapse patterns: file reads -> "[read path -- N lines]", directory listings -> "[listed path -- N entries]", multi-file reads -> "[read N files: ...]", short results (<300 chars) kept as-is
+- [x] Added collapseToolResult() and collapseSingleResult() helpers
+- [x] Integrated at line 265 of sendMessage() -- transparent, no other files changed
+- **Saves:** 40-55% on input tokens for multi-call sessions
+- **Files modified:** aiService.ts only
+
+### 3.2 Keep only last 10 message pairs -- DONE (Feb 9, 2026)
+- [x] Added MAX_HISTORY_PAIRS = 10 constant
+- [x] Added limitHistory() function -- keeps last 20 messages (10 user + 10 assistant)
+- [x] Chained after trimHistory() in sendMessage(): `limitHistory(trimHistory(messages))`
+- [x] If <=20 messages, passes through untouched
+- [x] Confirmed: last call 2.4k tokens / <$0.01 with DeepSeek Chat after 63 API calls in session
+- **Saves:** Additional 20-40% on long sessions
+- **Files modified:** aiService.ts only
+
+### 3.3 Rolling summarization fallback for long tasks -- NOT YET
+- [ ] If history exceeds ~15k tokens even after trimming, use cheap model to summarize
+- [ ] Insert summary as a system-level note
+- **Saves:** Prevents history from ever exceeding ~3,000 tokens
+- **Cost:** ~$0.001 per summarization call
+- **Note:** May not be needed now that 3.2 hard-caps at 10 pairs -- monitor and decide
+
+**Phase 3 estimated savings: history drops from ~20,000-40,000 tokens to ~2,000-5,000**
+
+---
+
+## Phase 4: Output Optimization -- PARTIALLY DONE
+
+### 4.1 Add edit_file tool (str_replace pattern) -- DONE
+- [x] New tool: `edit_file` with `search` and `replace` parameters
+- [x] Search string must appear exactly once in file (0 matches = error, 2+ matches = error)
+- [x] Added resolveSearchArg() and resolveReplaceArg() with alias support
+- [x] Added 6 tool name aliases (str_replace, find_replace, search_replace, etc.)
+- [x] Added search/replace extraction to extractToolCallManually()
+- [x] Added search|replace to cleanJsonString regex
+- [x] Updated examples and rules in buildToolsPrompt()
+- **Confirmed working:** "Edited: styles.css (replaced 30 chars with 41 chars)"
+
+### 4.2 System prompt instruction for minimal output -- DONE
+- [x] "When using tools, be concise. Do not explain what you're about to do or narrate your actions."
+- [x] "Use edit_file to modify existing files -- much more efficient than rewriting the whole file"
+- **Saves:** 10-30% on output tokens
+
+### 4.3 Dynamic max_tokens per turn type -- DEFERRED
+- [ ] Don't set max_tokens to 4096 on every call -- estimate per turn
+- [ ] Adds complexity, marginal benefit -- revisit after Phase 3
+- **Files:** aiService.ts
+
+---
+
+## Phase 5: Model Routing (Right Model for Right Task) -- NOT YET
+
+### 5.1 Auto-route cheap tasks to smaller models
+- [ ] Route exploration turns (read, list) to cheaper model
+- [ ] Keep complex tasks on capable model
+
+### 5.2 Smart escalation for hard problems
+- [ ] Track turn count -- if model takes 15+ turns, consider escalation
+
+---
+
+## Compatibility Fix: Multi-Format Tool Call Parser -- DONE
+
+### Problem
+DeepSeek models use different tool call formats than Claude/OpenAI:
+- Claude/OpenAI: `<tool_call>{"name": "read_file", "arguments": {"path": "file.css"}}</tool_call>`
+- DeepSeek variant 1: `<read_file><path>styles.css</path></read_file>`
+- DeepSeek variant 2: `<tool_call><n>read_file</n><arguments><path>file.css</path></arguments></tool_call>`
+
+All three caused parse failures -> AI loops endlessly -> burns tokens for nothing.
+
+### Fix (toolService.ts)
+- [x] Added XML_TOOL_NAME_MAP -- unified alias map for all tool names (canonical + 20+ aliases)
+- [x] Strategy 1 (existing): `<tool_call>{JSON}</tool_call>` -- Claude/OpenAI format
+- [x] Strategy 2 (new): `<read_file><path>...</path></read_file>` -- bare XML format
+- [x] Strategy 3 (new): `<tool_call><n>read_file</n><arguments>...</arguments></tool_call>` -- XML inside tool_call
+- [x] Strategy 4 (existing): Line-based fallback
+- [x] parseXmlStyleToolCalls() -- handles bare XML tool tags
+- [x] parseXmlToolArgs() -- extracts params from XML child tags, trims whitespace, **unescapes XML entities**
+- [x] parseXmlInsideToolCall() -- handles XML structured content inside <tool_call> wrapper
+- [x] Claude format unaffected -- hits Strategy 1 first, never reaches new code
+- **Result:** DeepSeek Chat successfully completes tasks (3 calls, $0.012)
+- **Files modified:** toolService.ts only
+
+## Compatibility Fix: XML Entity Unescaping -- DONE (Feb 9, 2026)
+
+### Problem
+When AI writes HTML inside XML tool calls (e.g. `<content>&lt;!DOCTYPE html&gt;...</content>`),
+the HTML entities were written to disk as-is. Files contained literal `&lt;` instead of `<`.
+This caused the static preview to show raw escaped HTML source instead of rendering the page.
+
+### Fix (toolService.ts)
+- [x] Added `unescapeXmlEntities()` function -- &lt; -> <, &gt; -> >, &amp; -> &, &quot; -> ", &apos; -> '
+- [x] Applied in `parseXmlToolArgs()` -- values get unescaped at parse time
+- [x] Safety net in `sanitizeFileContent()` -- catches escaped HTML before writing HTML files
+- **Result:** AI-generated static HTML websites now render correctly in preview
+
+---
+
+## Expected Results (Updated with Real Data)
+
+### Per-call input tokens
+| State | Tokens | Notes |
+|-------|--------|-------|
+| **Original baseline** | ~40,000 | Before any optimization |
+| **After Phase 1** | ~3,200 avg | Measured: 16.2k/5 calls on simple task |
+| **After Phase 3.1** | ~2,000 avg | Estimated: collapse tool results |
+| **After Phase 3.2** | ~2,400 measured | Confirmed: 2.4k last call after 63 calls in session |
+| **After Phase 2** | ~1,000-1,500 avg | Tree removed from prompt, lean context only |
+| **After Phase 1.6** | ~500-800 avg | Cached static prompt portions at 90% off (Anthropic only) |
+
+### Real cost tracking
+| Task | Model | Cost | Calls | Tokens | Notes |
+|------|-------|------|-------|--------|-------|
+| "Change color to purple" (fresh) | DS Reasoner | $0.074 | 5 | 16.2k | Phase 1 applied |
+| "It's not changed" (follow-up) | DS Reasoner | $0.204 | 14 | 49.8k | History bloat |
+| Same task after XML fix | DS Reasoner | $0.470 | 35 | 112.7k | Model loops, not code |
+| Same task | DS Chat | $0.012 | 3 | 3.5k | <-- TARGET PERFORMANCE |
+| Security testing session | DS Chat | $1.41 | 63 | 328k | Last call: 2.4k/<$0.01 |
+
+---
+
+## Files Modified So Far
+
+| File | Changes |
+|------|---------|
+| contextService.ts | NEW FILE -- context init, tech detection, load/save, write_context support, lean prompt serialization |
+| aiService.ts | Removed currentFile, removed manifestToString from prompt, conditional connections, beta header, concise instruction, edit_file in prompt, **history trimming**, **history limiting**, **lean context string instead of manifest tree**, **list_directory/write_context instructions**, **prompt caching: buildSystemPromptBlocks(), formatAnthropicMessages cache breakpoints, sendAnthropicMessage system blocks** |
+| toolService.ts | Blocklist, trimmed examples, conditional connection docs, edit_file tool, **XML parser**, **XML entity unescaping**, **write_context tool + aliases**, **executeToolCalls passes context through** |
+| connectionTool.ts | getConnectionsSummary() returns empty string when no connections |
+| ChatArea.tsx | **Context state + init on project open**, **passes contextString to system prompt**, **handles updatedContext from write_context tool**, **auto-saves recent changes to context** |
+
+---
+
+## Implementation Order (Updated Feb 11, 2026)
+1. ~~Phase 1 -- quick wins~~ DONE
+2. ~~Phase 4.1 -- edit_file tool~~ DONE
+3. ~~Phase 4.2 -- concise instructions~~ DONE
+4. ~~Phase 3.1 -- collapse consumed tool results~~ DONE
+5. ~~XML parser fix -- multi-format support~~ DONE
+6. ~~SECURITY PROTECTIONS~~ DONE (All sections -- see security-protections-checklist.txt)
+7. ~~Phase 3.2 -- limit turn count to 10 pairs~~ DONE
+8. ~~XML entity unescaping -- fix escaped HTML in tool args~~ DONE
+9. ~~Phase 2 -- context file system~~ DONE (Feb 10)
+10. ~~Phase 1.6 -- prompt caching (Anthropic)~~ DONE (Feb 11)
+11. Phase 3.3 -- rolling summarization (may not be needed -- monitor)
+12. Phase 5 -- model routing (when testing multiple models)
+
+## Known Issues
+- DeepSeek Reasoner is unsuitable for tool use -- loops 35 times on simple tasks
+- ~~DeepSeek Chat writes escaped quotes in HTML files~~ FIXED by sanitizeFileContent()
+- ~~Static preview shows raw HTML source~~ FIXED by XML entity unescaping + manual axum server
+- Shell-based deletions (via run_command) bypass Time Machine snapshots -- acceptable edge case for now
+---
+
+## Phase 6: Desktop App Control Token Optimization (v2)
+
+### See desktop-app-control.txt for full cost breakdown
+
+### The Problem
+Desktop app control uses Claude Vision to read screenshots. Each screenshot costs ~1,200-1,600 input tokens. A typical task takes 5-7 screenshots = ~17,500 tokens. At Sonnet pricing that's ~$0.05/task. At 20 tasks/day = ~$30/month added to user's bill.
+
+### Optimization Strategies
+
+#### 6.1 Default to Haiku for screen reading
+- [ ] Route all screen control calls to Haiku 4.5 ($0.80/1M tokens)
+- [ ] Haiku is surprisingly good at reading screenshots and outputting coordinates
+- [ ] Only escalate to Sonnet when Haiku fails or returns low confidence
+- **Saves:** ~75% vs Sonnet ($0.014/task instead of $0.053/task)
+
+#### 6.2 Crop to active window
+- [ ] Screenshot only the active window, not the full screen
+- [ ] Use OS APIs to get window dimensions (already needed for active window detection)
+- [ ] Half the pixels = roughly half the vision tokens
+- **Saves:** ~30-40% on screenshot tokens
+
+#### 6.3 Resolution downscaling
+- [ ] Scale screenshots to 1280x720 or 960x540 before sending
+- [ ] Most UI elements are readable at lower resolutions
+- [ ] User-configurable: Low (540p) / Medium (720p) / High (1080p)
+- **Saves:** ~20-40% depending on original resolution
+
+#### 6.4 Action batching
+- [ ] Let AI plan 2-3 actions from one screenshot when confident
+- [ ] "Click width field, type 1440, Tab, type 900" = 1 screenshot instead of 3-4
+- [ ] AI decides when batching is safe vs when it needs to verify
+- **Saves:** ~30-50% fewer screenshots per task
+
+#### 6.5 Skip confirmation screenshots
+- [ ] Don't screenshot after every action -- only when AI needs to navigate or verify
+- [ ] Trust that typing into a focused field worked (screenshot only if unsure)
+- **Saves:** ~20-30% fewer screenshots per task
+
+#### 6.6 Cache screen control system prompt
+- [ ] The ~1,000 token instruction set is identical every call
+- [ ] Already covered by Phase 1.6 prompt caching (Anthropic only)
+- [ ] For non-Anthropic providers: include in static portion of system prompt
+- **Saves:** 90% off system prompt tokens (already implemented, just applies here too)
+
+### Expected Results (Desktop App Control)
+
+| Optimization | Tokens/task | Cost/task (Haiku) |
+|-------------|-------------|-------------------|
+| No optimization | ~17,500 | ~$0.014 |
+| + Window crop | ~12,000 | ~$0.010 |
+| + Downscaling | ~9,000 | ~$0.007 |
+| + Action batching | ~6,000 | ~$0.005 |
+| + Skip confirms | ~4,500 | ~$0.004 |
+| **Fully optimized** | **~4,500** | **~$0.004 (~0.4 cents)** |
+
+### Monthly Cost (20 tasks/day, fully optimized)
+
+| Model | Monthly |
+|-------|---------|
+| Haiku 4.5 | ~$2.40 |
+| Sonnet 4.5 | ~$9.00 |
+| Opus | ~$45.00 |
+
+Note: These costs are ON TOP of normal Omnirun usage. BYOK users see every cent.

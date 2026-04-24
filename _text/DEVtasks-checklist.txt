@@ -1,0 +1,867 @@
+# Development Tasks Checklist
+
+## Foundation
+- [x] Tauri app setup
+- [x] React frontend setup
+- [x] Tailwind CSS setup
+- [x] Basic window/layout
+- [ ] Auto-updater
+
+## Home Dashboard & Navigation Redesign -- DONE (March 26, 2026)
+- [x] HomePage.tsx -- Home dashboard with Morning Brief, Projects, Connections (tabbed: Projects/Assistant), Tasks, Usage, Team widgets (src/components/home/HomePage.tsx)
+- [x] Sidebar.tsx -- Top-level section nav (Home/Projects/Assistant/Tasks) above project sub-tabs. Red badge on Tasks when failed. Projects/Files/Chats tabs only visible in Projects section
+- [x] MainLayout.tsx -- Section routing: Home / Projects (chat+preview) / Assistant (full build) / Tasks. Tools dropdown "tasks" now routes to Tasks section
+- [x] AppSection type exported from HomePage.tsx ('home' | 'projects' | 'assistant' | 'tasks')
+- [x] Email widget removed from Home dashboard
+- [x] Connections widget now tabbed: "Projects" tab (project-scoped connections, project switcher) + "Assistant" tab (email accounts, links to Assistant section)
+- [x] Team widget added to Home dashboard -- upgrade prompt for Starter/Pro, setup prompt for Business/Enterprise without team, member list for active teams
+- [x] Settings "Connections" renamed to "Project Connections" (SettingsLayout.tsx + ConnectionsSettings.tsx)
+
+## Assistant Section -- BUILT (March 27, 2026)
+- [x] AssistantSection.tsx -- main layout, collapsible accounts panel (220px) + chat area, loads accounts on mount
+- [x] AccountsPanel.tsx -- left panel, email accounts list, connect buttons, plan gating, inline label editor, confirm-before-delete
+- [x] AssistantChatArea.tsx -- chat UI, personal assistant system prompt, account-aware, onboarding empty state, suggestion prompts
+- [x] ConnectAccountModal.tsx -- OAuth flow modal (4 steps: pick → connecting → success → error), Gmail + Outlook
+- [x] assistantStore.ts -- Zustand store for accounts + chat messages + modal state + plan gating selectors
+- [x] dbService.ts -- v4→v5 migration adds assistant_accounts_cache table, CRUD methods for assistant accounts
+- [x] Supabase assistant_email_accounts table deployed (user_id, provider, provider_type, email, tokens, scopes, is_active)
+- [x] Plan-gating for email accounts (Starter=1, Pro=2, Business=5, Enterprise=unlimited)
+- [x] ASSISTANT_PROVIDERS list -- Gmail, Outlook, Google Calendar, Outlook Calendar, Slack, Discord, GitHub, Notion, Todoist, Website Watcher all available: true
+- [ ] Tauri Rust commands: start_gmail_oauth, start_outlook_oauth (src-tauri/src/lib.rs) -- UI built, backend pending
+- [ ] Google Cloud OAuth app setup + credentials in .env (VITE_GMAIL_CLIENT_ID, VITE_GMAIL_CLIENT_SECRET)
+- [ ] Microsoft Azure OAuth app setup + credentials in .env (VITE_OUTLOOK_CLIENT_ID, VITE_OUTLOOK_CLIENT_SECRET)
+- [ ] Google OAuth verification (submit for production, 4-6 weeks review)
+- [ ] Watching agents engine -- always-on event-driven agent type (architecture pending)
+- [ ] Home dashboard: first-launch behavior (open to Home for new users)
+
+## Notification System -- BUILT (April 2, 2026)
+- [x] Supabase assistant_notifications table (id, user_id, source, title, body, source_meta JSONB, is_read, created_at)
+- [x] RLS policies (users see/update own notifications only)
+- [x] Supabase Realtime enabled on assistant_notifications
+- [x] notificationStore.ts -- Zustand store, Supabase realtime subscription, SQLite cache, mark as read, mark all as read
+- [x] dbService.ts v6→v7 migration -- notifications_cache table + 4 CRUD methods
+- [x] Topbar.tsx -- notification badge dot on avatar (theme-colored), up to 3 notification items in user dropdown, "See all in Assistant →" link
+- [x] Topbar.tsx -- onAssistantClick prop for navigating to Assistant from dropdown
+- [x] Notifications work on both desktop + mobile (same Supabase table, same realtime channel)
+- [ ] Watching agents engine needed to actually write notifications (table is empty until agents built)
+
+## Avatar & Profile -- BUILT (April 2, 2026)
+- [x] Supabase Storage bucket: avatars (public, RLS per user)
+- [x] GeneralSettings.tsx -- avatar upload section at top of page with circular crop modal (zoom + drag)
+- [x] Avatar crops to 256x256 PNG, uploads to avatars/{user_id}/avatar.png with cache-buster
+- [x] Topbar.tsx -- displays avatar image from profile.avatar_url, falls back to initials
+- [x] Single-name users show one letter instead of two in initials fallback
+- [x] User dropdown widened to w-72 to fit notification items
+- [x] AssistantChatArea.tsx -- Omnirun elipse logo replaces Bot icon on assistant messages
+
+## Memory System -- LAYERS 1+2 BUILT (April 2, 2026)
+### See memory-system.txt for full spec and philosophy
+
+### Architecture: 3-layer system
+- Layer 1: user_context.md -- global identity file, always loaded into Assistant chat, max 3000 tokens -- BUILT
+- Layer 2: project files -- .omnirun/context.md per project (already exists), extended with behavioral patterns -- BUILT (extraction hook added)
+- Layer 3: vector store -- sqlite-vec for semantic retrieval, scales history without bloating context -- NOT STARTED
+
+### Settings
+- [x] Memory settings section in Settings page -- 3 toggles:
+  - "Allow Omnirun to learn from your Assistant conversations" (stores locally, improves habits/preferences/style)
+  - "Allow Omnirun to learn from your Project conversations" (coding preferences, architectural choices, naming)
+  - "Allow Omnirun to learn your writing voice" (used when drafting emails and content)
+- [x] Sync toggle: "Sync memory across devices" -- explicit warning that data leaves device when enabled
+- [x] Sync confirmation dialog: "Turning on sync will upload your memory to Omnirun's secure servers. It is encrypted before leaving your device, but it will no longer be local-only. [Cancel] [Sync]"
+
+### Storage (SQLite)
+- [x] user_memory table -- stores user_context.md content (text, updated_at)
+- [x] memory_observations table -- raw observations log (content, source: 'assistant'|'project'|'voice', session_id, created_at)
+- [x] memory_settings table -- per-toggle on/off + sync preference
+- [x] dbService.ts v7→v8 migration creates all three tables + 9 CRUD methods
+
+### Observation Extraction
+- [x] Post-conversation hook in AssistantChatArea -- runs after conversations with 4+ messages
+- [x] Post-conversation hook in ChatArea -- runs after project conversations with 4+ messages (if toggle enabled)
+- [x] Uses Haiku (cheap, fast) -- silent background call, user never waits
+- [x] Extracts: approvals/rejections, explicit preferences, recurring people, behavioral patterns
+- [x] Never stores: raw email content, credentials, third-party contact details, raw code
+- [x] memoryService.ts -- extraction prompt, compression prompt, getCheapestProvider helper
+
+### Compression
+- [x] Manual compression via "Compress now" button in Memory settings (tested, working)
+- [x] Auto-triggered when raw observations hit 50 entries
+- [x] Sends current context + observations to Claude → outputs updated context.md
+- [x] Hard cap: 3000 tokens. Recency + frequency determine what stays.
+- [ ] Weekly compression job (Sunday) via Scheduled Tasks system -- needs to be registered as a task
+
+### Memory in System Prompt
+- [x] buildMemoryBlock() loads user context and injects into Assistant system prompt
+- [x] Context is appended as a MEMORY block the AI internalizes (doesn't recite)
+
+### Vector Store (sqlite-vec) -- NOT STARTED
+- [ ] Add sqlite-vec Rust crate to Cargo.toml
+- [ ] Embedding generation per observation (local or API-based)
+- [ ] Semantic search at session start: retrieve top 3-5 relevant chunks
+- [ ] Inject retrieved chunks into context alongside user_context.md
+
+### User Visibility
+- [x] "About me" panel in Assistant section -- structured cards showing what AI knows, editable
+- [x] Raw edit mode -- "Edit raw" button shows full context file as text for power users
+- [x] About Me is a tab view (Brain icon toggles between Chat and About Me in Assistant section)
+- [ ] "Memory updated" indicator after extraction -- user can tap to see what was added
+- [ ] Explicit forget: "Forget that I mentioned X" command respected immediately
+
+### Onboarding
+- [ ] New onboarding step explaining memory (after existing steps)
+- [ ] Shows 3 memory toggles, defaults all ON
+- [ ] "You can change this anytime in Settings"
+
+## Core UI
+- [x] Collapsible sidebar
+- [x] Chat area
+- [x] Preview area (collapsible)
+- [x] Stretchable vertical divider (chat <-> preview)
+- [x] Stretchable horizontal divider (upper area <-> terminal)
+- [x] Input area (text + buttons)
+- [x] Mode toggle (Simple/Technical)
+- [x] Sidebar tabs (Projects/Files)
+- [x] Themes (7 themes with dropdown, per-theme fonts)
+- [x] Zustand state management
+- [x] Settings page with navigation
+- [x] Settings icons in sidebar (Settings, Billing, Help)
+- [x] Terminal panel (xterm.js, Technical mode only)
+- [x] Terminal themed to match all 7 app themes
+- [x] Git branch + changed file count in topbar (Technical mode, 10s refresh)
+- [x] User avatar menu in topbar (initials, plan badge, settings link, logout)
+- [x] Custom window chrome (native title bar removed, custom min/max/close + drag region)
+- [x] Omnirun brand logo in topbar (ellipse mark, theme-aware dark/light variants)
+- [x] Omnirun brand theme (default -- #2F3238 bg, #2DB87A green, #DCE0E4 silver text, Sora font)
+- [x] Per-theme font switching (7 fonts: Sora, Inter, Plus Jakarta Sans, Lora, JetBrains Mono, Space Grotesk, Atkinson Hyperlegible)
+- [x] Topbar button sizing standardized (all buttons px-4 py-2, text-sm, consistent hover)
+
+## Chat & AI
+- [x] Multiple AI provider support (Claude, Groq, OpenAI, Google, Ollama)
+- [x] Custom provider support (any OpenAI-compatible API)
+- [x] Smart routing for Claude (Haiku/Sonnet/Opus based on task)
+- [x] API key management UI
+- [x] Provider test connection (real API test, fetches models)
+- [x] Auto-detect available models from provider API
+- [x] Refresh models button per provider
+- [x] Actual API integration (working with Ollama local!)
+- [x] Message display with user/assistant bubbles
+- [x] Streaming responses
+- [x] Clear chat button
+- [x] Show active model in chat header (clickable -- opens API settings)
+- [x] System prompt with project context
+- [x] System prompt blocks AI from running install/dev server commands (npm install, npm run dev, etc.)
+- [x] Code block detection + "Save to file" button
+- [x] Stop button (aborts streaming immediately, checks 5 points in tool loop)
+- [x] Edit user messages (pencil icon, removes message + all after, repopulates input)
+- [x] Message timestamps (12h/24h format, user preference in Settings)
+- [x] Text selection enabled in chat messages
+- [x] Auto-expanding textarea input (grows with content, max 200px, Shift+Enter for newlines)
+- [x] Textarea scrollbar fix (overflow-hidden by default, scrollbar only when content exceeds 200px max)
+- [x] Tool execution system (AI can read/write files directly)
+- [x] Tool execution loop (up to 10 iterations, shows Continue button at limit)
+- [x] Continue button UI (pill-shaped, auto-sends "Continue where you left off.", clears on New Chat/Clear Chat)
+- [x] Token optimization: blocklist, trimmed prompts, conditional connections, concise mode
+- [x] Token-efficient-tools beta header (Anthropic)
+- [x] History trimming (collapse consumed tool results) -- aiService.ts
+- [x] History limiting (keep last 10 message pairs) -- aiService.ts
+- [x] Multi-format tool call parser (JSON + XML + XML-in-tool_call) -- toolService.ts
+- [x] XML entity unescaping in tool parser (fixes &lt; -> < in HTML files) -- toolService.ts
+- [x] Tool status messages (wrench icon, compact display)
+- [x] Image paste (Ctrl+V screenshots, works globally in chat area)
+- [x] Image drag & drop (with visual blue dashed overlay)
+- [x] Image preview chips below input (thumbnail + name + remove X)
+- [x] Images displayed in chat bubbles (click to open full-size)
+- [x] Multiple images per message
+- [x] Image-only messages (no text required)
+- [x] Edit message restores attached images
+- [x] Vision API support (Anthropic, OpenAI, Google -- per-provider formatting)
+- [x] Markdown rendering (react-markdown + remark-gfm)
+- [x] Code syntax highlighting (highlight.js, themed per all 7 themes)
+- [x] Context file system -- lean system prompt replaces manifest tree (contextService.ts, Feb 10)
+- [x] write_context tool -- AI saves decisions/preferences that persist across sessions
+- [x] Auto tech stack detection from package.json/config files
+- [x] Recent changes auto-tracked in context after file operations
+- [x] Web search tool (AI can search the internet via Brave/SearXNG API)
+- [x] Web search results display in chat (globe icon, clickable URLs)
+- [x] Web search toggle in settings (enable/disable + API key)
+- [x] create_scheduled_task tool -- AI creates scheduled tasks via chat (flat command or full steps format)
+- [x] Strip raw <tool_call> tags from chat display after parsing (all providers)
+- [x] Strip images from API messages for non-vision providers (DeepSeek, Groq, Ollama)
+
+## Chat History
+- [x] Chat history store (save/load conversations via SQLite, per project)
+- [x] New Chat button
+- [x] Chat list in sidebar (per project, sorted by recent, with message count)
+- [x] Auto-title from first user message (truncated to ~50 chars)
+- [x] Click to load past chat
+- [x] Delete old chats (with confirmation)
+- [x] Search past chats (appears at 5+ conversations)
+- [x] Rename chats
+- [x] Pin chats to top
+- [x] Export chat as Markdown
+
+## Terminal
+- [x] xterm.js terminal component
+- [x] Command execution via Rust backend (cmd.exe on Windows, sh on Unix)
+- [x] cd command handling (local path resolution via Rust resolve_path)
+- [x] Command history (up/down arrow keys)
+- [x] clear/cls command
+- [x] Ctrl+C to cancel current input
+- [x] ANSI color support in output
+- [x] Terminal themes (mapped to all 7 app themes, live-updates on theme switch)
+- [x] ResizeObserver + FitAddon for auto-sizing
+- [x] Only visible in Technical mode
+- [x] Prompt shows current folder name
+- [ ] Persistent PTY session (currently individual command execution)
+- [ ] Tab completion
+
+## File System
+- [x] Project folder selection (Tauri dialog)
+- [x] File tree display (recursive, with icons)
+- [x] File reading (text files)
+- [x] File writing (from AI code blocks)
+- [x] Path security (Rust validation, scoped to project)
+- [x] Project persistence (SQLite)
+- [x] Project menu (Open in Explorer, Refresh, Remove)
+- [x] File preview (code, images via asset protocol)
+- [x] Copy to clipboard in preview
+- [x] AI reads project files via tool system (read_file, read_multiple_files)
+- [x] AI writes files via tool system (write_file)
+- [x] AI lists directories via tool system (list_directory)
+- [x] AI creates directories via tool system (create_directory)
+- [x] AI deletes files via tool system (delete_file)
+- [x] AI edits files via tool system (edit_file -- search/replace pattern)
+- [x] Manifest auto-updates on file write/delete
+- [x] File tree auto-refresh after AI file operations
+- [x] File deletion UI (three-dot menu with inline confirmation)
+- [x] Project switching clears selectedFile (no stale files from previous project)
+- [x] Sync button in Files tab (manual refresh for external changes)
+- [x] Fixed FileTree dropdown menu clipping (changed to fixed positioning)
+- [x] Watch for external file changes (tauri-plugin-fs watch, debounced, conflict prompt when editing)
+- [x] Auto-select project on startup (remembers last used project via SQLite, falls back to first)
+
+## Security -- ALL DONE (see security-protections-checklist.txt)
+- [x] Path traversal protection (block ../ escaping project folder)
+- [x] Command execution safety (block rm -rf, shutdown, curl|bash, etc.)
+- [x] Sensitive file protection (block .env, .pem, SSH keys, etc.)
+- [x] File content sanitization (fix escaped quotes + XML entities in HTML writes)
+- [x] File size limits (100KB read, 500KB write)
+- [x] Delete confirmation -- evaluated, intentionally skipped (path traversal + Time Machine sufficient)
+- [x] Rate limiting (max writes/deletes per minute)
+- [x] Symlink protection (resolve before reading -- handled by Rust backend)
+- [x] Blocklist enforcement on ALL tools (read, write, edit, delete)
+
+## Preview
+- [x] Static file server (axum in Rust, manual handler with explicit Content-Type)
+- [x] Live preview iframe with auto-refresh on file changes
+- [x] Preview server restarts on project switch (correct path)
+- [x] Cache-busting on iframe URL
+- [x] Open in Browser button (launches real browser)
+- [x] File edit mode (Ctrl+S save, Esc cancel, Tab indentation)
+- [x] Unsaved changes indicator
+- [x] Universal preview (detect project type, run appropriate dev server)
+- [x] Auto dev server detection (Next.js, Nuxt, Vite, CRA, Angular, Vue, Svelte, SvelteKit, Astro)
+- [x] Dev server port capture from stdout
+- [x] Auto-detect package manager (npm, yarn, pnpm)
+- [x] Race condition fix: AI loading guard prevents install prompt during file writing
+- [x] Re-detect project type when AI finishes writing (catches static->framework transitions)
+- [x] run_command cd subfolder support (extracts cwd from "cd dir && command" pattern)
+- [x] AI building overlay -- shows "AI is building your project..." over iframe while AI writes files (hides build errors)
+- [x] Dev server output buffer -- Rust keeps capturing stdout/stderr after port found (10KB cap, get_dev_server_output command)
+- [x] Build error auto-fix -- poll dev server output after AI finishes, send errors to AI automatically (max 3 attempts, then asks user)
+- [ ] Browser selector (Chrome, Firefox, Safari, Edge)
+
+## Voice — IN PROGRESS (April 8, 2026)
+### See project.txt Voice Input section for full spec
+### Phase 1: Core Voice Engine — BUILT
+- [x] voiceService.ts -- Web Speech API wrapper (push-to-talk, wake-word, continuous modes)
+- [x] voiceStore.ts -- Zustand store, settings persistence in localStorage, callback wiring
+- [x] VoiceButton.tsx -- Push-to-talk button (hold to record, release to send, pointer + keyboard)
+- [x] VoiceIndicator.tsx -- Global mic status indicator in topbar (idle/listening/wake/muted/processing)
+- [x] VoiceTranscriptOverlay.tsx -- Real-time transcript display above chat input while recording
+- [x] VoiceSettings.tsx -- Full settings page (mode selector, language, wake word, privacy toggles, sensitive apps, mic test)
+- [x] Rust: register_voice_mute_hotkey / unregister_voice_mute_hotkey (GlobalShortcutManager, parsed Shortcut type)
+- [x] App.tsx: voiceStore.init() on app ready
+- [x] ChatArea.tsx: VoiceButton + VoiceTranscriptOverlay integrated, auto-send wired for wake-word/continuous
+- [x] Topbar.tsx: VoiceIndicator added after UsageIndicator
+- [x] Audio feedback: sine wave tones via Web Audio API (start/stop/wake chime)
+- [x] Sensitive app auto-pause: polls active window every 3s, auto-mutes if match
+- [x] Global mute hotkey: F9 default, works when Omnirun is not focused
+- [x] Silence timeout: configurable (1s/1.5s/2s/3s) for auto-send in wake-word/continuous modes
+- [x] Continuous mode exit phrase: "that's all" (configurable)
+- [x] 13 languages supported
+
+### Phase 2: Local Wake Word (Picovoice Porcupine) — NOT STARTED
+- [ ] Add Porcupine WASM SDK (~2MB) to project
+- [ ] Train custom "Hey Omnirun" wake word model via Picovoice console
+- [ ] Integrate Porcupine for local-only wake word detection (replaces Web Speech API for wake phase)
+- [ ] Audio pipeline: Porcupine listens locally → on detection → activate Web Speech API for command
+- [ ] Zero audio leaves device until wake word detected (privacy guarantee)
+- [ ] Add additional wake word models: "Hey Dev", "Computer", "OK Omnirun"
+
+### Phase 3: Integration + Polish — NOT STARTED
+- [ ] Wire VoiceButton + VoiceTranscriptOverlay into AssistantChatArea.tsx
+- [ ] Plan gating: wake-word and continuous modes restricted to Studio+ plans
+- [ ] Voice transcript parsing: Haiku call to clean up voice input before sending (token optimization)
+- [ ] Voice command debouncing: wait 500ms-1s after user stops before processing
+- [ ] Cache repeated voice commands: hash common commands, reuse parsed intent
+
+## Media Playback
+- [ ] Detect installed music apps (Spotify, VLC, Windows Media Player, iTunes, etc.)
+- [ ] AI media control tool (play, pause, skip, volume, search)
+- [ ] System media commands (control whatever player is running)
+- [ ] Spotify integration (as Connection -- control via API)
+- [ ] Apple Music integration (as Connection -- control via API)
+- [ ] "Play my playlist" natural language support
+
+## Browser Control
+- [ ] Browser automation setup (Playwright)
+- [ ] Navigate to URL
+- [ ] Click elements
+- [ ] Fill forms
+- [ ] Read page content
+- [ ] Download files
+- [ ] Approval flow for sensitive actions
+
+## Desktop App Control — IN PROGRESS (April 3, 2026)
+### See desktop-app-control.txt for full spec
+### Phase 1: Core Engine — PARTIALLY BUILT
+- [x] Screenshot capture (cross-platform, Rust — screenshots crate + image crate, PNG encode, base64)
+- [x] Input simulation via enigo crate (mouse move, click, double-click, right-click, type, key combos, drag, scroll)
+- [x] Active window detection (app name, title, dimensions — Windows GetForegroundWindow, Mac osascript, Linux xdotool)
+- [x] Window-only screenshot cropping (with screen bounds clamping, falls back to full screen if <100px visible)
+- [x] Resolution downscaling in Rust (low=960px, medium=1280px, high=full res)
+- [x] Multi-monitor support (list_monitors Rust command, monitor selection in settings)
+- [x] Coordinate scaling (screenshot pixel space → actual screen space in AssistantChatArea loop)
+- [x] AI screen control system prompt (OBSERVATION/ACTION format — CLICK x y, TYPE text, KEY combo, SCROLL, DRAG, WAIT, DONE, FAIL)
+- [x] Action parser (parseScreenAction in screenControlService.ts — handles commas in coords, Action: prefix, compound actions)
+- [x] Screenshot → AI → Action loop (runScreenControlLoop in AssistantChatArea.tsx — single updating message bubble)
+- [x] Direct Anthropic API call (sendScreenControlMessage — bypasses sendMessage/smart routing/tool definitions entirely)
+- [x] Dedicated SCREEN_CONTROL_SYSTEM_PROMPT (minimal, strict format, no tool definitions)
+- [x] Action execution with configurable delay (default 500ms, selectable 200ms/500ms/1s/2s)
+- [x] Settings UI: ScreenControlSettings.tsx (enable/disable, model choice: Haiku/Sonnet/Opus/Auto, action delay, screenshot quality, crop toggle, monitor picker, user preferences, blocked apps, emergency hotkey)
+- [x] Screen Control tab added to SettingsLayout.tsx (Monitor icon, between Memory and Billing)
+- [x] Screen Control toggle button in Assistant chat header (Screen / Screen ON — explicit mode activation)
+- [x] Floating overlay bar: ScreenControlOverlay.tsx (status, step count, current action, Stop button, z-9999 fixed top-center)
+- [x] Screen control mode — persists between commands, overlay stays until user clicks Stop
+- [x] Blocked apps list with defaults (omnirun, msedgewebview2, banking, password managers)
+- [x] User preferences in settings (display setup textarea, app notes textarea, key folders with system folder picker)
+- [x] Folder picker using Tauri dialog (6 preset categories: Music/Downloads/Documents/Projects/Videos/Pictures + custom labels)
+- [x] Token tracking via usageStore.trackAPICall (updates widget in real-time)
+- [x] History trimming in loop (first exchange + last 2 exchanges — prevents token explosion)
+- [x] cleanAiResponse() strips <tool_call> and <screenshot_base64> tags from displayed messages
+- [x] Rate limiting: screen_capture 30/min, screen_action 50/min (in toolService.ts)
+- [x] Blocked app check before screenshot and action execution
+- [x] Max step limit (12 steps then auto-stops)
+- [x] Screen tools registered in toolService.ts (screen_capture, screen_action, screen_info — for Projects chat use)
+
+### Phase 1: KNOWN BUGS — MUST FIX NEXT SESSION
+- [ ] BUG: Model override not sticking — AI uses Haiku despite Opus selected in settings. getScreenControlProvider() exists but needs verification that it's actually being called and not overridden by getActiveProvider or sendMessage smart routing.
+- [ ] BUG: User folder preferences not reaching AI prompt — buildUserContextPrompt() called but may not be injected into sendScreenControlMessage's system prompt. The direct API call uses SCREEN_CONTROL_SYSTEM_PROMPT constant — user context appended to the user message, not the system prompt. Verify ctx + userCtx injection path.
+- [ ] BUG: AI doesn't follow OBSERVATION/ACTION format consistently — writes prose, asks questions, narrates actions it plans to take instead of executing them. Opus does this less than Haiku but still does it. May need few-shot examples in the system prompt.
+- [ ] BUG: AI sometimes types into Omnirun's own chat instead of the target app. Added omnirun/msedgewebview2 to default blocked apps, but Omnirun is the active window when screen control starts. May need to minimize Omnirun or focus the target app before first action.
+- [ ] TODO: Kill switch not wired as Tauri global shortcut — only works via Stop button in overlay. Need tauri::GlobalShortcutManager.
+- [ ] TODO: Sensitive screen detection (password/payment/send) — mentioned in AI prompt but not enforced in code with approval flow
+- [ ] TODO: Auto-routing (browser → Playwright, desktop → screen control) — isActiveBrowser() helper exists but routing not implemented
+- [ ] TODO: OPEN action — direct file/folder open via Rust std::process::Command, skips screenshot loop for folder-based tasks
+- [ ] TODO: Screenshot thumbnails in chat — currently text-only log, no inline images
+
+### Phase 2: Smart Optimizations — NOT STARTED
+- [ ] Auto-escalation (Sonnet → Opus on failure/low confidence)
+- [ ] Action batching (plan 2-3 actions from one screenshot when confident)
+- [ ] Skip redundant confirmation screenshots
+- [ ] Prompt caching for screen control system prompt (ephemeral cache_control)
+- [ ] App launch registry (common apps mapped to launch commands per OS)
+- [ ] Remember app locations between sessions
+
+### Phase 3: Advanced — NOT STARTED
+- [ ] Accessibility API hybrid for popular apps (faster + cheaper than screenshots)
+- [ ] App-specific profiles (known UI layouts for Figma, Photoshop, Excel)
+- [ ] Screen region focus ("look at the top-right panel")
+- [ ] OCR caching (reuse reading if screen area unchanged)
+
+## Diff & Approval
+- [x] diffStore.ts -- Zustand store with requestApproval (Promise-based), approve, reject, clear
+- [x] DiffViewer.tsx -- inline diff card in chat area with Approve/Reject buttons
+- [x] Approval gates in toolService.ts -- write_file, edit_file, delete_file, create_directory auto-correct
+- [x] Four diff views: create (green new content), edit (red remove + green replace), rewrite (stats + preview), delete (red warning + Time Machine note)
+- [x] Collapsible diff card (chevron toggle)
+- [x] Rejected changes return "Skipped" message to AI so it can adapt
+- [x] Read operations (read_file, list_directory, run_command) execute immediately with no approval
+- [x] ChatArea integration -- passes requestApproval to executeToolCalls, renders DiffViewer, auto-scrolls on diff
+- [x] Clear pending diffs on New Chat / Clear Chat
+- [x] Long content truncation with expand toggle (>50 lines collapsed by default)
+- [x] Syntax-highlighted code blocks in diff cards
+- [x] Copy file path button on diff cards
+- [x] Theme-aware styling across all 7 themes
+- [x] Large file detection: files >300 lines show summary (line count, char count, first 20 lines preview) instead of full content
+- [x] Diff cards show final status: green checkmark (approved), red X (rejected)
+- [x] DiffViewer auto-scrolls into view when new approval is requested
+- [ ] Batch approve ("Approve All" for multiple file changes)
+- [ ] Remember preference per session ("Always approve for this chat")
+
+## Token Tracking
+- [x] Real-time token counter (captured from streaming events per provider)
+- [x] Cost calculation (per-model pricing tables for Claude, GPT, Gemini, Groq, DeepSeek, Ollama)
+- [x] Usage indicator in topbar (shows cost + token count)
+- [x] Tabbed timeframe (Session | Month | All Time) in dropdown
+- [x] Input/output split (separate token and cost columns)
+- [x] Cache token display (Anthropic: cache creation + cache read)
+- [x] Persisted to SQLite (survives app restart)
+- [x] Cost formatting (<$0.01, $0.XXX, $X.XX)
+- [x] Session auto-resets on app restart
+- [x] DeepSeek pricing added to MODEL_PRICING (was falling back to Sonnet $3/$15 -- now correct at $0.28/$0.42)
+- [x] Provider-aware pricing fallback (unknown models use provider's typical rate, not hardcoded Sonnet)
+- [x] Added GPT-5, GPT-4.1, GPT-4.1-mini pricing to MODEL_PRICING
+- [x] UsageSettings: input/output token+cost split displayed per card (session, monthly, all time)
+- [x] UsageSettings: removed lucide-react icons from cards and sections
+- [x] UsageSettings: budget input text visibility fix (colorScheme for dark/light themes)
+- [x] Prompt caching for Anthropic (cache_control breakpoints on system prompt + conversation history)
+
+## Time Machine
+- [x] Auto-snapshot before every write_file and delete_file
+- [x] Snapshot storage in .omnirun/snapshots/
+- [x] Timeline panel UI (grouped by day, sorted by time)
+- [x] Restore functionality (with confirmation, always undoable)
+- [x] File filter (from FileTree "View History")
+- [x] Stats display (total snapshots, files tracked)
+- [x] Button in sidebar (moved to Tools dropdown in topbar -- Feb 12)
+- [ ] Compare versions (side-by-side diff)
+- [ ] Branch visualization
+
+## Git Integration
+- [x] Git branch display in topbar (Technical mode only)
+- [x] Changed file count badge (Technical mode only)
+- [x] Auto-refresh every 10 seconds
+- [x] Graceful fallback if not a git repo
+- [ ] Git commit/push/pull UI (Level 2)
+- [ ] Git diff viewer
+- [ ] Branch switching UI
+
+## Connections Hub
+- [x] Project Connections settings page UI (renamed from "Connections" to "Project Connections")
+- [x] 8 providers with token-based auth
+- [x] Full settings UI with status badges and account info
+- [x] Meta-tool pattern for AI integration
+- [x] Auto-retest on startup
+- [x] AI system prompt includes connection context
+- [ ] OAuth flow handler (Phase 2)
+- [ ] Secure token storage (OS keychain)
+
+## Deployment -- DONE (April 17, 2026)
+
+### Rust Backend (deploy.rs)
+- [x] read_project_for_deploy Tauri command -- walks project folder, respects .gitignore/.vercelignore/.netlifyignore/.deployignore
+- [x] SHA1 hash per file (for Vercel/Netlify dedup)
+- [x] Base64 content encoding (avoids JSON escape issues with binary)
+- [x] Framework detection (Next.js, Vite, Nuxt, SvelteKit, Astro, Gatsby, CRA, Remix, static)
+- [x] Output dir detection -- server frameworks (Next/Nuxt/Remix/SvelteKit) deploy SOURCE (provider builds); static frameworks (Vite/CRA/Astro) deploy built output
+- [x] Smart exclusions: node_modules, .git, .next, .vercel, .netlify, cache, diagnostics, .env*, trace, logs, build caches
+- [x] Safety limits: 100MB per file, 250MB total payload
+- [x] Cargo.toml deps: sha1, ignore (+ base64 already present)
+- [x] lib.rs: mod deploy + command registered in invoke_handler
+
+### Provider Deploy Actions (connections/)
+- [x] Vercel: upload_file (SHA1 digest POST /v2/files), deploy (SHA-referenced /v13/deployments), deploy_folder (read → upload with progress → deploy → fetch custom domain)
+- [x] Vercel: vercelProjectId param in deploy_folder -- deploys to existing project (no new project every time)
+- [x] Vercel: post-deploy custom domain lookup (list_domains → prefer verified non-vercel.app domain for URL)
+- [x] Vercel: create_project is gitless (removed gitRepository param)
+- [x] Netlify: deploy_site (SHA1 manifest), upload_deploy_file (per-file PUT), deploy_folder (read → manifest → upload missing → return)
+- [x] Cloudflare Pages: create_pages_project, get_pages_upload_jwt, check_missing_pages_hashes, upload_pages_files (batched 50), create_pages_deployment (multipart manifest), deploy_folder (full orchestration)
+- [x] Upload progress emission via globalThis.__omnirunUploadProgress (all 3 providers)
+
+### Deployment Service (deploymentService.ts)
+- [x] Provider dispatcher: deployProject() routes to correct provider's deploy_folder
+- [x] Progress events: starting → reading_files → uploading (N/M files) → building → live
+- [x] Upload progress listener (globalThis callback → "Uploading 12 / 47 files...")
+- [x] Reads saved deploy target from deployTargetStore (vercelProjectId/siteId/CF accountId)
+- [x] Passes remote project ID to provider (stops creating new projects every deploy)
+- [x] URL extraction: custom domain > saved target domain > provider auto-URL
+- [x] Marks target as deployed + updates domain if provider returns a new one
+- [x] pickDefaultProvider(), listConnectedDeployProviders() helpers
+- [x] Auto-picks provider when only one connected
+
+### Deploy Target System (deployTargetStore.ts)
+- [x] Per-project deploy target persistence (localStorage via Zustand persist)
+- [x] Target shape: provider, remoteProjectId, remoteProjectName, domain?, cloudflareAccountId?, createdAt, lastDeployedAt?
+- [x] Methods: getTarget, setTarget, clearTarget, markDeployed, setDomain
+
+### Deploy UI — Modal + Progress (DeployModal.tsx)
+- [x] 4-step progress tracker: Reading files → Uploading → Building → Live
+- [x] Spinner on active step, green check on completed
+- [x] Live file upload counter ("Uploading 12 / 47 files...")
+- [x] Success: URL display with Copy button + Open site (Tauri openUrl)
+- [x] Success: "View on Vercel/Netlify/Cloudflare" link (uses deployment.inspectorUrl when available, falls back to constructed URL)
+- [x] Success: "View in OmniRun" link (navigates to Deploy page via omnirun-navigate-tools window event)
+- [x] Failure: error message display
+- [x] Can't dismiss mid-deploy (prevents accidental close)
+- [x] Global render in Topbar.tsx (always mounted)
+
+### Deploy UI — Target Picker (DeployTargetPicker.tsx)
+- [x] Provider selection step (only if 2+ deploy providers connected)
+- [x] Existing project list with attached domains visible (fetches from Vercel/Netlify/CF)
+- [x] Radio-select existing project OR "Create new project" form
+- [x] Create new: project name + optional custom domain (auto-attaches via add_domain)
+- [x] Cloudflare: inline account ID input
+- [x] First deploy: picker opens automatically (no saved target)
+- [x] Subsequent deploys: silent one-click (saved target reused)
+
+### Deploy UI — Preview Toolbar Button (PreviewArea.tsx)
+- [x] Rocket icon in preview toolbar (after Open in Browser, before Close)
+- [x] Only shows when deploy provider connected for current project
+- [x] Gear icon (Settings) next to Rocket for "Change deploy target" (only when target saved)
+- [x] Tooltip shows current target ("Deploy to omnirun.app")
+
+### Deploy UI — Deploy Page (DeployPage.tsx, Tools > Deploy)
+- [x] Deploy target card at top: current target (domain/project name), provider, last deployed time, Change + Clear buttons
+- [x] Green Deploy button on project status card
+- [x] Deployment history list with status badges
+- [x] Domain list with SSL status
+- [x] All external links use Tauri openUrl (not window.open)
+
+### Deploy UI — Navigation
+- [x] MainLayout.tsx: omnirun-navigate-tools window event listener for deep-linking to Deploy page
+- [x] DeployModal "View in OmniRun" fires omnirun-navigate-tools event
+
+### AI Integration
+- [x] First-class "deploy" tool in toolService.ts (name, description, parameters, execution handler)
+- [x] connectionTool.ts: updated Vercel/Netlify/Cloudflare docs blocks with deploy_folder as preferred action
+- [x] connectionTool.ts: universal deployment rule -- "Never use github.put_file as deploy mechanism"
+- [x] GitHub docs block: explicit "DO NOT use github actions to deploy" note
+
+### Not Yet Done
+- [ ] Netlify deploy_folder tested end-to-end
+- [ ] Cloudflare Pages deploy_folder tested end-to-end
+- [ ] DNS auto-configuration (auto-set DNS records if Namecheap/Cloudflare DNS provider connected)
+- [ ] SSL verification status in deploy modal
+- [ ] Vercel build status polling (poll get_deployment until READY/ERROR instead of assuming success)
+- [ ] Large file streaming (currently base64 through IPC — 47MB+ videos may fail silently)
+
+## Templates
+- [x] Template selection UI (NewProjectModal.tsx, TemplateGallery.tsx)
+- [x] Template service (templateService.ts: fetch list, download files, scaffold project)
+- [x] Template install flow (sidebar → modal → gallery → scaffold → auto-detect → install prompt → dev server)
+- [x] AI context injection (template ai_context field → system prompt)
+- [x] DB migration v3 (template_id, template_name columns)
+- [x] Dev server ANSI fix (strip_ansi_codes in lib.rs — Vite colorized output broke port regex)
+- [x] Website templates (6/6: business-website, landing-page, portfolio, restaurant-cafe, ecommerce-store, blog)
+- [x] Personal tool templates (5/5: habit-tracker, reading-list, budget-tracker, recipe-organizer, workout-log)
+- [ ] Business tool templates (0/5: invoice-generator, crm-lite, time-tracker, project-kanban, expense-tracker)
+- [ ] Automation templates (0/3: web-scraper, email-sender, file-organizer)
+- [ ] Fun/learning templates (0/3: pomodoro-timer, flashcards, typing-test)
+- [ ] Upload remaining templates to Supabase Storage
+
+## Routines
+- [ ] Routines settings page
+- [ ] Create routine UI
+- [ ] Natural language routine creation
+- [ ] Run routine
+- [ ] Edit/delete routines
+
+## Scheduled Tasks -- Level 1 DONE (Feb 12, 2026)
+### Tasks is now a TOP-LEVEL SIDEBAR SECTION (not only accessible via Tools dropdown)
+### Tools dropdown "Scheduled Tasks" item routes to the Tasks section in sidebar nav
+
+### Menu Restructure (Part 1 -- completed Feb 12)
+- [x] ToolsDropdown.tsx -- dropdown in topbar with 5 tool items
+- [x] Notification badge support (red dot for failures/issues)
+- [x] Move Time Machine trigger from sidebar to Tools dropdown
+- [x] Remove Preview/Billing icons from sidebar bottom
+- [x] Restyle sidebar bottom: Settings/Help as text+icon items
+- [x] Tools items open in main content area with "Back to Chat" navigation
+- [x] Mouse-leave auto-close on both dropdowns (250ms, no backdrop)
+- [x] Hover effects on all topbar buttons and dropdown items (hover:bg-white/20, hover:bg-white/10)
+
+### Rust Backend (Part 2 -- completed Feb 12)
+- [x] scheduler.rs -- Tokio-based cron scheduler, checks every minute
+- [x] task_runner.rs -- Step-based executor (Local/Web executors)
+- [x] Cargo.toml -- Add chrono, cron dependencies
+- [x] lib.rs -- Add mod scheduler/task_runner, register IPC commands (create/update/delete/toggle/get/run tasks)
+- [x] Task storage as JSON in app data directory
+
+### Frontend (Part 3 -- completed Feb 12)
+- [x] taskStore.ts -- Zustand store, calls Tauri IPC commands
+- [x] TasksPage.tsx -- Main tasks overview, grouped by project, input field for chat creation
+- [x] TaskCard.tsx -- Expandable task detail card with steps, run now, pause, delete
+- [x] TaskEmptyState.tsx -- Empty state with tappable suggestion prompts + custom input
+- [x] MainLayout.tsx -- Replace tasks placeholder with TasksPage component, pendingChatMessage routing
+- [x] ChatArea.tsx -- pendingMessage prop for receiving messages from tasks page
+- [x] Task creation via chat (create_scheduled_task tool -- flat command or full steps format)
+- [x] AI system prompt instructs use of task tool instead of writing scheduling scripts
+- [ ] Task editing via chat (edit_scheduled_task tool) -- users can edit from TaskCard UI
+- [ ] Toast notifications on task success/failure -- next priority (tauri-plugin-notification)
+
+### Bugfixes (Part 4 -- completed Feb 19)
+- [x] ProjectSelector.tsx (NEW) -- searchable project dropdown for task creation, recent projects, compact pill mode
+- [x] TasksPage.tsx -- integrated ProjectSelector, explicit "[Scheduled Task Request]" prefix forces AI to use create_scheduled_task tool
+- [x] TaskEmptyState.tsx -- integrated ProjectSelector, project must be selected before input enabled
+- [x] toolService.ts -- inject cwd into run_command/run_script task steps (was missing, commands ran in C:\Users\ instead of project dir)
+- [x] MainLayout.tsx -- handleSendToChat switches active project (setCurrentProject + setProjectPath) when sent from Tasks page
+- [x] ChatArea.tsx -- strip raw <tool_call> tags from displayed messages after parsing (tags were visible in chat for all providers)
+- [x] aiService.ts -- strip images from messages for providers that don't support image_url (DeepSeek, Groq, Ollama crashed on conversations with screenshots)
+- [x] task_runner.rs verified -- already supports cwd field in RunCommand steps, falls back to home dir when None
+
+## Health Checks
+- [ ] Security scan
+- [ ] Performance scan
+- [ ] Accessibility scan
+- [ ] SEO scan
+- [ ] Auto-fix functionality
+- [ ] Scheduled checks
+
+## Settings
+- [x] Settings page structure (tabs -- General, API Keys, Usage, Project Connections, Voice, Billing, About)
+- [x] "Connections" renamed to "Project Connections" in sidebar nav and page heading
+- [x] API key management (multi-provider + custom + auto-detect models)
+- [x] General settings (theme, mode, time format, language)
+- [x] Billing page (plan display)
+- [x] Voice settings UI
+- [x] Project Connections page UI
+- [x] About page
+- [x] Usage settings UI
+- [x] Time format preference (12h/24h)
+- [x] Memory settings section (3 learning toggles + sync toggle + compress now button + clear memory) -- MemorySettings.tsx
+- [x] Avatar upload in GeneralSettings (circular crop modal, Supabase Storage, profile.avatar_url)
+- [x] Team settings tab -- TeamSettings.tsx (owner view, member view, no-team feature overview + upgrade CTA) -- April 5
+- [x] Save settings to SQLite (part of SQLite migration)
+- [ ] Privacy settings
+
+## Onboarding -- DONE (5 steps, first launch only, persisted to SQLite)
+- [x] OnboardingWrapper.tsx (step controller, progress bar, slide transitions, skip support)
+- [x] Step 1: WelcomeStep.tsx (app name, tagline, 4 feature highlight cards, "Get Started" + "Skip" options)
+- [x] Step 2: ApiKeyStep.tsx (informational -- explains what API keys are, links to Anthropic console via tauri-plugin-opener, points to Settings)
+- [x] Step 3: ConnectionsStep.tsx (informational -- 6-category grid: Hosting, Version Control, Domains, Database, Payments, Email; points to Settings > Connections)
+- [x] Step 4: SampleProjectStep.tsx (explains open existing folder vs create new folder, plus optional sample project creation)
+- [x] Step 5: CompletionStep.tsx (quick tips, "Start Building" button)
+- [x] onboardingCompleted flag in settingsStore (persisted to SQLite via dbService)
+- [x] App.tsx onboarding gate (shows OnboardingWrapper if not completed, MainLayout if completed)
+- [ ] Memory onboarding step -- explains memory system, shows 3 toggles, defaults ON (planned)
+- [ ] Sample project scaffolding (create actual template files when user picks "Create a sample project")
+
+## Guidance System
+- [ ] Contextual help triggers
+- [ ] Problem description helper
+- [ ] Post-fix explanations
+- [ ] First-time concept explanations
+- [ ] "Don't show again" options
+
+## Project Memory -- PARTIALLY DONE (via context file system)
+- [x] Context storage (.omnirun/context.md persists across sessions)
+- [x] Context loading (auto-loads on project open, reconciles tech stack)
+- [x] AI writes decisions/preferences via write_context tool
+- [x] Recent changes auto-tracked after file operations
+- [ ] Session summarization (rolling summary for very long tasks)
+- [ ] Welcome back message (show what changed since last session)
+
+## System Tray
+- [ ] Minimize to tray
+- [ ] Tray menu
+- [ ] Quick command from tray
+- [ ] Listening status indicator
+
+## Offline
+- [ ] Offline detection
+- [ ] Offline mode UI
+- [ ] Local-only features enabled
+
+## Team Features -- BUILT (April 5, 2026)
+### See team-features.txt for full spec
+### Terminology: Teams / Members. Roles: Owner + Member only.
+### Project-level locking (one person per project at a time). No file-level collab.
+### Notifications: minimal (project available, invitation received). No email notifs.
+### Billing visible to Owner only. Members don't see plan/pricing.
+### Activity log: simple, refreshes on page open, last 30 days. Not real-time.
+
+### Team Settings UI -- BUILT (April 5, 2026)
+- [x] Team tab in Settings sidebar (always visible, shows feature overview + upgrade CTA if no team)
+- [x] Team name field (editable by Owner)
+- [x] API key policy toggle (Shared key vs Individual BYOK per member) with confirmation dialogs
+- [x] Member list display (name, email, role, status)
+- [x] Seat counter ("3 of 5 seats used")
+- [x] Remove member button (Owner only, with confirmation modal)
+- [x] Member view (read-only version of Team page)
+- [x] No-team state: feature overview (4 cards: invite, locking, shared keys, activity log) + "View Team Plans" button → Billing Teams tab
+
+### Invitations -- BUILT (April 5, 2026)
+- [x] Invite member modal (email input + send)
+- [x] Invitation email template (Resend API via Supabase Edge Function, branded HTML, download + accept buttons) -- DONE (April 5)
+- [x] Pending invitation display in member list (grayed out, with expiry date)
+- [x] Cancel / resend invitations
+- [x] Accept invitation flow (accept_invitation RPC: validates token, adds member, logs activity, notifies owner) -- DONE (April 5)
+- [x] In-app notification on invitation (notify_invitation_created trigger for existing users) -- DONE (April 5)
+- [x] Database webhook on team_invitations INSERT → Edge Function auto-sends email -- DONE (April 5)
+- [x] Seat limit enforcement (can't invite beyond plan limit)
+
+### Project Locking -- BUILT (April 5, 2026)
+- [x] Lock flag per project (locked_by, locked_at) -- project_locks table with heartbeat, RLS policies
+- [x] Auto-lock on first AI message in project (aiService.ts lock gate before sendMessage)
+- [x] Auto-unlock on project switch / app close (Sidebar.tsx handleOpenProject + App.tsx beforeunload + Tauri onCloseRequested)
+- [x] Idle timeout unlock (15 min no activity -- global keydown/mousemove/click tracking in App.tsx, idle check every 60s in teamStore)
+- [x] Crash recovery unlock (5 min no heartbeat -- pg_cron runs cleanup_stale_locks every minute)
+- [x] Heartbeat ping from app (every 60 seconds -- teamStore startHeartbeat/stopHeartbeat)
+- [x] Owner force-unlock override (teamStore forceUnlock, RLS allows owner DELETE)
+- [x] Sidebar UI: grayed out project + lock icon + "Sarah is working on this" tooltip
+- [x] Sidebar UI: green dot indicator on projects locked by current user, first name of locker shown for others
+
+### Team Notifications -- BUILT (April 5, 2026)
+- [x] Notification bell in sidebar/topbar -- uses existing notification system (Topbar.tsx avatar badge)
+- [x] Unread dot indicator -- existing badge dot on avatar, theme-colored
+- [x] "Project available" notification on unlock (notify_project_available trigger on project_locks DELETE)
+- [x] "Invitation received" notification (notify_invitation_created trigger on team_invitations INSERT)
+- [x] Notification list panel -- existing user dropdown shows top 3 notifications
+- [x] Auto-dismiss on read -- existing markAsRead in notificationStore
+- [x] 'team' source label added to notificationStore getSourceLabel()
+
+### Activity Log -- UI BUILT (April 5, 2026)
+- [x] Activity log on Team Settings page
+- [x] Log: worked on, deployed, joined, removed, created, deleted
+- [x] Grouped by day, last 30 days
+- [x] Refresh on page open (not real-time)
+
+### Team API Key Policy -- BUILT (April 5, 2026)
+- [x] Shared key mode: owner keys encrypted (AES-GCM) + stored in Supabase teams.encrypted_api_keys
+- [x] Individual key mode: members manage their own keys
+- [x] "Using team API key" banner for members in shared mode (full API Settings page replaced)
+- [x] "Set up your API key" info banner for members in individual mode
+- [x] Owner "Your API keys are shared" notice in API Settings
+- [x] Confirmation dialog: switching to shared (warns key stored on servers, no longer local-only)
+- [x] Confirmation dialog: switching to individual (warns members need own keys)
+- [x] Owner save auto re-encrypts and re-uploads shared keys to Supabase
+
+### Team Backend (build alongside Stripe/subscriptions)
+- [x] User accounts (email + password or magic link) -- DONE (Feb 20, Supabase auth)
+- [x] Auth system (login, signup, session management) -- DONE (Feb 20)
+- [x] Teams table (id, name, owner_id, plan, api_key_policy) -- DONE (full_schema.sql deployed)
+- [x] Members table (id, team_id, user_id, role, joined_at) -- DONE (full_schema.sql deployed)
+- [x] Invitations table (id, team_id, email, status, expires_at) -- DONE (full_schema.sql deployed)
+- [x] Project locks table (project_id, locked_by, locked_at, last_heartbeat) -- DONE (full_schema.sql deployed)
+- [x] Activity log table (team_id, user_id, action, project, timestamp) -- DONE (full_schema.sql deployed)
+- [x] encrypted_api_keys + shared_keys_updated_at columns added to teams table -- DONE (migration 005, April 5)
+- [x] teamStore.ts created (Zustand + Supabase) -- team CRUD, members, invitations, activity log, shared key encrypt/decrypt, project locking, heartbeat, idle timer, lock realtime subscription
+- [x] TeamSettings.tsx created -- owner view, member view, no-team view, 4 modals (invite, remove, share key, stop sharing)
+- [x] Invitation email service (Resend via Supabase Edge Function: send-invitation-email) -- DONE (April 5)
+- [x] Database webhook: team_invitations INSERT → send-invitation-email Edge Function -- DONE (April 5)
+- [x] Heartbeat + lock/unlock (teamStore lockProject/unlockProject/startHeartbeat, pg_cron cleanup_stale_locks) -- DONE (April 5)
+- [x] accept_invitation RPC (Supabase SECURITY DEFINER function, validates token/email/team, inserts member, logs activity, notifies owner) -- DONE (April 5)
+- [x] notify_project_available trigger (project_locks DELETE → assistant_notifications INSERT for all team members) -- DONE (April 5)
+- [x] notify_invitation_created trigger (team_invitations INSERT → assistant_notifications for existing users) -- DONE (April 5)
+- [x] pg_cron job: cleanup-stale-locks runs every minute -- DONE (April 5)
+- [x] Supabase Realtime subscription on project_locks for live sidebar updates -- DONE (April 5)
+- [x] App.tsx: team init on login, global activity tracking (keydown/mousemove/click), unlock on close (beforeunload + Tauri onCloseRequested) -- DONE (April 5)
+- [x] aiService.ts: lock gate before sendMessage (auto-lock on first message, block if locked by other) -- DONE (April 5)
+- [x] Sidebar.tsx: lock indicators (opacity, lock icon, locker name, green dot for own lock, unlock on project switch) -- DONE (April 5)
+
+### Team Features -- TESTED (April 6, 2026)
+- [x] Invitation email sending verified (Edge Function + Resend, branded dark theme email)
+- [x] Invitation notification trigger verified (notify_invitation_created fires for existing users)
+- [x] Accept invitation RPC verified (member added, activity logged, owner notified)
+- [x] Project auto-lock on AI message verified (project_locks row created)
+- [x] Heartbeat verified (last_heartbeat updates every 60s)
+- [x] Auto-unlock on project switch verified (project_locks row deleted)
+- [x] Unlock notification verified ("X is now available" created for team members)
+- [x] TeamSettings.tsx: pending invitation view with Accept/Decline buttons -- ADDED (April 6)
+- [x] Topbar.tsx: team notification click navigates to Settings → Team (sessionStorage) -- ADDED (April 6)
+- [x] SettingsLayout.tsx: settings_tab sessionStorage support -- ADDED (April 6)
+- [x] Topbar.tsx: bigger notification dot (w-4 h-4, z-10, solid border) -- FIXED (April 6)
+
+#### RLS Fixes Applied (Migration 007b, April 6, 2026)
+- [x] "Invitees see own invitations" -- changed from auth.users subquery to auth.email() (was causing 403)
+- [x] "Invitees read invited team" -- new SELECT policy for invitees to read team name
+- [x] "Invitees decline own invitations" -- new UPDATE policy
+- [x] handle_new_user trigger recreated (was dropped, possibly by migration 007)
+
+#### Remaining Team Tests (not yet verified)
+- [ ] Idle timeout unlock (15 min no activity)
+- [ ] Crash recovery (pg_cron cleanup after 5 min no heartbeat)
+- [ ] Owner force-unlock
+- [ ] Lock gate blocks other members from AI messages
+- [ ] Sidebar lock indicators visual verification (needs two instances)
+- [ ] Realtime lock subscription live update
+
+## Distribution
+- [ ] Mac build (.dmg)
+- [ ] Windows build (.exe)
+- [ ] Linux build (.AppImage)
+- [ ] Code signing (Mac)
+- [ ] Code signing (Windows)
+- [ ] Auto-update system
+
+## Backend/Services
+
+### Local Database (SQLite via tauri-plugin-sql) -- DONE
+- [x] Add tauri-plugin-sql dependency + permissions (Cargo.toml, default.json, lib.rs)
+- [x] Database initialization (create omnirun.db on first launch)
+- [x] Schema: projects table (id, name, path, last_opened, created_at)
+- [x] Schema: chat_history table (id, project_id, title, messages JSON, pinned, created_at, updated_at)
+- [x] Schema: settings table (key, value -- all settings as key-value pairs)
+- [x] Schema: usage table (id, provider, model, input/output/cache tokens, costs, timestamp)
+- [x] Schema: usage_budget table (singleton row -- monthly_budget, alert_enabled, alert_threshold)
+- [x] Schema: usage_sessions table (id, start_time, total_tokens, total_cost, entry_count)
+- [x] Schema: connections table (provider, token, status, account_info JSON, timestamps, error)
+- [x] Schema: schema_version table (for future migrations)
+- [x] Schema v2: auth_tokens table (singleton row -- access_token, refresh_token, expires_at) -- Feb 20
+- [x] Schema v5: assistant_accounts_cache table (id, user_id, provider, provider_type, email, display_name, account_label, is_active, connected_at, synced_at) -- March 27
+- [x] Schema v6→v7: notifications_cache table (id, user_id, source, title, body, source_meta, is_read, created_at) -- April 2
+- [x] Schema v7→v8: user_memory + memory_observations + memory_settings tables -- April 2
+- [x] Migrate projects from localStorage to SQLite (one-time, auto on first launch)
+- [x] Migrate chat history from localStorage to SQLite
+- [x] Migrate settings from localStorage to SQLite
+- [x] Migrate usage tracking from localStorage to SQLite
+- [x] Migrate connections from localStorage to SQLite
+- [x] Create service layer (dbService.ts) for all DB operations
+- [x] Remove localStorage usage after migration (old keys deleted after successful migration)
+- [ ] Migrate AI provider config (ai-active-provider, ai-providers) from localStorage to SQLite
+- [x] Memory tables: user_memory, memory_observations, memory_settings -- DONE (v7→v8, April 2)
+
+### Cloud Backend (Supabase) -- Auth DONE (Feb 20)
+- [x] Supabase project setup
+- [x] Auth: email/password signup + login
+- [x] Auth: magic link option (UI built, deep-link handling needed for production)
+- [x] Auth: session management (token stored in SQLite, auto-restore on startup)
+- [x] Profiles table (id, email, display_name, plan, subscription_status, is_admin, stripe_customer_id, trial dates, app metadata)
+- [x] Full schema deployed (18 tables, RLS, triggers, helper functions)
+- [x] handle_new_user() trigger auto-creates profile on signup
+- [x] is_admin() helper function for RLS
+- [x] User avatar menu in topbar (initials, plan badge, settings, logout)
+- [x] Auth gate in App.tsx (Onboarding → Auth → MainLayout)
+- [x] Profile sync after login (fetches plan, isAdmin, subscriptionStatus from Supabase)
+- [x] assistant_email_accounts table deployed (user_id, provider, provider_type, email, tokens, scopes, is_active, connected_at) -- March 27
+- [x] assistant_notifications table deployed (id, user_id, source, title, body, source_meta JSONB, is_read, created_at) + RLS + Realtime -- April 2
+- [x] Supabase Storage: avatars bucket (public, per-user RLS policies) -- April 2
+- [ ] Admin flag set for davorbosnjakovic83@gmail.com (run UPDATE SQL)
+- [ ] Feature gating based on plan (project limits, integrations, voice)
+- [ ] Email confirmation with deep links for production (tauri-plugin-deep-link)
+- [ ] License validation on app startup (check plan tier, enforce limits)
+- [ ] Usage analytics sync (desktop SQLite → Supabase usage_events)
+- [ ] Profile section in Settings (edit display name, view subscription)
+- [ ] Offline grace period (works without internet for X days after last validation)
+- [ ] Memory sync to Supabase (optional, encrypted, user opt-in) -- planned
+
+### Payments (Stripe) -- IN PROGRESS (April 6, 2026)
+- [x] Stripe account created (test mode, EUR currency)
+- [x] 5 products + 10 prices created (Starter/Pro/Studio/Team/Business × monthly/annual)
+- [x] Edge Function: stripe-create-checkout (raw fetch to Stripe API, no SDK — SDK crashes in Edge Runtime)
+- [x] Edge Function: stripe-webhook (raw fetch + Web Crypto HMAC-SHA256 signature verification)
+- [x] Edge Function: stripe-create-portal (raw fetch to Stripe API)
+- [x] All 3 deployed with --no-verify-jwt
+- [x] Stripe webhook endpoint configured (6 events: checkout.session.completed, customer.subscription.created/updated/deleted, invoice.payment_succeeded/failed)
+- [x] Secrets set: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
+- [x] BillingSettings.tsx wired to Edge Functions (EUR pricing, real plan from authStore, checkout + portal buttons)
+- [x] Stripe Checkout session creation works (URL returned, opens in browser)
+- [ ] AUTH BUG: getUser() in Edge Functions rejects app's JWT token — temporary hardcoded fallback for testing, must fix
+- [x] Test full webhook flow (checkout → webhook → subscription created → profile updated)
+- [ ] Remove debug lines from BillingSettings.tsx (console.log TOKEN, URL, OPENER)
+- [ ] Remove hardcoded fallback user in stripe-create-checkout
+- [ ] Fix @tauri-apps/plugin-opener export (openUrl vs open — currently using fallback with clipboard copy)
+- [ ] Subscription management (upgrade, downgrade, cancel via Stripe portal)
+- [ ] Trial system testing (7-day trial, card required)
+
+### Admin Dashboard (web-based)
+- [ ] Supabase dashboard or custom admin panel
+- [ ] User management (view all users, search, filter by plan)
+- [ ] Revenue dashboard (MRR, churn, new signups)
+- [ ] Usage analytics (active users, feature usage, popular providers)
+- [ ] License management (activate, deactivate, extend trials)
+- [ ] Support: view user info for troubleshooting (no chat content)
+- [ ] System health: error rates, API status

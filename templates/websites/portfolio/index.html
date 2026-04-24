@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alex Rivera — Designer & Developer</title>
+  <meta name="description" content="Portfolio of Alex Rivera — UI/UX designer and frontend developer crafting beautiful digital experiences.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="#hero" class="nav-logo">alex<span>.dev</span></a>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="#projects">Work</a></li>
+        <li><a href="#about">About</a></li>
+        <li><a href="#contact">Contact</a></li>
+        <li><a href="#contact" class="nav-cta">Let's Talk</a></li>
+      </ul>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero" id="hero">
+    <div class="container">
+      <div class="hero-content">
+        <div class="hero-greeting">Hi, I'm Alex Rivera</div>
+        <h1 class="hero-title">I design & build <span class="hero-highlight">digital experiences</span> that people love</h1>
+        <p class="hero-subtitle">UI/UX designer and frontend developer based in Portland, OR. I help startups and brands create products that are both beautiful and functional.</p>
+        <div class="hero-actions">
+          <a href="#projects" class="btn btn-primary">View My Work</a>
+          <a href="#contact" class="btn btn-ghost">Get in Touch</a>
+        </div>
+        <div class="hero-availability">
+          <span class="availability-dot"></span>
+          Available for freelance projects
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Projects -->
+  <section class="section" id="projects">
+    <div class="container">
+      <div class="section-header fade-in">
+        <span class="section-label">Selected Work</span>
+        <h2 class="section-title">Projects I'm proud of</h2>
+        <p class="section-subtitle">A collection of recent work spanning web design, branding, and product development.</p>
+      </div>
+
+      <!-- Filter Buttons -->
+      <div class="project-filters fade-in">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="web">Web Design</button>
+        <button class="filter-btn" data-filter="brand">Branding</button>
+        <button class="filter-btn" data-filter="app">Apps</button>
+      </div>
+
+      <!-- Project Grid -->
+      <div class="project-grid">
+        <div class="project-card fade-in" data-category="web">
+          <div class="project-image" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+            <div class="project-overlay">
+              <span class="project-tag">Web Design</span>
+              <h3 class="project-title">Meridian Analytics</h3>
+              <p class="project-desc">Dashboard redesign for a data analytics SaaS platform. Improved user engagement by 40%.</p>
+              <a href="#" class="project-link">View Project →</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="project-card fade-in" data-category="brand">
+          <div class="project-image" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+            <div class="project-overlay">
+              <span class="project-tag">Branding</span>
+              <h3 class="project-title">Solstice Coffee</h3>
+              <p class="project-desc">Complete brand identity for a specialty coffee roaster. Logo, packaging, and web presence.</p>
+              <a href="#" class="project-link">View Project →</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="project-card fade-in" data-category="app">
+          <div class="project-image" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+            <div class="project-overlay">
+              <span class="project-tag">App Design</span>
+              <h3 class="project-title">FitTrack Pro</h3>
+              <p class="project-desc">Mobile fitness app with workout tracking, progress charts, and social challenges.</p>
+              <a href="#" class="project-link">View Project →</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="project-card fade-in" data-category="web">
+          <div class="project-image" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+            <div class="project-overlay">
+              <span class="project-tag">Web Design</span>
+              <h3 class="project-title">GreenLeaf Market</h3>
+              <p class="project-desc">E-commerce site for an organic grocery delivery service. Conversion-optimized checkout flow.</p>
+              <a href="#" class="project-link">View Project →</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="project-card fade-in" data-category="brand">
+          <div class="project-image" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+            <div class="project-overlay">
+              <span class="project-tag">Branding</span>
+              <h3 class="project-title">NovaTech Labs</h3>
+              <p class="project-desc">Visual identity and marketing site for an AI startup. Modern, technical, approachable.</p>
+              <a href="#" class="project-link">View Project →</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="project-card fade-in" data-category="app">
+          <div class="project-image" style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);">
+            <div class="project-overlay">
+              <span class="project-tag">App Design</span>
+              <h3 class="project-title">MindSpace</h3>
+              <p class="project-desc">Meditation and mindfulness app with guided sessions, habit tracking, and calming UI.</p>
+              <a href="#" class="project-link">View Project →</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- About -->
+  <section class="section section-alt" id="about">
+    <div class="container">
+      <div class="about-layout">
+        <div class="about-content fade-in">
+          <span class="section-label">About Me</span>
+          <h2 class="section-title" style="text-align: left;">A designer who codes,<br>a developer who designs</h2>
+          <p class="about-text">I've spent the last 8 years at the intersection of design and engineering. I believe the best digital products come from people who understand both sides — the pixel-perfect visual craft and the clean, maintainable code underneath.</p>
+          <p class="about-text">Previously, I've worked with teams at Spotify, Shopify, and several early-stage startups. Today I focus on freelance product design and frontend development, helping companies build interfaces their users actually enjoy.</p>
+          <p class="about-text">When I'm not designing or coding, you'll find me hiking the Pacific Northwest trails, experimenting with film photography, or trying to perfect my pour-over technique.</p>
+        </div>
+        <div class="about-skills fade-in">
+          <h3 class="skills-heading">Skills & Tools</h3>
+          <div class="skill-item">
+            <div class="skill-header">
+              <span class="skill-name">UI/UX Design</span>
+              <span class="skill-percent">95%</span>
+            </div>
+            <div class="skill-bar"><div class="skill-fill" style="--fill-width: 95%;"></div></div>
+          </div>
+          <div class="skill-item">
+            <div class="skill-header">
+              <span class="skill-name">React / Next.js</span>
+              <span class="skill-percent">90%</span>
+            </div>
+            <div class="skill-bar"><div class="skill-fill" style="--fill-width: 90%;"></div></div>
+          </div>
+          <div class="skill-item">
+            <div class="skill-header">
+              <span class="skill-name">HTML / CSS</span>
+              <span class="skill-percent">95%</span>
+            </div>
+            <div class="skill-bar"><div class="skill-fill" style="--fill-width: 95%;"></div></div>
+          </div>
+          <div class="skill-item">
+            <div class="skill-header">
+              <span class="skill-name">Figma / Design Systems</span>
+              <span class="skill-percent">92%</span>
+            </div>
+            <div class="skill-bar"><div class="skill-fill" style="--fill-width: 92%;"></div></div>
+          </div>
+          <div class="skill-item">
+            <div class="skill-header">
+              <span class="skill-name">TypeScript</span>
+              <span class="skill-percent">85%</span>
+            </div>
+            <div class="skill-bar"><div class="skill-fill" style="--fill-width: 85%;"></div></div>
+          </div>
+          <div class="skill-item">
+            <div class="skill-header">
+              <span class="skill-name">Motion / Animation</span>
+              <span class="skill-percent">80%</span>
+            </div>
+            <div class="skill-bar"><div class="skill-fill" style="--fill-width: 80%;"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact -->
+  <section class="section" id="contact">
+    <div class="container">
+      <div class="section-header fade-in">
+        <span class="section-label">Get in Touch</span>
+        <h2 class="section-title">Let's work together</h2>
+        <p class="section-subtitle">Have a project in mind? I'd love to hear about it. Send me a message and I'll get back to you within 24 hours.</p>
+      </div>
+      <div class="contact-layout">
+        <div class="contact-form-wrap card fade-in">
+          <div class="contact-form" id="contactForm">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="name">Name</label>
+                <input type="text" id="name" placeholder="Your name" required>
+              </div>
+              <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" placeholder="you@email.com" required>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="subject">Project Type</label>
+              <select id="subject">
+                <option value="">Select...</option>
+                <option value="web">Web Design</option>
+                <option value="brand">Branding</option>
+                <option value="app">App Design</option>
+                <option value="consulting">Consulting</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="message">Message</label>
+              <textarea id="message" placeholder="Tell me about your project, goals, and timeline..."></textarea>
+            </div>
+            <button class="btn btn-primary" style="width: 100%;" onclick="handleSubmit()">Send Message</button>
+          </div>
+        </div>
+        <div class="contact-details fade-in">
+          <div class="contact-detail-item">
+            <div class="contact-detail-icon">📧</div>
+            <div>
+              <div class="contact-detail-label">Email</div>
+              <div class="contact-detail-value">alex@alexrivera.dev</div>
+            </div>
+          </div>
+          <div class="contact-detail-item">
+            <div class="contact-detail-icon">📍</div>
+            <div>
+              <div class="contact-detail-label">Location</div>
+              <div class="contact-detail-value">Portland, OR</div>
+            </div>
+          </div>
+          <div class="contact-detail-item">
+            <div class="contact-detail-icon">🌐</div>
+            <div>
+              <div class="contact-detail-label">Socials</div>
+              <div class="contact-socials">
+                <a href="#" class="social-link">Twitter</a>
+                <a href="#" class="social-link">GitHub</a>
+                <a href="#" class="social-link">Dribbble</a>
+                <a href="#" class="social-link">LinkedIn</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <span class="footer-copy">&copy; 2025 Alex Rivera. Built with care.</span>
+        <a href="#hero" class="footer-top">Back to top ↑</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>

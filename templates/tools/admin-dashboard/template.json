@@ -1,0 +1,30 @@
+{
+  "name": "Admin Dashboard",
+  "slug": "admin-dashboard",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "react",
+  "description": "Data tables, charts, user management, and analytics overview.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "pro",
+  "category": "business-tools",
+  "tags": ["react", "vite", "admin", "dashboard", "analytics", "users", "charts"],
+  "icon": "📊",
+  "defaultProjectName": "My Admin Dashboard",
+  "files": [
+    "template.json",
+    "index.html",
+    "package.json",
+    "vite.config.js",
+    "src/main.jsx",
+    "src/App.jsx",
+    "src/App.css"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a React + Vite admin dashboard. Single-file App.jsx contains all logic. Features: stat cards (users, revenue, orders, conversion), recent orders table with status badges, user management table with roles and actions, simple bar chart for monthly revenue, sidebar navigation with active states, search bar, notification bell. All data is sample/mock data stored in-component. CSS custom properties in App.css for dark theme. The user will likely ask to: connect to a real API, add authentication/login, add CRUD for users, add date range filters, add export to CSV, add real charts library (recharts/chart.js), add pagination, add dark/light theme toggle, add role-based access, add settings page, etc."
+}

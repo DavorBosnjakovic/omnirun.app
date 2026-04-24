@@ -1,0 +1,348 @@
+# Omnirun App - Current Folder Structure
+# Last Updated: April 6, 2026
+
+## Project Location
+D:\omnirun.app\app\
+
+## Tech Stack
+- Framework: Tauri (Rust backend, web frontend)
+- Frontend: React + TypeScript
+- Bundler: Vite
+- Styling: Tailwind CSS v3
+- State: Zustand
+- Icons: Lucide React
+- Terminal: xterm.js + @xterm/addon-fit
+- Local Database: SQLite via tauri-plugin-sql
+- Cloud Backend: Supabase (auth, profiles, subscriptions, analytics)
+- Auth: @supabase/supabase-js (email/password, magic link, JWT session persistence in SQLite)
+
+## Folder Structure
+
+```
+app/
+|-- src/
+|   |-- components/
+|   |   |-- layout/
+|   |   |   |-- MainLayout.tsx              # Main app layout -- section routing (Home/Projects/Assistant/Tasks), resizable dividers, terminal panel, TimeMachine, Tools page routing, project switching from Tasks, omnirun-navigate-tools window event listener for deep-linking to tools pages
+|   |   |-- home/
+|   |   |   |-- HomePage.tsx                # Home dashboard -- Morning Brief, Projects, Connections (tabbed: Projects/Assistant), Tasks, Usage, Team widgets. Exports AppSection type. Props: onNavigate, onSettingsClick
+|   |   |-- topbar/
+|   |   |   |-- Topbar.tsx                  # Custom window chrome (no native title bar), omnirun ellipse logo, project name, git status, mode/theme toggles, user avatar (image or initials, notification badge dot, notification dropdown with up to 3 items), window controls (min/max/close + drag region), DeployModal global render
+|   |   |   |-- ToolsDropdown.tsx           # Tools dropdown menu (Scheduled Tasks, Time Machine, Deploy, Health Checks, Routines), notification badge
+|   |   |-- auth/
+|   |   |   |-- LoginPage.tsx               # Login form (email/password + magic link + signup link), textured bg, glassmorphism card, brand green buttons
+|   |   |   |-- SignupPage.tsx              # Signup form (email + password + display name), email confirmation flow, textured bg, glassmorphism card
+|   |   |-- onboarding/
+|   |   |   |-- OnboardingWrapper.tsx       # Step controller, progress bar, slide transitions, textured bg, window controls, skip support
+|   |   |   |-- WelcomeStep.tsx             # Logo, tagline, 4 feature cards, Get Started + Skip buttons
+|   |   |   |-- TechLevelStep.tsx           # Simple/Technical mode selection
+|   |   |   |-- ApiKeyStep.tsx              # Informational -- explains API keys, links to provider consoles
+|   |   |   |-- ConnectionsStep.tsx         # Informational -- 6-category grid, points to Settings > Project Connections
+|   |   |   |-- SampleProjectStep.tsx       # Open existing vs create new project choice
+|   |   |   |-- CompletionStep.tsx          # Quick tips, "Start Building" button
+|   |   |-- sidebar/
+|   |   |   |-- Sidebar.tsx                 # Collapsible sidebar -- top-level section nav (Home/Projects/Assistant/Tasks) + project sub-tabs (Projects/Files/Chats) + red badge on Tasks when failed
+|   |   |   |-- FileTree.tsx                # Recursive file tree with three-dot menu (delete, history, open in explorer)
+|   |   |   |-- ChatHistory.tsx             # Chat history list per project (search, rename, pin, export)
+|   |   |-- chat/
+|   |   |   |-- ChatArea.tsx                # Project chat -- streaming, tools, stop, edit, timestamps, images, usage, diff approval, memory extraction hook
+|   |   |   |-- MarkdownRenderer.tsx        # Markdown + syntax highlighting for AI messages (react-markdown, highlight.js)
+|   |   |   |-- UsageIndicator.tsx          # Tabbed token/cost dropdown (Session|Month|All Time, input/output split)
+|   |   |-- diff/
+|   |   |   |-- DiffViewer.tsx              # Inline diff approval UI -- shows file changes with Approve/Reject buttons
+|   |   |-- preview/
+|   |   |   |-- PreviewArea.tsx             # Universal preview: static server, framework dev server, file/image viewer, edit mode, AI building overlay, build error polling, deploy button (Rocket icon, gear for target change), deploy target picker integration
+|   |   |-- deploy/
+|   |   |   |-- DeployModal.tsx              # Deploy progress modal -- 4-step tracker (Reading files → Uploading → Building → Live), file upload counter, success URL + Copy + Open site (Tauri openUrl), "View on Vercel/Netlify/CF" + "View in OmniRun" links, failure state. Global render in Topbar.
+|   |   |   |-- DeployPage.tsx               # Deploy dashboard (Tools > Deploy) -- deploy target card, green Deploy button, deployment history, domain list, all links via Tauri openUrl
+|   |   |   |-- DeployTargetPicker.tsx       # Target chooser modal -- provider selection (if 2+), existing project list with domains, "Create new" form (name + optional domain), CF account ID input. Saves to deployTargetStore.
+|   |   |-- terminal/
+|   |   |   |-- TerminalPanel.tsx           # xterm.js terminal with command execution via Rust backend
+|   |   |   |-- terminalThemes.ts           # Maps 7 app themes to xterm ITheme objects
+|   |   |-- timemachine/
+|   |   |   |-- TimeMachine.tsx             # Time Machine right-side panel (timeline, restore, filter by file)
+|   |   |-- newproject/
+|   |   |   |-- NewProjectModal.tsx         # New project modal -- blank project vs from template, folder picker
+|   |   |   |-- TemplateGallery.tsx         # Template browser -- categories, search, tier badges, install progress, fetches from Supabase
+|   |   |-- tasks/
+|   |   |   |-- TasksPage.tsx               # Tasks overview -- grouped by project, project selector, chat-based creation
+|   |   |   |-- TaskCard.tsx                # Individual task card -- steps, run now, pause, delete
+|   |   |   |-- TaskEmptyState.tsx          # Empty state with suggestion chips + custom input + project selector
+|   |   |   |-- ProjectSelector.tsx         # Searchable project dropdown for task creation, compact pill mode
+|   |   |-- assistant/
+|   |   |   |-- AssistantSection.tsx        # Assistant layout -- collapsible accounts panel (220px left, collapses to 40px) + chat area or About Me tab (Brain icon toggles). Screen control state management, overlay rendering, mode toggle.
+|   |   |   |-- AccountsPanel.tsx           # Left panel -- email accounts list, connect buttons, plan gating, inline label editor, confirm-before-delete
+|   |   |   |-- AssistantChatArea.tsx       # Assistant chat -- personal assistant system prompt, account-aware, memory block injected, onboarding empty state, suggestion prompts, Omnirun logo on messages. Screen control loop (runScreenControlLoop), direct API call (sendScreenControlMessage), Screen toggle button in header, single-bubble progress log.
+|   |   |   |-- ConnectAccountModal.tsx     # OAuth flow modal -- 4 steps: pick → connecting → success → error. Gmail + Outlook.
+|   |   |   |-- AboutMePanel.tsx            # About Me tab -- card view (parsed context sections) + raw edit mode, saves to user_memory via memoryService
+|   |   |   |-- ScreenControlOverlay.tsx   # Floating overlay bar during screen control -- green pulse dot, status icon (capturing/analyzing/acting/waiting), step count, current action, red Stop button. z-9999 fixed top-center.
+|   |   |-- settings/
+|   |       |-- SettingsLayout.tsx          # Settings container with sidebar nav (General, API Key, Usage, Project Connections, Voice, Memory, Screen Control, Team, Billing, About)
+|   |       |-- GeneralSettings.tsx         # Theme, mode, time format, startup, language + avatar upload with circular crop modal
+|   |       |-- ApiKeySettings.tsx          # Multi-provider API keys, auto-detect models, real connection test, team shared key banner (member: read-only, owner: sync notice)
+|   |       |-- UsageSettings.tsx           # Token tracking dashboard, costs, budget, alerts
+|   |       |-- ConnectionsSettings.tsx     # Project Connections UI (8 providers, token input, status, account info)
+|   |       |-- VoiceSettings.tsx           # Voice input, hotkey, wake word
+|   |       |-- MemorySettings.tsx          # Memory system settings -- 3 learning toggles, sync toggle, observation/context stats, compress now button, clear memory
+|   |       |-- ScreenControlSettings.tsx  # Screen control settings -- enable toggle, model selection (Haiku/Sonnet/Opus/Auto), action delay, screenshot quality, crop toggle, monitor picker, user preferences (display/apps/folders with system folder picker), blocked apps, kill switch hotkey
+|   |       |-- BillingSettings.tsx         # Subscription plans, payment
+|   |       |-- TeamSettings.tsx           # Team management -- owner: name, API key policy toggle (shared/individual) with confirmation dialogs, member list, invitations, activity log. Member: read-only view. No-team: feature overview + upgrade CTA
+|   |       |-- AboutSettings.tsx           # Version, resources, support
+|   |   |-- voice/
+|   |   |   |-- VoiceButton.tsx             # Push-to-talk mic button for chat input areas (hold to record, pointer + keyboard events)
+|   |   |   |-- VoiceIndicator.tsx          # Global mic status in topbar (idle/listening/wake-listening/processing/muted states)
+|   |   |   |-- VoiceTranscriptOverlay.tsx  # Real-time transcript overlay above chat input while recording
+|   |-- stores/
+|   |   |-- settingsStore.ts                # Theme (default: omnirun), mode, timeFormat (Zustand + SQLite)
+|   |   |-- projectStore.ts                 # Projects list, current project, file tree, manifest (Zustand + SQLite)
+|   |   |-- chatStore.ts                    # Project chat messages (with images), loading state (Zustand) -- Projects section only
+|   |   |-- chatHistoryStore.ts             # Chat history save/load/search/rename/pin/export per project (Zustand + SQLite)
+|   |   |-- usageStore.ts                   # Token tracking, input/output split, costs, budget (Zustand + SQLite)
+|   |   |-- connectionsStore.ts             # Project connection state -- global + project-scoped per provider (Zustand + SQLite)
+|   |   |-- diffStore.ts                    # Diff approval state -- pending diff, approve/reject/clear (Zustand)
+|   |   |-- snapshotStore.ts                # Time Machine state -- isOpen, snapshots, filtering, restore (Zustand)
+|   |   |-- taskStore.ts                    # Scheduled tasks -- CRUD via Rust IPC, polling (Zustand)
+|   |   |-- authStore.ts                    # Auth state -- user, profile, plan, isAdmin, login/logout/signup, session restore (Zustand + Supabase)
+|   |   |-- assistantStore.ts               # Assistant section -- connected accounts, chat messages, modal state, plan-gating selectors (Zustand + SQLite + Supabase)
+|   |   |-- voiceStore.ts                   # Voice control state -- mode, settings (localStorage), transcript, mute, sensitive app pause, auto-send callback (Zustand)
+|   |   |-- notificationStore.ts            # Watching agent + team notifications -- Supabase realtime subscription, SQLite cache, mark as read, unread count, source labels (discord/slack/gmail/github/team) (Zustand + SQLite + Supabase)
+|   |   |-- teamStore.ts                   # Team state -- team info, members, invitations, activity log, shared API key encryption/decryption, project locking (lock/unlock/heartbeat/idle timer/force-unlock), Supabase Realtime lock subscription, acceptInvitation RPC (Zustand + Supabase)
+|   |   |-- deployStore.ts                 # Deploy progress state -- stage, message, percent, url, dashboardUrl, error, provider. startDeploy() triggers deployProject and pipes progress. Shared between modal + toolbar + page (Zustand)
+|   |   |-- deployTargetStore.ts           # Per-project deploy target persistence -- provider, remoteProjectId, remoteProjectName, domain, cloudflareAccountId. Methods: get/set/clear target, markDeployed, setDomain (Zustand + localStorage persist)
+|   |-- config/
+|   |   |-- themes.ts                       # 7 themes: omnirun (default), dark, light, sepia, retro, midnight, highContrast -- each with unique font family
+|   |-- services/
+|   |   |-- aiService.ts                    # AI API integration -- tools, streaming, vision, usage, connection context, image stripping, buildScreenControlPrompt export, team project lock gate (auto-lock on first message, block if locked by other)
+|   |   |-- dbService.ts                    # SQLite service layer -- init, CRUD, schema v8 migrations (notifications_cache, user_memory, memory_observations, memory_settings), all table operations (tauri-plugin-sql)
+|   |   |-- supabaseClient.ts               # Supabase client singleton -- exports getSupabase() function (NOT a named 'supabase' export)
+|   |   |-- authService.ts                  # Supabase auth -- signup, signin, magic link, logout, session restore/persist, profile CRUD
+|   |   |-- memoryService.ts                # Memory system -- observation extraction (Haiku), weekly compression, context loading, buildMemoryBlock for system prompt, getCheapestProvider helper
+|   |   |-- fileService.ts                  # Tauri file ops with auto-snapshot before write/delete, file watcher
+|   |   |-- manifestService.ts              # Project manifest generation and management
+|   |   |-- projectDetector.ts              # Detects project type (static/framework/non-web) from root files
+|   |   |-- toolService.ts                  # AI tool definitions, parsing, execution -- file ops, connection tool, scheduled tasks, diff gates, screen control tools (screen_capture, screen_action, screen_info)
+|   |   |-- snapshotService.ts              # Time Machine -- snapshot before changes, restore, index management
+|   |   |-- contextService.ts               # Project context -- lean system prompt, tech detection, .omnirun/context.md
+|   |   |-- templateService.ts              # Template install -- fetch from Supabase, download files, scaffold project, log analytics
+|   |   |-- connectionTool.ts               # Meta-tool for AI to use project connected services (single "connection" tool), deploy rule: never use github.put_file as deploy mechanism
+|   |   |-- deploymentService.ts            # Deploy orchestrator -- deployProject() routes to provider's deploy_folder, emits progress events (starting → reading_files → uploading N/M → building → live), reads saved target from deployTargetStore, passes vercelProjectId/siteId, extracts custom domain URL, marks deployed on success
+|   |   |-- errorCapture.ts                 # Captures console errors for auto-fix feature
+|   |   |-- screenControlService.ts          # Screen control frontend service -- Tauri invoke wrappers (screenshot, click, type, key, scroll, drag), settings (localStorage with migration), action parser (OBSERVATION/ACTION format, handles commas), action executor, blocked app check, browser detection, user context builder, folder management, monitor enumeration
+|   |   |-- voiceService.ts                 # Voice control service -- Web Speech API wrapper (push-to-talk, wake-word, continuous), Porcupine wake word (planned), global mute hotkey (Tauri), audio feedback, sensitive app detection
+|   |   |-- connections/
+|   |       |-- types.ts                    # Provider registry, ConnectionService interface, metadata for 8 providers
+|   |       |-- connectionManager.ts        # Orchestrates connect/disconnect/test/execute flows
+|   |       |-- index.ts                    # Barrel export (retestAllConnections, etc.)
+|   |       |-- github.ts                   # GitHub API (repos, branches, commits, PRs, files -- 11 actions)
+|   |       |-- vercel.ts                   # Vercel API -- 15 actions: list/get/create projects (gitless), upload_file (SHA1 digest), deploy (SHA-referenced), deploy_folder (read → upload with progress → deploy → custom domain lookup), get/list deployments, set/list/delete env vars, list/add/remove/check domains, list teams
+|   |       |-- supabase.ts                 # Supabase Management API (projects, SQL, tables -- 10 actions)
+|   |       |-- cloudflare.ts               # Cloudflare API -- 15 actions: DNS (list/create/update/delete records, list zones), cache (purge), Pages (list/get/create projects, get upload JWT, check missing hashes, upload files batched, create deployment, deploy_folder full orchestration), guessContentType helper
+|   |       |-- stripe.ts                   # Stripe API (products, prices, checkout -- 8 actions)
+|   |       |-- netlify.ts                  # Netlify API -- 12 actions: list/get/create sites, deploy_site (SHA1 manifest), upload_deploy_file (per-file), deploy_folder (read → manifest → upload missing), list deploys, list forms/submissions, set/list env, get DNS zones
+|   |       |-- sendgrid.ts                 # SendGrid API (email sending, templates -- 4 actions)
+|   |       |-- namecheap.ts                # Namecheap XML API (domains, DNS records -- 5 actions)
+|   |-- App.tsx                             # Root component -- inits SQLite, loads stores, auth gate (Onboarding → Auth → MainLayout), per-theme font switching
+|   |-- App.css                             # @font-face for 7 fonts + Tailwind imports + per-theme syntax highlighting + terminal scrollbar styles
+|   |-- main.tsx                            # Entry point
+|   |-- vite-env.d.ts
+|   |-- assets/
+|       |-- elipse_transparent_dark.png     # Brand ellipse logo for dark backgrounds
+|       |-- elipse_transparent_dark.svg
+|       |-- elipse_transparent_light.png    # Brand ellipse logo for light backgrounds
+|       |-- elipse_transparent_light.svg
+|       |-- logo_transparent_dark.png       # Full logo (mark + wordmark) for dark backgrounds
+|       |-- logo_transparent_dark.svg
+|       |-- logo_transparent_light.png      # Full logo for light backgrounds
+|       |-- logo_transparent_light.svg
+|       |-- text_transparent_dark.png       # Text-only wordmark for dark backgrounds
+|       |-- text_transparent_dark.svg
+|       |-- text_transparent_light.png      # Text-only wordmark for light backgrounds
+|       |-- text_transparent_light.svg
+|       |-- logo_main_tl.svg                # Full logo textureless (for use on textured backgrounds)
+|       |-- logo_main_tl.png
+|       |-- elipse_main_tl.svg              # Ellipse only, textureless
+|       |-- elipse_main_tl.png
+|       |-- text_main_tl.svg                # Wordmark only, textureless
+|       |-- text_main_tl.png
+|       |-- texture.jpg                     # Wavy grain texture, 5% opacity over #2F3238 on login/signup/onboarding
+|       |-- fonts/
+|           |-- Sora-VariableFont_wght.woff2
+|           |-- Inter-VariableFont_opsz,wght.woff2
+|           |-- PlusJakartaSans-VariableFont_wght.woff2
+|           |-- Lora-VariableFont_wght.woff2
+|           |-- JetBrainsMono-VariableFont_wght.woff2
+|           |-- SpaceGrotesk-VariableFont_wght.woff2
+|           |-- AtkinsonHyperlegible-Regular.woff2
+|-- src-tauri/
+|   |-- src/
+|   |   |-- main.rs                         # Entry point (calls app_lib::run)
+|   |   |-- lib.rs                          # All Tauri commands -- file ops, security validation, terminal, dev server, preview server, screen control (12 commands), voice mute hotkey (2 commands), deploy (1 command). Modules: server, scheduler, task_runner, oauth, screen_control, voice_engine, deploy
+|   |   |-- server.rs                       # Static file preview server (axum, graceful shutdown)
+|   |   |-- scheduler.rs                    # Tokio-based cron scheduler -- task storage, cron eval, IPC commands
+|   |   |-- task_runner.rs                  # Step-based task executor -- run_command, backup, git ops, webhooks
+|   |   |-- deploy.rs                       # Deploy file reader -- read_project_for_deploy command, walks project with ignore crate (.gitignore/.vercelignore/.netlifyignore), framework detection, output dir detection (server frameworks → source, static → built output), SHA1 + base64 per file, smart exclusions (node_modules, .git, cache, .env, etc), 100MB/file + 250MB total limits
+|   |   |-- screen_control.rs               # Desktop app control -- screenshot capture (screenshots crate), input simulation (enigo), active window detection (Windows/Mac/Linux), monitor enumeration, coordinate-based actions. Commands: take_screenshot, screen_click, screen_double_click, screen_right_click, screen_mouse_move, screen_drag, screen_scroll, screen_type, screen_key, get_active_window, get_screen_size, list_monitors
+|   |-- capabilities/
+|   |   |-- default.json                    # Permissions (core, opener, dialog, fs+watch, http, sql:default, window controls)
+|   |-- Cargo.toml                          # Rust deps (tauri, dialog, fs, http, sql plugins, axum, tower-http, chrono, cron, enigo, screenshots, image, base64, windows-sys, sha1, ignore)
+|   |-- tauri.conf.json                     # App config (productName: omnirun, identifier: app.omnirun, decorations: false, withGlobalTauri: true), CSP, asset protocol
+|-- index.html
+|-- package.json
+|-- tailwind.config.js
+|-- postcss.config.js
+|-- tsconfig.json
+|-- tsconfig.node.json
+|-- vite.config.ts
+|-- .env                                    # VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_GMAIL_CLIENT_ID, VITE_GMAIL_CLIENT_SECRET, VITE_OUTLOOK_CLIENT_ID, VITE_OUTLOOK_CLIENT_SECRET
+```
+
+## SQLite Database (omnirun.db) -- Schema v8
+
+| Table | Purpose |
+|-------|---------|
+| schema_version | Tracks migration version |
+| projects | Saved projects (id, name, path, last_opened) |
+| chat_history | Per-project chat conversations (messages JSON) |
+| settings | Key-value store for all app settings |
+| usage | Per-API-call token + cost tracking |
+| usage_budget | Monthly budget settings (singleton) |
+| usage_sessions | Session-level usage summaries |
+| connections | Global project connections (provider, token, status) |
+| project_connections | Per-project connections (project_id + provider) |
+| auth_tokens | Supabase JWT session persistence (singleton) |
+| assistant_accounts_cache | Local cache of Supabase assistant_email_accounts |
+| notifications_cache | Local cache of unread notifications from watching agents (v7) |
+| user_memory | User context file content -- singleton row (v8) |
+| memory_observations | Raw observation log from conversation extraction (v8) |
+| memory_settings | Memory toggle preferences -- singleton row (v8) |
+
+## Supabase Tables (22 total) + Storage
+
+| Table | Purpose |
+|-------|---------|
+| profiles | One per user -- plan, subscription, stripe_customer_id, avatar_url, metadata |
+| subscriptions | Stripe subscription state |
+| stripe_webhook_events | Idempotency tracking for webhooks |
+| teams | Team entity (name, owner_id, api_key_policy, encrypted_api_keys, shared_keys_updated_at) |
+| team_members | User ↔ team join table (role: owner/member) |
+| team_invitations | Pending/accepted/expired invitations |
+| project_locks | One-person-per-project locking with heartbeat |
+| team_activity_log | Chronological team actions (30 day retention) |
+| usage_events | Granular per-API-call analytics (forever) |
+| feature_events | Feature usage tracking (forever) |
+| app_sessions | DAU/MAU/retention session data (forever) |
+| devices | Desktop machines registered by users |
+| remote_commands | Mobile → desktop commands (7 day retention) |
+| pairing_tokens | Mobile ↔ desktop pairing (10 min expiry) |
+| synced_projects | Project metadata synced to mobile |
+| synced_tasks | Scheduled task status synced to mobile |
+| admin_audit_log | Admin action log (forever) |
+| user_projects | Project registration for plan limit enforcement |
+| templates | Template metadata (tier-gated) |
+| template_downloads | Template download analytics |
+| assistant_email_accounts | Personal email/calendar OAuth connections for Assistant section (Gmail, Outlook) |
+| assistant_notifications | Watching agent notifications (source, title, body, source_meta JSONB, is_read) + RLS + Realtime |
+
+### Supabase Storage Buckets
+
+| Bucket | Public | Purpose |
+|--------|--------|---------|
+| avatars | Yes | User profile photos -- path: {user_id}/avatar.png, per-user RLS |
+
+### Supabase Edge Functions
+
+| Function | Trigger | Purpose |
+|----------|---------|---------|
+| send-invitation-email | Database webhook on team_invitations INSERT + direct invoke from teamStore | Sends branded invitation email via Resend API (team name, inviter name, accept link, download link, 7-day expiry). Deployed --no-verify-jwt. Secrets: RESEND_API_KEY |
+| stripe-create-checkout | App invokes from BillingSettings | Creates Stripe Checkout session for subscription signup. Raw fetch to Stripe API (no SDK). Deployed --no-verify-jwt. Secrets: STRIPE_SECRET_KEY |
+| stripe-webhook | Stripe webhook events | Handles checkout.session.completed, subscription created/updated/deleted, invoice succeeded/failed. Raw fetch + Web Crypto HMAC-SHA256 sig verification. Deployed --no-verify-jwt. Secrets: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET |
+| stripe-create-portal | App invokes from BillingSettings | Creates Stripe Customer Portal session for managing subscriptions. Raw fetch to Stripe API. Deployed --no-verify-jwt. Secrets: STRIPE_SECRET_KEY |
+
+### Supabase Database Triggers
+
+| Trigger | Table | Event | Function | Purpose |
+|---------|-------|-------|----------|---------|
+| on_project_unlock | project_locks | AFTER DELETE | notify_project_available() | Inserts "X is now available" notification for all team members except the lock holder |
+| on_invitation_created | team_invitations | AFTER INSERT | notify_invitation_created() | Inserts "You've been invited to join X" notification if invitee already has an account |
+
+### Supabase RPC Functions
+
+| Function | Auth | Purpose |
+|----------|------|---------|
+| accept_invitation(p_token) | SECURITY DEFINER | Validates token, checks email match + not expired + not already on team, inserts team_member, marks invitation accepted, logs member_joined activity, notifies owner |
+
+### Supabase pg_cron Jobs
+
+| Job | Schedule | Function | Purpose |
+|-----|----------|----------|---------|
+| cleanup-stale-locks | Every minute | cleanup_stale_locks() | Deletes project_locks where last_heartbeat > 5 min ago (crash recovery) |
+
+### Supabase Migrations
+
+| Migration | Date | Contents |
+|-----------|------|----------|
+| 001 | Feb 2026 | Full schema (18 tables, RLS, triggers, helper functions) |
+| 002 | Mar 2026 | Waitlist table |
+| 003 | Mar 2026 | assistant_notifications table + RLS + Realtime |
+| 004 | Apr 2026 | Avatars storage bucket + RLS |
+| 005 | Apr 5, 2026 | encrypted_api_keys + shared_keys_updated_at on teams |
+| 006a | Apr 5, 2026 | studio/team added to plan_tier enum |
+| 006b | Apr 5, 2026 | Admin pricing view fix |
+| 007 | Apr 5, 2026 | Team notifications triggers (notify_project_available, notify_invitation_created), accept_invitation RPC, service-role INSERT policy on notifications, pg_cron cleanup-stale-locks |
+| 007b | Apr 6, 2026 | RLS fixes: invitees see own invitations (auth.email()), invitees read invited team, invitees decline own invitations. handle_new_user trigger recreated. |
+
+## Themes
+
+| Theme | Background | Accent | Font |
+|-------|------------|--------|------|
+| omnirun (default) | #2F3238 | #2DB87A | Sora |
+| dark | gray-900 | blue-600 | Inter |
+| light | gray-50 | blue-500 | Plus Jakarta Sans |
+| sepia | stone-900 | orange-700 | Lora |
+| retro | black | green-400 | JetBrains Mono |
+| midnight | slate-950 | indigo-600 | Space Grotesk |
+| highContrast | black | white | Atkinson Hyperlegible |
+
+## Environment Variables (.env)
+
+```
+VITE_SUPABASE_URL=https://yqsiiuwgbmanmsxsjwvi.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJ...
+VITE_GMAIL_CLIENT_ID=            # Google Cloud OAuth client ID
+VITE_GMAIL_CLIENT_SECRET=        # Google Cloud OAuth client secret
+VITE_OUTLOOK_CLIENT_ID=          # Microsoft Azure app client ID
+VITE_OUTLOOK_CLIENT_SECRET=      # Microsoft Azure app client secret
+```
+
+## Website (Marketing Site) -- Planned
+
+```
+omnirun-website/
+|-- public/
+|-- src/
+|   |-- app/                     # Next.js App Router
+|   |   |-- page.tsx             # Homepage
+|   |   |-- pricing/
+|   |   |-- features/
+|   |   |-- docs/
+|   |   |-- login/
+|   |   |-- signup/
+|   |   |-- dashboard/           # Post-login user dashboard
+|   |   |-- api/                 # Next.js API routes (Stripe webhooks, auth callbacks, invite handler)
+|   |-- components/
+|   |-- lib/
+|   |-- styles/
+```
+
+Tech stack: Next.js 14 (App Router), Tailwind CSS, Stripe, Supabase, Vercel.
+
+## Distribution
+
+```
+Direct download (no app stores)
+macOS:   omnirun-x.x.x.dmg
+Windows: omnirun-x.x.x.exe
+Linux:   omnirun-x.x.x.AppImage
+
+Auto-update server: releases.omnirun.app/
+```

@@ -1,0 +1,27 @@
+{
+  "name": "Portfolio",
+  "slug": "portfolio",
+  "version": "1.0.0",
+  "type": "scaffold",
+  "framework": "static",
+  "description": "Showcase your work beautifully with a project grid, about section, and contact form.",
+  "author": {
+    "name": "Omnirun",
+    "verified": true
+  },
+  "tier": "basic",
+  "category": "websites",
+  "tags": ["html", "css", "portfolio", "showcase", "responsive", "single-page"],
+  "icon": "🤩",
+  "defaultProjectName": "My Portfolio",
+  "files": [
+    "template.json",
+    "index.html",
+    "style.css",
+    "script.js"
+  ],
+  "variables": [],
+  "tools_used": [],
+  "connections_required": [],
+  "ai_context": "This is a single-page static portfolio website (HTML/CSS/JS, no build tools). Sections: hero (name, title, intro), projects grid (6 sample projects with CSS gradient placeholders — user should replace with real screenshots by adding <img> tags), about (bio + skills with animated progress bars), and contact form (saves to localStorage). CSS custom properties in :root for easy rebranding. Project cards have hover overlay effects with title and description. Filter buttons let visitors sort projects by category. The user will likely ask to: replace gradient placeholders with real images, change name/bio/titles, add or remove projects, change color scheme, add a blog, add animations, connect a real contact backend, add a resume download, add social links, etc."
+}
